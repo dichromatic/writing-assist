@@ -4,6 +4,7 @@ use tracing_subscriber::EnvFilter;
 
 #[tauri::command]
 fn healthcheck() -> &'static str {
+    // Keep one minimal command available so frontend/runtime wiring can be verified before real features exist.
     writing_assist_orchestrator::phase_zero_status()
 }
 

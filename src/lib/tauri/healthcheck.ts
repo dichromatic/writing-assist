@@ -11,6 +11,7 @@ export type HealthcheckStatus = {
 };
 
 export function isTauriRuntime(): boolean {
+  // The browser-only dev flow is still valid in Phase 0/1, so the UI must detect and tolerate it.
   return typeof window !== 'undefined' && typeof window.__TAURI_INTERNALS__ !== 'undefined';
 }
 
@@ -24,6 +25,7 @@ export async function runHealthcheck(): Promise<HealthcheckStatus> {
   }
 
   try {
+    // Dynamic import keeps plain browser builds working even when the desktop shell is not present.
     const { invoke } = await import('@tauri-apps/api/core');
     const response = await invoke<string>('healthcheck');
 

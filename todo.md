@@ -31,7 +31,7 @@ Artifacts:
 
 Documentation:
 
-- `documentation/phase-0.md`
+- `documentation/phase-0-workspace-setup.md`
 
 ## Phase 1
 
@@ -211,7 +211,7 @@ Done when:
 - file discovery uses those mappings
 - Markdown parsing produces the first span model
 - imported documents can be opened in the editor
-- Phase 1 documentation exists in `documentation/phase-1-*.md`
+- Phase 1 documentation exists in numbered subphase files such as `documentation/phase-1.1-*.md`
 
 ## Phase 2
 
