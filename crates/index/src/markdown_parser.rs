@@ -1,11 +1,17 @@
 use writing_assist_core::{
-    ParsedMarkdownDocument, ParsedScene, ParsedSection, ParsedSpan, SpanType,
+    ParagraphParsingMode, ParsedMarkdownDocument, ParsedScene, ParsedSection, ParsedSpan,
+    SectionBoundaryKind, SpanType,
 };
 
 struct SourceLine<'a> {
     text: &'a str,
     start_byte: usize,
     start_char: usize,
+}
+
+fn normalize_whitespace(text: &str) -> String {
+    // Phase 1.6 keeps Markdown text exact while exposing a normalized sidecar for retrieval and comparison.
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 pub fn supported_span_types() -> [SpanType; 5] {
@@ -118,8 +124,12 @@ fn should_split_paragraph_without_blank_lines(
     paragraph_lines: &[String],
     next_line: &str,
     section_has_explicit_blank_lines: bool,
+    paragraph_mode: ParagraphParsingMode,
 ) -> bool {
-    if section_has_explicit_blank_lines || paragraph_lines.is_empty() {
+    if paragraph_mode == ParagraphParsingMode::StrictBlankLines
+        || section_has_explicit_blank_lines
+        || paragraph_lines.is_empty()
+    {
         return false;
     }
 
@@ -148,6 +158,7 @@ fn push_paragraph_span(
     }
 
     let text = paragraph_lines.join("\n");
+    let normalized_text = normalize_whitespace(&text);
     paragraph_lines.clear();
     let end_line = current_line_index.saturating_sub(1);
     let source_start = &source_lines[start_line];
@@ -157,6 +168,7 @@ fn push_paragraph_span(
         ordinal: spans.len(),
         span_type: SpanType::Paragraph,
         text,
+        normalized_text,
         start_line,
         end_line,
         start_byte: source_start.start_byte,
@@ -173,6 +185,8 @@ fn push_section(
     source_lines: &[SourceLine<'_>],
     section_lines: &mut Vec<String>,
     section_start_line: &mut Option<usize>,
+    section_boundary_kind: &mut SectionBoundaryKind,
+    section_boundary_text: &mut Option<String>,
     current_line_index: usize,
 ) {
     let Some(start_line) = section_start_line.take() else {
@@ -197,9 +211,14 @@ fn push_section(
     let source_start = &source_lines[start_line];
     let source_end = &source_lines[end_line];
 
+    let text = section_lines.join("\n");
+
     sections.push(ParsedSection {
         ordinal: sections.len(),
-        text: section_lines.join("\n"),
+        text: text.clone(),
+        normalized_text: normalize_whitespace(&text),
+        boundary_kind: section_boundary_kind.clone(),
+        boundary_text: section_boundary_text.take(),
         start_line,
         end_line,
         start_byte: source_start.start_byte,
@@ -209,6 +228,7 @@ fn push_section(
     });
 
     section_lines.clear();
+    *section_boundary_kind = SectionBoundaryKind::FileStart;
 }
 
 fn push_scene(
@@ -252,9 +272,12 @@ fn push_scene(
     let source_start = &source_lines[start_line];
     let source_end = &source_lines[end_line];
 
+    let text = scene_lines.join("\n");
+
     scenes.push(ParsedScene {
         ordinal: scenes.len(),
-        text: scene_lines.join("\n"),
+        text: text.clone(),
+        normalized_text: normalize_whitespace(&text),
         separator: scene_separator.take(),
         start_line,
         end_line,
@@ -269,7 +292,10 @@ fn push_scene(
     scene_lines.clear();
 }
 
-pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
+pub fn parse_markdown_document_with_options(
+    markdown: &str,
+    paragraph_mode: ParagraphParsingMode,
+) -> ParsedMarkdownDocument {
     let source_lines = collect_source_lines(markdown);
 
     if source_lines.is_empty() {
@@ -288,6 +314,8 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
     let mut section_lines = Vec::new();
     let mut section_start_line = None;
     let mut section_has_explicit_blank_lines = false;
+    let mut section_boundary_kind = SectionBoundaryKind::FileStart;
+    let mut section_boundary_text = None;
     let mut scene_lines = Vec::new();
     let mut scene_start_line = None;
     let mut scene_separator = None;
@@ -314,6 +342,8 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
                 &source_lines,
                 &mut section_lines,
                 &mut section_start_line,
+                &mut section_boundary_kind,
+                &mut section_boundary_text,
                 line_index,
             );
 
@@ -321,6 +351,7 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
                 ordinal: spans.len(),
                 span_type: SpanType::Heading,
                 text: line.to_string(),
+                normalized_text: normalize_whitespace(line),
                 start_line: line_index,
                 end_line: line_index,
                 start_byte: source_line.start_byte,
@@ -335,6 +366,8 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
             scene_end_span_ordinal = spans.last().map(|span| span.ordinal);
 
             section_start_line = Some(line_index);
+            section_boundary_kind = SectionBoundaryKind::Heading;
+            section_boundary_text = Some(line.to_string());
             section_has_explicit_blank_lines = false;
             section_lines.push(line.to_string());
 
@@ -363,6 +396,8 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
                 &source_lines,
                 &mut section_lines,
                 &mut section_start_line,
+                &mut section_boundary_kind,
+                &mut section_boundary_text,
                 line_index,
             );
             push_scene(
@@ -380,6 +415,7 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
                 ordinal: spans.len(),
                 span_type: SpanType::Scene,
                 text: line.trim().to_string(),
+                normalized_text: normalize_whitespace(line),
                 start_line: line_index,
                 end_line: line_index,
                 start_byte: source_line.start_byte,
@@ -389,6 +425,8 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
             });
 
             // Treat thematic separators as scene boundaries without folding the separator line into either section body.
+            section_boundary_kind = SectionBoundaryKind::SceneBreak;
+            section_boundary_text = Some(line.trim().to_string());
             section_has_explicit_blank_lines = false;
             scene_separator = Some(line.trim().to_string());
             continue;
@@ -432,6 +470,7 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
             &paragraph_lines,
             line,
             section_has_explicit_blank_lines,
+            paragraph_mode,
         ) {
             if let Some(paragraph_span_ordinal) = push_paragraph_span(
                 &mut spans,
@@ -475,6 +514,8 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
         &source_lines,
         &mut section_lines,
         &mut section_start_line,
+        &mut section_boundary_kind,
+        &mut section_boundary_text,
         source_lines.len(),
     );
     push_scene(
@@ -493,4 +534,8 @@ pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
         sections,
         scenes,
     }
+}
+
+pub fn parse_markdown_document(markdown: &str) -> ParsedMarkdownDocument {
+    parse_markdown_document_with_options(markdown, ParagraphParsingMode::ConservativeHeuristic)
 }

@@ -5,7 +5,10 @@ mod projects;
 
 pub use conversation::ConversationMode;
 pub use documents::{DocumentRecord, DocumentType, OpenedProject, ProjectDocumentEntry, SpanRecord};
-pub use parsing::{ParsedMarkdownDocument, ParsedScene, ParsedSection, ParsedSpan, SpanType};
+pub use parsing::{
+    ParagraphParsingMode, ParsedMarkdownDocument, ParsedScene, ParsedSection, ParsedSpan,
+    SectionBoundaryKind, SpanType,
+};
 pub use projects::{
     validate_project_directory_mappings, ProjectConfig, ProjectConfigValidationError,
     ProjectDirectoryMapping, ProjectDirectoryRole, ProjectImportCandidate,

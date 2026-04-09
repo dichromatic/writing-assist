@@ -1,5 +1,5 @@
-use writing_assist_core::SpanType;
-use writing_assist_index::parse_markdown_document;
+use writing_assist_core::{ParagraphParsingMode, SectionBoundaryKind, SpanType};
+use writing_assist_index::{parse_markdown_document, parse_markdown_document_with_options};
 
 #[test]
 fn headings_split_sections_correctly() {
@@ -152,6 +152,47 @@ fn applies_a_conservative_paragraph_heuristic_when_blank_lines_are_missing() {
 }
 
 #[test]
+fn strict_paragraph_mode_disables_the_implicit_paragraph_heuristic() {
+    let parsed = parse_markdown_document_with_options(
+        "First paragraph ends here.\nSecond paragraph starts here.\nThird paragraph starts here too.\n",
+        ParagraphParsingMode::StrictBlankLines,
+    );
+
+    let paragraphs: Vec<_> = parsed
+        .spans
+        .iter()
+        .filter(|span| span.span_type == SpanType::Paragraph)
+        .map(|span| span.text.clone())
+        .collect();
+
+    assert_eq!(
+        paragraphs,
+        vec!["First paragraph ends here.\nSecond paragraph starts here.\nThird paragraph starts here too.".to_string()]
+    );
+}
+
+#[test]
+fn preserves_source_text_and_exposes_whitespace_normalized_sidecars() {
+    let parsed = parse_markdown_document(
+        "First\tparagraph line.\n   Second   line.\n\n---\n\nThird   paragraph.\n",
+    );
+
+    assert_eq!(parsed.spans[0].text, "First\tparagraph line.\n   Second   line.");
+    assert_eq!(
+        parsed.spans[0].normalized_text,
+        "First paragraph line. Second line."
+    );
+
+    assert_eq!(
+        parsed.sections[0].normalized_text,
+        "First paragraph line. Second line."
+    );
+
+    assert_eq!(parsed.scenes[1].text, "Third   paragraph.");
+    assert_eq!(parsed.scenes[1].normalized_text, "Third paragraph.");
+}
+
+#[test]
 fn headings_do_not_split_scenes() {
     let parsed = parse_markdown_document(
         "# Opening\n\nFirst paragraph.\n\n## Next beat\n\nSecond paragraph.\n",
@@ -162,4 +203,22 @@ fn headings_do_not_split_scenes() {
     assert_eq!(parsed.scenes[0].separator, None);
     assert_eq!(parsed.scenes[0].start_span_ordinal, 0);
     assert_eq!(parsed.scenes[0].end_span_ordinal, 3);
+}
+
+#[test]
+fn tracks_what_opened_each_section() {
+    let parsed = parse_markdown_document(
+        "Intro paragraph.\n\n# Heading\n\nBody paragraph.\n\n---\n\nNext scene paragraph.\n",
+    );
+
+    assert_eq!(parsed.sections.len(), 3);
+
+    assert_eq!(parsed.sections[0].boundary_kind, SectionBoundaryKind::FileStart);
+    assert_eq!(parsed.sections[0].boundary_text, None);
+
+    assert_eq!(parsed.sections[1].boundary_kind, SectionBoundaryKind::Heading);
+    assert_eq!(parsed.sections[1].boundary_text, Some("# Heading".to_string()));
+
+    assert_eq!(parsed.sections[2].boundary_kind, SectionBoundaryKind::SceneBreak);
+    assert_eq!(parsed.sections[2].boundary_text, Some("---".to_string()));
 }
