@@ -1,0 +1,10 @@
+[package]
+name = "writing-assist-llm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+serde.workspace = true
+writing-assist-core = { path = "../core" }

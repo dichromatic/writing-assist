@@ -1,0 +1,8 @@
+[package]
+name = "writing-assist-retrieval"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+writing-assist-core = { path = "../core" }

@@ -1,0 +1,17 @@
+node_modules/
+.svelte-kit/
+build/
+.dist/
+dist/
+coverage/
+.DS_Store
+.env
+.env.*
+!.env.example
+src-tauri/target/
+target/
+.db/
+*.db
+*.db-shm
+*.db-wal
+.codex

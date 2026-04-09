@@ -1,0 +1,34 @@
+:root {
+  color-scheme: dark;
+  --bg: #111418;
+  --panel: #171b21;
+  --panel-border: #2a313d;
+  --text: #e7edf5;
+  --muted: #97a3b6;
+  --accent: #8ec5ff;
+  --accent-strong: #4da3ff;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  background: radial-gradient(circle at top, #1a2029, var(--bg) 55%);
+  color: var(--text);
+  font-family: 'Iowan Old Style', 'Palatino Linotype', 'Book Antiqua', serif;
+}
+
+body {
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
