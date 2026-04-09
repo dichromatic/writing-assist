@@ -4,7 +4,7 @@
 
 Build a personal, local-first desktop writing workspace for Markdown projects using `Tauri + SvelteKit + CodeMirror + Rust + SQLite + Rig`. The app combines a primary chat/discussion surface with structured editorial tools, organized into three first-class modes: `Analysis`, `Editing`, and `Ideation`.
 
-The manuscript folder remains canonical, but the app uses an internal draft layer for AI suggestions and human review. All model work is span-bounded, retrieval is hybrid and source-linked, and all machine-derived memory is review-gated before reuse.
+The manuscript folder remains canonical, but the app uses an internal draft layer for AI suggestions and human review. Project import is configuration-driven: the user chooses which directories contain primary manuscript content and which directories provide supporting reference or notes material. All model work is span-bounded, retrieval is hybrid and source-linked, and all machine-derived memory is review-gated before reuse.
 
 ## Implementation Changes
 
@@ -58,7 +58,10 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 ### Core data model and interfaces
 
 - Define stable persisted types:
-  - `ProjectConfig`: root path, folder conventions, provider settings, guide settings
+  - `ProjectConfig`: root path, provider settings, guide settings, directory-role mappings
+  - `ProjectDirectoryRole`: `primary_manuscript`, `reference`, `notes`, `ignore`
+  - `ProjectDirectoryMapping`: relative directory path, assigned role, enabled state
+  - `ProjectImportCandidate`: discovered directory path, suggested role, reason for suggestion
   - `DocumentRecord`: path, type, title, modified time, content hash
   - `SpanRecord`: stable span ID, document ID, span type, ordinal, parent span, source range, text hash
   - `ChatThread`: mode, scope attachment, selected guides, created context policy
@@ -79,9 +82,16 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 
 ### Ingestion, indexing, and memory
 
-- Support convention-based imports in v1:
-  - `chapters/*.md` => narrative documents
-  - `world_context/*.md` => reference documents
+- Use a config-driven import flow in v1:
+  - user selects a project root
+  - app scans candidate directories under that root
+  - UI prompts the user to assign roles to directories before indexing begins
+  - exactly one directory must be assigned as `primary_manuscript`
+  - zero or more additional directories may be assigned as `reference` or `notes`
+- Treat folder-name heuristics as suggestions only:
+  - if `chapters/` exists, suggest `primary_manuscript`
+  - if `world_context/` exists, suggest `reference`
+  - user confirmation overrides all heuristic guesses
 - Parse Markdown into:
   - headings
   - paragraphs
@@ -96,8 +106,11 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - fact graph
   - stale dependency graph
 - Ingestion pipeline:
-  - discover files
-  - classify docs
+  - discover candidate directories
+  - collect user directory-role mapping
+  - persist import configuration
+  - discover files inside configured directories
+  - classify docs from configured directory roles
   - parse spans
   - extract entities
   - extract candidate facts from reference docs
@@ -131,7 +144,10 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - shared types for projects, documents, spans, threads, and draft changes
 - Phase 1: project ingestion and editor
   - open project folder
-  - scan/classify Markdown files
+  - scan candidate directories
+  - prompt the user to assign directory roles
+  - persist project import configuration
+  - discover and classify Markdown files from the configured mapping
   - parse spans
   - render file tree and CodeMirror editor
   - support selection/window targeting
@@ -158,7 +174,11 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 
 ## Test Plan
 
-- Import a sample project with `chapters/` and `world_context/` and verify correct classification and span generation.
+- Import a sample project with arbitrary directory names and verify the app does not assume folder names as truth.
+- Verify the import flow requires one `primary_manuscript` directory before indexing can proceed.
+- Verify heuristic suggestions only prefill the import UI and do not override user choices.
+- Verify configured directory-role mappings persist and are reused on subsequent project opens.
+- Verify file discovery only indexes Markdown files from user-enabled mapped directories.
 - Confirm paragraph/window anchors survive ordinary edits and remain stable enough for comments, chat attachment, and draft application.
 - Verify Analysis mode can discuss a selected paragraph and produce findings/comments without creating draft changes.
 - Verify Editing mode can produce bounded diffs only for the selected span/window and route them into the draft layer.
@@ -182,3 +202,4 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 - Both API keys and experimental subscription-auth bridges are visible as equal setup choices in the UI, but bridge adapters are isolated and documented as unstable.
 - All machine-derived summaries and canon facts require explicit review before reuse.
 - Local models are a future extension, not part of the first implementation wave.
+- Folder names are not treated as durable semantics; directory roles come from project configuration, with heuristics used only to suggest defaults during import.

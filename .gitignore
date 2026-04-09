@@ -15,3 +15,6 @@ target/
 *.db-shm
 *.db-wal
 .codex
+AGENTS.md
+documentation/
+logs/
