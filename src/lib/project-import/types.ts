@@ -38,3 +38,13 @@ export type ProjectConfig = {
   root_path: string;
   directory_mappings: PersistedProjectDirectoryMapping[];
 };
+
+export type ProjectDocumentEntry = {
+  path: string;
+  document_type: 'manuscript' | 'reference' | 'note';
+};
+
+export type OpenedProject = {
+  config: ProjectConfig;
+  documents: ProjectDocumentEntry[];
+};

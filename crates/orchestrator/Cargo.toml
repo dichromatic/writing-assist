@@ -6,4 +6,11 @@ license.workspace = true
 
 [dependencies]
 writing-assist-core = { path = "../core" }
+writing-assist-index = { path = "../index" }
 writing-assist-llm = { path = "../llm" }
+writing-assist-store = { path = "../store" }
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+tokio.workspace = true

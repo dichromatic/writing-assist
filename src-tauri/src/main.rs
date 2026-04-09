@@ -2,7 +2,9 @@
 
 use std::path::Path;
 
-use writing_assist_core::{ProjectConfig, ProjectDirectoryMapping, ProjectImportCandidate};
+use writing_assist_core::{
+    OpenedProject, ProjectConfig, ProjectDirectoryMapping, ProjectImportCandidate,
+};
 use tracing_subscriber::EnvFilter;
 
 #[tauri::command]
@@ -53,6 +55,19 @@ async fn load_project_import_configuration(root: String) -> Result<Option<Projec
         .map_err(|error| format!("Failed to load project configuration: {error}"))
 }
 
+#[tauri::command]
+async fn open_configured_project(root: String) -> Result<OpenedProject, String> {
+    let root_path = Path::new(&root);
+
+    if !root_path.is_dir() {
+        return Err("Selected project root does not exist or is not a directory.".to_string());
+    }
+
+    writing_assist_orchestrator::open_configured_project(root_path)
+        .await
+        .map_err(|error| format!("Failed to open configured project: {error}"))
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -63,7 +78,8 @@ fn main() {
             healthcheck,
             scan_project_import_candidates,
             save_project_import_configuration,
-            load_project_import_configuration
+            load_project_import_configuration,
+            open_configured_project
         ])
         .run(tauri::generate_context!())
         .expect("error while running writing assist desktop application");

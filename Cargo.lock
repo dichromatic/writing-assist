@@ -5758,8 +5758,13 @@ dependencies = [
 name = "writing-assist-orchestrator"
 version = "0.1.0"
 dependencies = [
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
  "writing-assist-core",
+ "writing-assist-index",
  "writing-assist-llm",
+ "writing-assist-store",
 ]
 
 [[package]]

@@ -1,5 +1,6 @@
 import { isTauriRuntime } from '$lib/tauri/healthcheck';
 import type {
+  OpenedProject,
   PersistedProjectDirectoryMapping,
   ProjectConfig,
   ProjectImportCandidate
@@ -40,4 +41,15 @@ export async function loadProjectImportConfiguration(root: string): Promise<Proj
   const { invoke } = await import('@tauri-apps/api/core');
 
   return invoke<ProjectConfig | null>('load_project_import_configuration', { root });
+}
+
+export async function openConfiguredProject(root: string): Promise<OpenedProject> {
+  if (!isTauriRuntime()) {
+    throw new Error('Opening a configured project requires the Tauri desktop runtime.');
+  }
+
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  // Phase 1.5 uses the saved project config as the source of truth for reopening and discovery.
+  return invoke<OpenedProject>('open_configured_project', { root });
 }

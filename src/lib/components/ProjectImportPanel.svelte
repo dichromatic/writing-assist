@@ -2,12 +2,14 @@
   import { applyPersistedMappingsToCandidates, toPersistedMappings } from '$lib/project-import/mappings';
   import { validateImportSelection } from '$lib/project-import/validation';
   import type {
+    OpenedProject,
     ProjectDirectoryMappingDraft,
     ProjectDirectoryRole,
     ProjectImportCandidate
   } from '$lib/project-import/types';
   import {
     loadProjectImportConfiguration,
+    openConfiguredProject,
     saveProjectImportConfiguration,
     scanProjectImportCandidates
   } from '$lib/tauri/projectImport';
@@ -25,8 +27,11 @@
   let scanMessage = 'Enter a project root and scan for candidate directories.';
   let persistenceState: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
   let persistenceMessage = 'Import configuration has not been saved yet.';
+  let projectState: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
+  let projectMessage = 'No configured project is currently open.';
   let candidates: ProjectImportCandidate[] = [];
   let mappings: ProjectDirectoryMappingDraft[] = [];
+  let openedProject: OpenedProject | null = null;
   let selectionState = validateImportSelection(mappings);
 
   function resetMappings(nextCandidates: ProjectImportCandidate[]) {
@@ -68,6 +73,9 @@
       if (!savedConfig) {
         persistenceState = 'ready';
         persistenceMessage = 'No saved import configuration exists for this project root.';
+        openedProject = null;
+        projectState = 'idle';
+        projectMessage = 'No configured project is currently open.';
         return;
       }
 
@@ -95,6 +103,21 @@
     } catch (error) {
       persistenceState = 'error';
       persistenceMessage = error instanceof Error ? error.message : 'Saving import configuration failed.';
+    }
+  }
+
+  async function openProject() {
+    projectState = 'loading';
+    projectMessage = 'Opening configured project...';
+
+    try {
+      openedProject = await openConfiguredProject(root);
+      projectState = 'ready';
+      projectMessage = `Opened configured project with ${openedProject.documents.length} discovered Markdown documents.`;
+    } catch (error) {
+      openedProject = null;
+      projectState = 'error';
+      projectMessage = error instanceof Error ? error.message : 'Opening configured project failed.';
     }
   }
 
@@ -183,14 +206,34 @@
     </div>
 
     <div class="persistence">
-      <button
-        type="button"
-        disabled={!root || !selectionState.isValid || persistenceState === 'loading'}
-        on:click={saveConfiguration}
-      >
-        {persistenceState === 'loading' ? 'Saving...' : 'Save configuration'}
-      </button>
+      <div class="actions">
+        <button
+          type="button"
+          disabled={!root || !selectionState.isValid || persistenceState === 'loading'}
+          on:click={saveConfiguration}
+        >
+          {persistenceState === 'loading' ? 'Saving...' : 'Save configuration'}
+        </button>
+        <button type="button" disabled={!root || projectState === 'loading'} on:click={openProject}>
+          {projectState === 'loading' ? 'Opening...' : 'Open configured project'}
+        </button>
+      </div>
       <p class="message" data-state={persistenceState}>{persistenceMessage}</p>
+    </div>
+
+    <div class="project-open">
+      <p class="message" data-state={projectState}>{projectMessage}</p>
+
+      {#if openedProject}
+        <div class="document-list">
+          {#each openedProject.documents as document}
+            <article class="document">
+              <h3>{document.path}</h3>
+              <p>{document.document_type}</p>
+            </article>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 </section>
@@ -313,6 +356,24 @@
     display: grid;
     gap: 0.75rem;
     align-items: start;
+  }
+
+  .project-open {
+    margin-top: 1rem;
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .document-list {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  .document {
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 14px;
+    background: rgba(255, 255, 255, 0.02);
   }
 
   @media (max-width: 720px) {

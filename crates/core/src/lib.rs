@@ -44,6 +44,19 @@ pub struct ProjectConfig {
     pub directory_mappings: Vec<ProjectDirectoryMapping>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProjectDocumentEntry {
+    // Keep this relative to the project root so the UI can use it directly for file tree rendering later.
+    pub path: String,
+    pub document_type: DocumentType,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct OpenedProject {
+    pub config: ProjectConfig,
+    pub documents: Vec<ProjectDocumentEntry>,
+}
+
 #[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub enum ProjectConfigValidationError {
     #[error("directory mapping paths must not be empty")]
