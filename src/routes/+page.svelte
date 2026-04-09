@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModeCard from '$lib/components/ModeCard.svelte';
+  import RuntimeStatus from '$lib/components/RuntimeStatus.svelte';
 
   const modes = [
     {
@@ -40,6 +41,8 @@
       <ModeCard {...mode} />
     {/each}
   </section>
+
+  <RuntimeStatus />
 </div>
 
 <style>

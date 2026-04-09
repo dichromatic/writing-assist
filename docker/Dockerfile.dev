@@ -12,6 +12,12 @@ RUN apt-get update \
         libsqlite3-dev \
         build-essential \
         python3 \
+        libgtk-3-dev \
+        libwebkit2gtk-4.1-dev \
+        libayatana-appindicator3-dev \
+        librsvg2-dev \
+        libxdo-dev \
+        patchelf \
     && curl -fsSL https://deb.nodesource.com/setup_${NODE_MAJOR}.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && apt-get clean \
