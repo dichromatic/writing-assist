@@ -1,5 +1,6 @@
 <script lang="ts">
   import ModeCard from '$lib/components/ModeCard.svelte';
+  import ProjectImportPanel from '$lib/components/ProjectImportPanel.svelte';
   import RuntimeStatus from '$lib/components/RuntimeStatus.svelte';
 
   const modes = [
@@ -42,6 +43,7 @@
     {/each}
   </section>
 
+  <ProjectImportPanel />
   <RuntimeStatus />
 </div>
 

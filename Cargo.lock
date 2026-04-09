@@ -5663,6 +5663,7 @@ name = "writing-assist-core"
 version = "0.1.0"
 dependencies = [
  "serde",
+ "serde_json",
  "uuid",
 ]
 
@@ -5677,6 +5678,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "writing-assist-core",
+ "writing-assist-index",
  "writing-assist-orchestrator",
 ]
 

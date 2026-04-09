@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ConversationMode {
     Analysis,
     Editing,
@@ -9,6 +10,7 @@ pub enum ConversationMode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum DocumentType {
     Manuscript,
     Reference,
@@ -16,6 +18,7 @@ pub enum DocumentType {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ProjectDirectoryRole {
     // The user's main writing directory. Phase 1 import validation requires exactly one.
     PrimaryManuscript,
@@ -33,6 +36,7 @@ pub struct ProjectDirectoryMapping {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum ProjectImportSuggestionReason {
     ContainsMarkdownFiles,
     DirectoryNamedChapters,
@@ -50,6 +54,7 @@ pub struct ProjectImportCandidate {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
 pub enum SpanType {
     Heading,
     Paragraph,
@@ -72,4 +77,28 @@ pub struct SpanRecord {
     pub document_id: Uuid,
     pub span_type: SpanType,
     pub ordinal: i32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ProjectDirectoryRole, ProjectImportSuggestionReason};
+
+    #[test]
+    fn serializes_directory_roles_as_snake_case() {
+        let serialized =
+            serde_json::to_string(&ProjectDirectoryRole::PrimaryManuscript).expect("serialize");
+
+        // Frontend import state uses snake_case role identifiers, so the backend contract must match.
+        assert_eq!(serialized, "\"primary_manuscript\"");
+    }
+
+    #[test]
+    fn serializes_import_suggestion_reasons_as_snake_case() {
+        let serialized = serde_json::to_string(
+            &ProjectImportSuggestionReason::DirectoryNamedWorldContext,
+        )
+        .expect("serialize");
+
+        assert_eq!(serialized, "\"directory_named_world_context\"");
+    }
 }

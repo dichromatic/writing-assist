@@ -13,6 +13,7 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
 writing-assist-core = { path = "../crates/core" }
+writing-assist-index = { path = "../crates/index" }
 writing-assist-orchestrator = { path = "../crates/orchestrator" }
 tauri = { version = "2.0", features = [] }
 
