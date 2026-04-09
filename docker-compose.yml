@@ -13,11 +13,12 @@ services:
       - cargo-git:/usr/local/cargo/git
       - node-modules:/workspace/node_modules
     ports:
-      - '5173:5173'
-      - '4173:4173'
+      - '${VITE_PORT:-5180}:${VITE_PORT:-5180}'
+      - '${VITE_PREVIEW_PORT:-4180}:${VITE_PREVIEW_PORT:-4180}'
     environment:
       HOST: 0.0.0.0
-      PORT: 5173
+      PORT: ${VITE_PORT:-5180}
+      PREVIEW_PORT: ${VITE_PREVIEW_PORT:-4180}
       RUST_LOG: info
 
 volumes:

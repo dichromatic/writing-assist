@@ -40,6 +40,11 @@ docker-compose run --rm --service-ports workspace bash
 npm run dev
 ```
 
+Default forwarded ports:
+
+- dev server: `5180`
+- preview server: `4180`
+
 ### Run Rust metadata checks from inside the container
 
 ```sh
