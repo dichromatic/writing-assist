@@ -25,3 +25,5 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 uuid = { version = "1.17", features = ["serde", "v4"] }
 sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio-rustls", "uuid"] }
+tokio = { version = "1.48", features = ["macros", "rt-multi-thread"] }
+tempfile = "3.20"

@@ -2,7 +2,7 @@
 
 use std::path::Path;
 
-use writing_assist_core::ProjectImportCandidate;
+use writing_assist_core::{ProjectConfig, ProjectDirectoryMapping, ProjectImportCandidate};
 use tracing_subscriber::EnvFilter;
 
 #[tauri::command]
@@ -24,6 +24,35 @@ fn scan_project_import_candidates(root: String) -> Result<Vec<ProjectImportCandi
         .map_err(|error| format!("Failed to scan project directories: {error}"))
 }
 
+#[tauri::command]
+async fn save_project_import_configuration(
+    root: String,
+    mappings: Vec<ProjectDirectoryMapping>,
+) -> Result<ProjectConfig, String> {
+    let root_path = Path::new(&root);
+
+    if !root_path.is_dir() {
+        return Err("Selected project root does not exist or is not a directory.".to_string());
+    }
+
+    writing_assist_store::save_project_config(root_path, &mappings)
+        .await
+        .map_err(|error| format!("Failed to save project configuration: {error}"))
+}
+
+#[tauri::command]
+async fn load_project_import_configuration(root: String) -> Result<Option<ProjectConfig>, String> {
+    let root_path = Path::new(&root);
+
+    if !root_path.is_dir() {
+        return Err("Selected project root does not exist or is not a directory.".to_string());
+    }
+
+    writing_assist_store::load_project_config(root_path)
+        .await
+        .map_err(|error| format!("Failed to load project configuration: {error}"))
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -32,7 +61,9 @@ fn main() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             healthcheck,
-            scan_project_import_candidates
+            scan_project_import_candidates,
+            save_project_import_configuration,
+            load_project_import_configuration
         ])
         .run(tauri::generate_context!())
         .expect("error while running writing assist desktop application");

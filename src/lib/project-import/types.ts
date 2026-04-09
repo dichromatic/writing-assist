@@ -27,3 +27,14 @@ export type ProjectDirectoryMappingDraft = {
   role: ProjectDirectoryRole | null;
   enabled: boolean;
 };
+
+export type PersistedProjectDirectoryMapping = {
+  path: string;
+  role: ProjectDirectoryRole;
+  enabled: boolean;
+};
+
+export type ProjectConfig = {
+  root_path: string;
+  directory_mappings: PersistedProjectDirectoryMapping[];
+};

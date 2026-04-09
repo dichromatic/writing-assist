@@ -1,11 +1,16 @@
 <script lang="ts">
+  import { applyPersistedMappingsToCandidates, toPersistedMappings } from '$lib/project-import/mappings';
   import { validateImportSelection } from '$lib/project-import/validation';
   import type {
     ProjectDirectoryMappingDraft,
     ProjectDirectoryRole,
     ProjectImportCandidate
   } from '$lib/project-import/types';
-  import { scanProjectImportCandidates } from '$lib/tauri/projectImport';
+  import {
+    loadProjectImportConfiguration,
+    saveProjectImportConfiguration,
+    scanProjectImportCandidates
+  } from '$lib/tauri/projectImport';
 
   const roleOptions: Array<{ value: ProjectDirectoryRole | null; label: string }> = [
     { value: null, label: 'Unassigned' },
@@ -18,6 +23,8 @@
   let root = '';
   let scanState: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
   let scanMessage = 'Enter a project root and scan for candidate directories.';
+  let persistenceState: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
+  let persistenceMessage = 'Import configuration has not been saved yet.';
   let candidates: ProjectImportCandidate[] = [];
   let mappings: ProjectDirectoryMappingDraft[] = [];
   let selectionState = validateImportSelection(mappings);
@@ -51,6 +58,46 @@
     }
   }
 
+  async function loadSavedConfiguration() {
+    persistenceState = 'loading';
+    persistenceMessage = 'Loading saved import configuration...';
+
+    try {
+      const savedConfig = await loadProjectImportConfiguration(root);
+
+      if (!savedConfig) {
+        persistenceState = 'ready';
+        persistenceMessage = 'No saved import configuration exists for this project root.';
+        return;
+      }
+
+      candidates = await scanProjectImportCandidates(root);
+      mappings = applyPersistedMappingsToCandidates(candidates, savedConfig.directory_mappings);
+      scanState = 'ready';
+      scanMessage = 'Saved import configuration loaded.';
+      persistenceState = 'ready';
+      persistenceMessage = `Loaded ${savedConfig.directory_mappings.length} saved directory mappings.`;
+    } catch (error) {
+      persistenceState = 'error';
+      persistenceMessage = error instanceof Error ? error.message : 'Loading saved configuration failed.';
+    }
+  }
+
+  async function saveConfiguration() {
+    persistenceState = 'loading';
+    persistenceMessage = 'Saving import configuration...';
+
+    try {
+      const savedConfig = await saveProjectImportConfiguration(root, toPersistedMappings(mappings));
+
+      persistenceState = 'ready';
+      persistenceMessage = `Saved ${savedConfig.directory_mappings.length} directory mappings for ${savedConfig.root_path}.`;
+    } catch (error) {
+      persistenceState = 'error';
+      persistenceMessage = error instanceof Error ? error.message : 'Saving import configuration failed.';
+    }
+  }
+
   function updateRole(path: string, role: string) {
     mappings = mappings.map((mapping) =>
       mapping.path === path
@@ -80,9 +127,14 @@
       <span>Project root</span>
       <input bind:value={root} placeholder="/path/to/project" />
     </label>
-    <button type="button" disabled={!root || scanState === 'loading'} on:click={scan}>
-      {scanState === 'loading' ? 'Scanning...' : 'Scan directories'}
-    </button>
+    <div class="actions">
+      <button type="button" disabled={!root || scanState === 'loading'} on:click={scan}>
+        {scanState === 'loading' ? 'Scanning...' : 'Scan directories'}
+      </button>
+      <button type="button" disabled={!root || persistenceState === 'loading'} on:click={loadSavedConfiguration}>
+        {persistenceState === 'loading' ? 'Loading...' : 'Load saved config'}
+      </button>
+    </div>
   </div>
 
   <p class="message" data-state={scanState}>{scanMessage}</p>
@@ -126,8 +178,19 @@
     <div class="validation" data-valid={selectionState.isValid}>
       <p>
         {selectionState.message ??
-          'Import configuration is valid. Persistence and project open come in the next slices.'}
+          'Import configuration is valid. Save it now, then use it to drive later discovery and indexing.'}
       </p>
+    </div>
+
+    <div class="persistence">
+      <button
+        type="button"
+        disabled={!root || !selectionState.isValid || persistenceState === 'loading'}
+        on:click={saveConfiguration}
+      >
+        {persistenceState === 'loading' ? 'Saving...' : 'Save configuration'}
+      </button>
+      <p class="message" data-state={persistenceState}>{persistenceMessage}</p>
     </div>
   {/if}
 </section>
@@ -164,6 +227,12 @@
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 0.75rem;
     align-items: end;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
   }
 
   label {
@@ -237,6 +306,13 @@
 
   .validation[data-valid='true'] {
     border-color: rgba(159, 219, 154, 0.4);
+  }
+
+  .persistence {
+    margin-top: 1rem;
+    display: grid;
+    gap: 0.75rem;
+    align-items: start;
   }
 
   @media (max-width: 720px) {
