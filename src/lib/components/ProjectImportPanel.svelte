@@ -1,5 +1,6 @@
 <script lang="ts">
   import DocumentWorkspace from '$lib/components/DocumentWorkspace.svelte';
+  import ModeAwareChatPanel from '$lib/components/ModeAwareChatPanel.svelte';
   import { browserDemoDocument } from '$lib/demo/browserDemoDocument';
   import { applyPersistedMappingsToCandidates, toPersistedMappings } from '$lib/project-import/mappings';
   import type { DocumentSelectionTarget } from '$lib/project-import/selection';
@@ -302,12 +303,7 @@
         <DocumentWorkspace {loadedDocument} on:targetChange={updateSelectionTarget} />
       {/if}
 
-      {#if activeSelectionTarget?.selectedText}
-        <p class="handoff">
-          Current task target: {activeSelectionTarget.documentPath}, spans
-          {activeSelectionTarget.overlappingSpanOrdinals.join(', ')}.
-        </p>
-      {/if}
+      <ModeAwareChatPanel selectionTarget={activeSelectionTarget} />
     </div>
   {/if}
 
@@ -315,12 +311,7 @@
     <div class="project-open">
       <p class="message" data-state={documentLoadState}>{documentLoadMessage}</p>
       <DocumentWorkspace {loadedDocument} on:targetChange={updateSelectionTarget} />
-      {#if activeSelectionTarget?.selectedText}
-        <p class="handoff">
-          Current task target: {activeSelectionTarget.documentPath}, spans
-          {activeSelectionTarget.overlappingSpanOrdinals.join(', ')}.
-        </p>
-      {/if}
+      <ModeAwareChatPanel selectionTarget={activeSelectionTarget} />
     </div>
   {/if}
 </section>
@@ -374,7 +365,6 @@
   .candidate p,
   .reasons,
   .message,
-  .handoff,
   .validation p {
     color: var(--muted);
   }

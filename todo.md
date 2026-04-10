@@ -591,6 +591,10 @@ Documentation:
 
 ### Phase 2.7: Frontend mode-aware chat UI
 
+Status:
+
+- completed
+
 Deliverables:
 
 - chat panel
@@ -619,6 +623,10 @@ Behavior to test:
 Done when:
 
 - user can manually run a deterministic local task from the loaded demo/imported document and inspect the structured output
+
+Documentation:
+
+- `documentation/phase-2.7-frontend-mode-aware-chat-ui.md`
 
 ### Phase 2.8: Phase 2 hardening sweep
 
@@ -814,7 +822,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 2.7 frontend mode-aware chat UI.
-2. Add a chat panel, mode switcher, current target display, and deterministic task output rendering.
-3. Route task execution through `runDeterministicTask` and keep the browser fallback visible.
-4. Keep edit application, provider settings, streaming, and background jobs out of Phase 2.7.
+1. Start Phase 2.8 Phase 2 hardening sweep.
+2. Verify task terminology is consistent across code, UI, and planning docs.
+3. Verify no frontend path bypasses the `SelectionTarget` adapter.
+4. Confirm Phase 2 still has no provider dependency or manuscript mutation path.
