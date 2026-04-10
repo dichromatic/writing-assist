@@ -4,7 +4,7 @@
 
 Build a personal, local-first desktop writing workspace for Markdown projects using `Tauri + SvelteKit + CodeMirror + Rust + SQLite + Rig`. The app combines a primary chat/discussion surface with structured editorial tools, organized into three first-class modes: `Analysis`, `Editing`, and `Ideation`.
 
-The manuscript folder remains canonical, but the app uses an internal draft layer for AI suggestions and human review. Project import is configuration-driven: the user chooses which directories contain primary manuscript content and which directories provide supporting reference or notes material. All model work is span-bounded, retrieval is hybrid and source-linked, and all machine-derived memory is review-gated before reuse.
+The manuscript folder remains canonical, but the app uses an internal draft layer for AI suggestions and human review. Project import is configuration-driven: the user chooses which directories contain primary manuscript content and which directories provide supporting reference, guide, or notes material. All model work is span-bounded, retrieval is hybrid and source-linked, and all machine-derived memory is review-gated before reuse.
 
 ## Implementation Changes
 
@@ -19,6 +19,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - `Editing`: bounded rewrite suggestions that emit draft changes only
   - `Ideation`: constrained brainstorming over current selection/window and approved memory, no direct edits by default
 - Default all chat sessions to `current selection/window` scope, with explicit expansion to nearby text, scene, chapter, and approved project memory.
+- Treat active writing guides, prose guidelines, and critique rubrics as first-class context sources rather than generic reference notes.
 - Preserve structured non-chat actions as shortcuts into the same backend pass system:
   - comment on selection
   - rewrite selection
@@ -59,9 +60,13 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 
 - Define stable persisted types:
   - `ProjectConfig`: root path, provider settings, guide settings, directory-role mappings
-  - `ProjectDirectoryRole`: `primary_manuscript`, `reference`, `notes`, `ignore`
+  - `ProjectDirectoryRole`: `primary_manuscript`, `reference`, `guide`, `notes`, `ignore`
   - `ProjectDirectoryMapping`: relative directory path, assigned role, enabled state
   - `ProjectImportCandidate`: discovered directory path, suggested role, reason for suggestion
+  - `ContextSource`: source document path, source type, optional subtype, activation policy, review state
+  - `ContextSourceType`: `guide`, `reference`, `note`
+  - `GuideKind`: `prose`, `style`, `critique`, `rewrite`, `custom`
+  - `ReferenceKind`: `story_summary`, `world_summary`, `character_bible`, `timeline`, `terminology`, `research`, `custom`
   - `DocumentRecord`: path, type, title, modified time, content hash
   - `SpanRecord`: stable span ID, document ID, span type, ordinal, parent span, source range, text hash
   - `ChatThread`: mode, scope attachment, selected guides, created context policy
@@ -87,11 +92,21 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - app scans candidate directories under that root
   - UI prompts the user to assign roles to directories before indexing begins
   - exactly one directory must be assigned as `primary_manuscript`
-  - zero or more additional directories may be assigned as `reference` or `notes`
+  - zero or more additional directories may be assigned as `reference`, `guide`, or `notes`
 - Treat folder-name heuristics as suggestions only:
   - if `chapters/` exists, suggest `primary_manuscript`
   - if `world_context/` exists, suggest `reference`
+  - if `guidelines/`, `style_guide/`, or `prose_guide/` exists, suggest `guide`
   - user confirmation overrides all heuristic guesses
+- Treat directory roles as broad import buckets, not final semantic truth:
+  - `guide` documents can become active prompt/rubric context
+  - `reference` documents can become story/world/character/timeline/terminology context
+  - `notes` documents remain available but should not enter prompts automatically without explicit selection or retrieval
+- Add a document-level context source classification pass after import:
+  - prose guideline and style guide documents should be first-class `guide` sources
+  - story summary, world summary, character bible, timeline, terminology, and research documents should be first-class `reference` sources
+  - scratch notes and loose ideation should remain `note` sources
+  - ambiguous sources should remain `custom` or unclassified rather than guessed aggressively
 - Parse Markdown into:
   - headings
   - paragraphs
@@ -126,10 +141,14 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 - Assemble context in this order:
   - target span
   - nearby spans
-  - selected guide/rubric
-  - approved summaries
-  - approved facts
+  - pinned/selected guides, such as prose guideline or critique rubric
+  - approved reference summaries
+  - approved reference facts
   - semantic neighbors only if needed
+- Use different context-source policies by mode:
+  - `Analysis`: include selected guide/rubric plus relevant approved references; do not mutate text
+  - `Editing`: include selected prose/style/rewrite guides and only references needed to preserve meaning/canon
+  - `Ideation`: include selected guide plus broader approved references when the user asks for expansion
 - Prefer lexical/entity/fact retrieval over vector retrieval for names, canon, terminology, and continuity checks.
 - Require evidence-first outputs for critique and fact extraction.
 - Run validator passes for rewrite suggestions before they enter the draft layer when feasible.
@@ -151,6 +170,11 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - parse spans
   - render file tree and CodeMirror editor
   - support selection/window targeting
+- Phase 1.9: project context source planning
+  - define the distinction between broad directory roles and document-level context source types
+  - model prose/style/critique/rewrite guides as first-class selected context inputs
+  - model story/world/character/timeline/terminology bibles as first-class approved reference inputs
+  - define how each context source type is allowed into Analysis, Editing, and Ideation requests
 - Phase 2: mode-aware chat and pass orchestration
   - add Analysis/Editing/Ideation chat modes
   - implement `PassRequest`, `PassResult`, and `ContextBundle`
@@ -179,6 +203,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 - Verify heuristic suggestions only prefill the import UI and do not override user choices.
 - Verify configured directory-role mappings persist and are reused on subsequent project opens.
 - Verify file discovery only indexes Markdown files from user-enabled mapped directories.
+- Verify guide/reference/note context source distinctions are preserved in pass request construction.
 - Confirm paragraph/window anchors survive ordinary edits and remain stable enough for comments, chat attachment, and draft application.
 - Verify Analysis mode can discuss a selected paragraph and produce findings/comments without creating draft changes.
 - Verify Editing mode can produce bounded diffs only for the selected span/window and route them into the draft layer.

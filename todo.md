@@ -42,6 +42,7 @@ Goal:
 - discover project files from those mappings
 - parse Markdown into the first useful span model
 - render imported documents in the editor
+- define project context source categories before mode-aware chat consumes them
 
 ### Phase 1.1: Import configuration model
 
@@ -229,6 +230,45 @@ Done when:
 - selection state includes selected text, character range, and overlapping span ordinals
 - Phase 2 can target the current selection/window without depending on import UI internals
 
+### Phase 1.9: Project context source taxonomy
+
+Deliverables:
+
+- define the distinction between broad directory roles and document-level context source types
+- add planning for first-class guide sources:
+  - prose guideline
+  - style guide
+  - critique rubric
+  - rewrite guide
+  - custom guide
+- add planning for first-class reference sources:
+  - story summary
+  - world summary
+  - character bible
+  - timeline
+  - terminology
+  - research
+  - custom reference
+- define how `guide`, `reference`, and `note` sources enter `Analysis`, `Editing`, and `Ideation`
+- decide which parts must be implemented before Phase 2 pass contracts and which parts can wait for Phase 3 retrieval/memory
+
+TDD applies:
+
+- no for planning-only edits
+- yes once source classification or pass-context policy becomes executable business logic
+
+Test:
+
+- future tests should cover context source classification and mode-specific inclusion rules
+- no tests needed for the planning document update itself
+
+Done when:
+
+- `implementation.md` and `todo.md` define context source semantics clearly enough to shape Phase 2 `PassRequest` and `ContextBundle`
+- prose/style/critique guides are not treated as ordinary notes
+- story/world/character/timeline/terminology bibles are not treated as untyped blobs
+- notes remain opt-in or retrieval-based, not automatically injected into prompts
+
 ### Phase 1 completion criteria
 
 - project root import works
@@ -237,6 +277,7 @@ Done when:
 - Markdown parsing produces the first span model
 - imported documents can be opened in the editor
 - current editor selection can be mapped to parsed spans
+- project context source categories are defined before Phase 2 pass contracts
 - Phase 1 documentation exists in numbered subphase files such as `documentation/phase-1.1-*.md`
 
 ## Phase 2
