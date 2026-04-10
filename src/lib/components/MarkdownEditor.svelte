@@ -1,12 +1,25 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { createEventDispatcher, onDestroy, onMount } from 'svelte';
   import { EditorState } from '@codemirror/state';
   import { EditorView, lineNumbers } from '@codemirror/view';
 
   let { value = '' }: { value?: string } = $props();
 
+  const dispatch = createEventDispatcher<{
+    selectionChange: { anchorChar: number; headChar: number };
+  }>();
+
   let editorHost: HTMLDivElement;
   let view: EditorView | null = null;
+
+  function dispatchSelectionChange(nextView: EditorView) {
+    const selection = nextView.state.selection.main;
+
+    dispatch('selectionChange', {
+      anchorChar: selection.anchor,
+      headChar: selection.head
+    });
+  }
 
   function buildState(markdown: string) {
     return EditorState.create({
@@ -15,6 +28,12 @@
         lineNumbers(),
         EditorView.lineWrapping,
         EditorView.editable.of(false),
+        EditorView.updateListener.of((update) => {
+          if (update.selectionSet) {
+            // Phase 1.8 exposes CodeMirror selection offsets so callers can map them to parsed spans.
+            dispatchSelectionChange(update.view);
+          }
+        }),
         // Keep Phase 1.7 theming local and minimal; a proper editor theme system is a later concern.
         EditorView.theme({
           '&': {
@@ -49,6 +68,7 @@
       parent: editorHost,
       state: buildState(value)
     });
+    dispatchSelectionChange(view);
   });
 
   onDestroy(() => {

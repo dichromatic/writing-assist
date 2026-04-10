@@ -1,5 +1,5 @@
 <script lang="ts">
-  import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
+  import DocumentWorkspace from '$lib/components/DocumentWorkspace.svelte';
   import { applyPersistedMappingsToCandidates, toPersistedMappings } from '$lib/project-import/mappings';
   import { validateImportSelection } from '$lib/project-import/validation';
   import type {
@@ -273,29 +273,7 @@
       <p class="message" data-state={documentLoadState}>{documentLoadMessage}</p>
 
       {#if loadedDocument}
-        <article class="loaded-document">
-          <div class="loaded-header">
-            <div>
-              <p class="label">Phase 1.7</p>
-              <h3>{loadedDocument.document.path}</h3>
-            </div>
-            <dl class="parsed-summary">
-              <div>
-                <dt>Spans</dt>
-                <dd>{loadedDocument.parsed.spans.length}</dd>
-              </div>
-              <div>
-                <dt>Sections</dt>
-                <dd>{loadedDocument.parsed.sections.length}</dd>
-              </div>
-              <div>
-                <dt>Scenes</dt>
-                <dd>{loadedDocument.parsed.scenes.length}</dd>
-              </div>
-            </dl>
-          </div>
-          <MarkdownEditor value={loadedDocument.markdown} />
-        </article>
+        <DocumentWorkspace {loadedDocument} />
       {/if}
     </div>
   {/if}
@@ -443,57 +421,10 @@
     align-items: center;
   }
 
-  .loaded-document {
-    display: grid;
-    gap: 1rem;
-    margin-top: 1rem;
-    padding: 1rem;
-    border: 1px solid var(--panel-border);
-    border-radius: 18px;
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .loaded-header {
-    display: flex;
-    justify-content: space-between;
-    gap: 1rem;
-    align-items: start;
-  }
-
-  .parsed-summary {
-    display: flex;
-    gap: 0.75rem;
-    margin: 0;
-  }
-
-  .parsed-summary div {
-    min-width: 4.5rem;
-    padding: 0.65rem 0.75rem;
-    border: 1px solid var(--panel-border);
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.03);
-  }
-
-  .parsed-summary dt,
-  .parsed-summary dd {
-    margin: 0;
-  }
-
-  .parsed-summary dt {
-    color: var(--muted);
-    font-size: 0.75rem;
-  }
-
-  .parsed-summary dd {
-    margin-top: 0.2rem;
-    font-weight: 700;
-  }
-
   @media (max-width: 720px) {
     .controls,
     .candidate-header,
-    .document,
-    .loaded-header {
+    .document {
       grid-template-columns: 1fr;
       display: grid;
     }

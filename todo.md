@@ -189,7 +189,6 @@ Deliverables:
 
 - file tree based on discovered documents
 - load selected document into CodeMirror
-- selection-aware state for later Analysis/Editing/Ideation actions
 
 TDD applies:
 
@@ -204,6 +203,32 @@ Done when:
 
 - a configured project can be opened and a manuscript file can be viewed in the editor
 
+### Phase 1.8: Document workspace and selection targeting
+
+Deliverables:
+
+- extract loaded-document rendering into a dedicated document workspace component
+- keep `ProjectImportPanel` focused on import/open/load actions
+- expose CodeMirror selection state from the Markdown editor
+- map selected character ranges to parsed span ordinals
+- surface selected text and overlapping spans for later Analysis/Editing/Ideation actions
+
+TDD applies:
+
+- partial
+
+Test:
+
+- selection-to-span mapping should be tested because it is domain/feature behavior
+- basic Svelte component layout and event wiring do not need exhaustive TDD
+
+Done when:
+
+- loaded documents render through a document workspace component
+- text selection updates app state
+- selection state includes selected text, character range, and overlapping span ordinals
+- Phase 2 can target the current selection/window without depending on import UI internals
+
 ### Phase 1 completion criteria
 
 - project root import works
@@ -211,6 +236,7 @@ Done when:
 - file discovery uses those mappings
 - Markdown parsing produces the first span model
 - imported documents can be opened in the editor
+- current editor selection can be mapped to parsed spans
 - Phase 1 documentation exists in numbered subphase files such as `documentation/phase-1.1-*.md`
 
 ## Phase 2
