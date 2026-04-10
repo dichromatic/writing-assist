@@ -6,6 +6,17 @@ Build a personal, local-first desktop writing workspace for Markdown projects us
 
 The manuscript folder remains canonical, but the app uses an internal draft layer for AI suggestions and human review. Project import is configuration-driven: the user chooses which directories contain primary manuscript content and which directories provide supporting reference or notes material. All model work is span-bounded, retrieval is hybrid and source-linked, and all machine-derived memory is review-gated before reuse.
 
+## Naming Principles
+
+- Prefer readable, product/domain-oriented names over abstract engineering shorthand.
+- Use terminology that makes sense for writing assistance workflows, not generic LLM infrastructure terms.
+- Rename unclear concepts early, before they spread across code, documentation, and UI copy.
+- Keep names consistent across `implementation.md`, `todo.md`, phase documentation, Rust modules, and frontend types.
+- Examples of preferred terminology:
+  - use `task` instead of `pass`
+  - use `task context selection` instead of `context assembly`
+  - keep `ContextBundle` as the output type for the selected context attached to a task
+
 ## Implementation Changes
 
 ### Product and interaction model

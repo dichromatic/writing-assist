@@ -410,7 +410,11 @@ Documentation:
 
 - `documentation/phase-2.2-selection-target-adapter.md`
 
-### Phase 2.3: Local context bundle assembly
+### Phase 2.3: Task context selection
+
+Status:
+
+- completed
 
 Deliverables:
 
@@ -421,7 +425,7 @@ Deliverables:
   - explicitly selected/pinned context source paths
 - apply `context_source_included_by_default` rather than duplicating source-policy logic
 - preserve included and excluded source lists for later context-inspector UI
-- keep all assembly local and deterministic
+- keep task context selection local and deterministic
 
 Out of scope:
 
@@ -445,6 +449,10 @@ Behavior to test:
 Done when:
 
 - orchestrator-facing code can construct a `ContextBundle` without depending on provider/Rig types or retrieval crates
+
+Documentation:
+
+- `documentation/phase-2.3-task-context-selection.md`
 
 ### Phase 2.4: Chat thread model
 
@@ -782,7 +790,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 2.3 local context bundle assembly with TDD.
-2. Use `ConversationMode`, `SelectionTarget`, available context sources, and explicit context selections as inputs.
-3. Preserve included and excluded source lists for the later context inspector.
-4. Keep retrieval, embeddings, summary/fact memory, and token-budget packing out of Phase 2.3.
+1. Start Phase 2.4 chat thread model with TDD.
+2. Model stable thread IDs, `ConversationMode`, scope attachment, message ordering, and selected context source paths.
+3. Decide whether Phase 2 threads are in-memory only or get lightweight persistence.
+4. Keep streaming, provider transcripts, and long-term conversation compaction out of Phase 2.4.

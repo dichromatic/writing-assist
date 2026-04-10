@@ -7,7 +7,7 @@ pub enum SpanType {
     Paragraph,
     // Sections are targetable parse objects, but the current parser keeps them in `ParsedSection`.
     Section,
-    // Windows are reserved for Phase 2 context assembly and are not emitted by the Phase 1 parser.
+    // Windows are reserved for Phase 2 task context selection and are not emitted by the Phase 1 parser.
     Window,
     Scene,
 }

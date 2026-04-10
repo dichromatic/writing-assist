@@ -103,7 +103,7 @@ pub fn context_source_included_by_default(
         ContextSourceReviewState::UserAuthored | ContextSourceReviewState::Approved
     );
 
-    // Phase 2 context assembly must gate kind-level defaults by review and activation state.
+    // Phase 2 task context selection must gate kind-level defaults by review and activation state.
     activation_allows_default_use
         && review_allows_default_use
         && context_source_allowed_by_default(mode, &source.kind)
