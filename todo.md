@@ -500,6 +500,10 @@ Documentation:
 
 ### Phase 2.5: Deterministic task runner stub
 
+Status:
+
+- completed
+
 Deliverables:
 
 - orchestrator function that accepts:
@@ -539,6 +543,10 @@ Behavior to test:
 Done when:
 
 - a non-UI test can execute each mode through the orchestrator stub and receive mode-correct structured outputs
+
+Documentation:
+
+- `documentation/phase-2.5-deterministic-task-runner-stub.md`
 
 ### Phase 2.6: Tauri command bridge for task execution
 
@@ -798,7 +806,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 2.5 deterministic task runner stub with TDD.
-2. Route `ConversationMode`, `TaskType`, `SelectionTarget`, context sources, and explicit source selections through orchestrator code.
-3. Return deterministic structured `TaskResult` placeholder outputs by mode.
-4. Keep prompt construction, provider calls, streaming, draft persistence, and file mutation out of Phase 2.5.
+1. Start Phase 2.6 Tauri command bridge for task execution.
+2. Expose the deterministic task runner through a Tauri command and TypeScript wrapper.
+3. Add frontend request/output types and clear browser fallback behavior.
+4. Keep provider settings, streaming, background jobs, and edit application out of Phase 2.6.
