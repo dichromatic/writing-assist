@@ -23,9 +23,8 @@
     "vitest": "^3.2.4"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2.0.0",
     "@codemirror/state": "^6.5.2",
     "@codemirror/view": "^6.34.3",
-    "@uiw/codemirror-theme-github": "^4.23.6"
+    "@tauri-apps/api": "^2.0.0"
   }
 }

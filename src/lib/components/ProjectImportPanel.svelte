@@ -1,5 +1,6 @@
 <script lang="ts">
   import DocumentWorkspace from '$lib/components/DocumentWorkspace.svelte';
+  import { browserDemoDocument } from '$lib/demo/browserDemoDocument';
   import { applyPersistedMappingsToCandidates, toPersistedMappings } from '$lib/project-import/mappings';
   import { validateImportSelection } from '$lib/project-import/validation';
   import type {
@@ -16,6 +17,7 @@
     saveProjectImportConfiguration,
     scanProjectImportCandidates
   } from '$lib/tauri/projectImport';
+  import { isTauriRuntime } from '$lib/tauri/healthcheck';
 
   const roleOptions: Array<{ value: ProjectDirectoryRole | null; label: string }> = [
     { value: null, label: 'Unassigned' },
@@ -147,6 +149,13 @@
     }
   }
 
+  function loadBrowserDemoDocument() {
+    // This is a browser-only smoke test path; it does not validate Tauri filesystem integration.
+    loadedDocument = browserDemoDocument;
+    documentLoadState = 'ready';
+    documentLoadMessage = 'Loaded embedded browser demo document. Tauri filesystem commands were not used.';
+  }
+
   function updateRole(path: string, role: string) {
     mappings = mappings.map((mapping) =>
       mapping.path === path
@@ -183,6 +192,9 @@
       <button type="button" disabled={!root || persistenceState === 'loading'} on:click={loadSavedConfiguration}>
         {persistenceState === 'loading' ? 'Loading...' : 'Load saved config'}
       </button>
+      {#if !isTauriRuntime()}
+        <button type="button" on:click={loadBrowserDemoDocument}>Load browser demo</button>
+      {/if}
     </div>
   </div>
 
@@ -275,6 +287,13 @@
       {#if loadedDocument}
         <DocumentWorkspace {loadedDocument} />
       {/if}
+    </div>
+  {/if}
+
+  {#if loadedDocument && candidates.length === 0}
+    <div class="project-open">
+      <p class="message" data-state={documentLoadState}>{documentLoadMessage}</p>
+      <DocumentWorkspace {loadedDocument} />
     </div>
   {/if}
 </section>
