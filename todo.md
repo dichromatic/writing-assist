@@ -163,10 +163,18 @@ Done when:
 
 Deliverables:
 
-- first parser output for:
+- parser output for:
   - headings
   - paragraphs
   - sections
+  - explicit scene-break spans
+  - first-class scene objects
+  - byte and character offsets
+  - whitespace-normalized sidecar text
+  - section-boundary metadata
+- configurable paragraph parsing:
+  - strict blank-line mode
+  - conservative heuristic mode
 - stable document-relative span ordering
 
 TDD applies:
@@ -179,10 +187,14 @@ Behavior to test:
 - paragraphs are extracted correctly across blank lines
 - empty lines do not become spans
 - mixed heading/paragraph content remains ordered
+- explicit scene breaks split sections and create scenes
+- non-ASCII text has correct byte and character offsets
+- normalized sidecar text does not mutate source text
+- strict paragraph mode disables the conservative heuristic
 
 Done when:
 
-- a Markdown document can be converted into a basic span list
+- a Markdown document can be converted into spans, sections, scenes, offsets, and normalized sidecars
 
 ### Phase 1.7: Editor loads imported document
 
@@ -235,13 +247,13 @@ Done when:
 Deliverables:
 
 - define the distinction between broad directory roles and document-level context source types
-- add planning for first-class guide sources:
+- add core types for first-class guide sources:
   - prose guideline
   - style guide
   - critique rubric
   - rewrite guide
   - custom guide
-- add planning for first-class reference sources:
+- add core types for first-class reference sources:
   - story summary
   - world summary
   - character bible
@@ -254,17 +266,18 @@ Deliverables:
 
 TDD applies:
 
-- no for planning-only edits
 - yes once source classification or pass-context policy becomes executable business logic
 
 Test:
 
-- future tests should cover context source classification and mode-specific inclusion rules
-- no tests needed for the planning document update itself
+- core taxonomy serialization should be tested
+- default mode-specific context inclusion rules should be tested
+- future tests should cover source classification once it is implemented
 
 Done when:
 
 - `implementation.md` and `todo.md` define context source semantics clearly enough to shape Phase 2 `PassRequest` and `ContextBundle`
+- `core` exposes context source taxonomy types and default mode policy helpers
 - prose/style/critique guides are not treated as ordinary notes
 - story/world/character/timeline/terminology bibles are not treated as untyped blobs
 - notes remain opt-in or retrieval-based, not automatically injected into prompts
@@ -290,10 +303,13 @@ Goal:
 
 Deliverables:
 
+- `SelectionTarget`
 - `PassRequest`
 - `PassResult`
 - `ContextBundle`
-- mode-specific allowed output types
+- mode-specific allowed output types and context-source policies
+- stable pass IDs and schema/version fields for future persistence
+- explicit references to selected guide/reference/note source IDs or paths
 
 TDD applies:
 
@@ -304,8 +320,43 @@ Behavior to test:
 - `Analysis` cannot emit draft changes
 - `Editing` emits bounded draft changes
 - `Ideation` emits idea outputs, not direct edits by default
+- pass requests can target the current selection/span set from Phase 1.8
+- context-source defaults use the taxonomy from Phase 1.9
+- notes are not included by default
 
-### Phase 2.2: Chat thread model
+Done when:
+
+- core pass contracts compile without depending on provider/Rig types
+- mode output constraints are test-covered
+- pass context inputs can represent selected spans and selected/pinned context sources
+
+### Phase 2.2: Context bundle assembly stub
+
+Deliverables:
+
+- build a local `ContextBundle` from:
+  - selected document path
+  - selected text
+  - selected span ordinals
+  - selected/pinned context sources
+- no embeddings or LLM calls yet
+- no automatic retrieval yet
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- selected text and span ordinals are preserved
+- allowed context sources are included according to mode policy
+- disallowed/default-excluded notes stay out unless explicitly selected
+
+Done when:
+
+- orchestrator can construct a deterministic context bundle from local app state
+
+### Phase 2.3: Chat thread model
 
 Deliverables:
 
@@ -317,18 +368,19 @@ TDD applies:
 
 - yes
 
-### Phase 2.3: Orchestrator path
+### Phase 2.4: Orchestrator path
 
 Deliverables:
 
 - route frontend requests into mode-aware pass execution
 - basic provider stub path using the existing healthcheck-style bridge
+- return deterministic placeholder outputs before real model calls
 
 TDD applies:
 
 - yes
 
-### Phase 2.4: Frontend mode-aware chat UI
+### Phase 2.5: Frontend mode-aware chat UI
 
 Deliverables:
 
@@ -336,6 +388,8 @@ Deliverables:
 - mode switcher
 - current scope display
 - display of pass outputs
+- show current selected text/span target from the document workspace
+- show selected/pinned context sources once available
 
 TDD applies:
 
