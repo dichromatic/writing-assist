@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 writing-assist-core = { path = "../core" }
+uuid.workspace = true

@@ -5742,6 +5742,7 @@ dependencies = [
 name = "writing-assist-index"
 version = "0.1.0"
 dependencies = [
+ "uuid",
  "writing-assist-core",
 ]
 

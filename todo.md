@@ -729,6 +729,10 @@ Documentation:
 
 ### Phase 3.2: Deterministic entity extraction spike
 
+Status:
+
+- completed
+
 Deliverables:
 
 - deterministic local extractor for obvious entity candidates from parsed Markdown spans
@@ -761,6 +765,10 @@ Behavior to test:
 Done when:
 
 - the index crate can produce pending entity candidates from a loaded parsed document
+
+Documentation:
+
+- `documentation/phase-3.2-deterministic-entity-extraction.md`
 
 ### Phase 3.3: Memory persistence schema
 
@@ -1051,7 +1059,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 3.2 deterministic entity extraction.
+1. Start Phase 3.3 memory persistence schema.
 2. Keep the new workspace-state model as the frontend target for future UI refactors.
 3. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
 4. Keep context-source review and the knowledge rail in Phase 3 scope.
