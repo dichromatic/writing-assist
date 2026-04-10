@@ -1,3 +1,4 @@
+mod chat;
 mod context;
 mod conversation;
 mod documents;
@@ -5,6 +6,7 @@ mod parsing;
 mod tasks;
 mod projects;
 
+pub use chat::{ChatMessage, ChatMessageAuthor, ChatThread, ChatThreadScope};
 pub use context::{
     context_source_allowed_by_default, context_source_included_by_default, ContextSource,
     ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState, GuideKind,

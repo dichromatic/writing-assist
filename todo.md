@@ -456,6 +456,10 @@ Documentation:
 
 ### Phase 2.4: Chat thread model
 
+Status:
+
+- completed
+
 Deliverables:
 
 - `ChatThread`
@@ -489,6 +493,10 @@ Behavior to test:
 Done when:
 
 - a thread can be created before task execution and can carry enough state to reproduce the local task request
+
+Documentation:
+
+- `documentation/phase-2.4-chat-thread-model.md`
 
 ### Phase 2.5: Deterministic task runner stub
 
@@ -790,7 +798,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 2.4 chat thread model with TDD.
-2. Model stable thread IDs, `ConversationMode`, scope attachment, message ordering, and selected context source paths.
-3. Decide whether Phase 2 threads are in-memory only or get lightweight persistence.
-4. Keep streaming, provider transcripts, and long-term conversation compaction out of Phase 2.4.
+1. Start Phase 2.5 deterministic task runner stub with TDD.
+2. Route `ConversationMode`, `TaskType`, `SelectionTarget`, context sources, and explicit source selections through orchestrator code.
+3. Return deterministic structured `TaskResult` placeholder outputs by mode.
+4. Keep prompt construction, provider calls, streaming, draft persistence, and file mutation out of Phase 2.5.
