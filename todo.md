@@ -550,6 +550,10 @@ Documentation:
 
 ### Phase 2.6: Tauri command bridge for task execution
 
+Status:
+
+- completed
+
 Deliverables:
 
 - expose a Tauri command for deterministic task execution
@@ -580,6 +584,10 @@ Behavior to test:
 Done when:
 
 - frontend code has a single API wrapper for running a local deterministic task
+
+Documentation:
+
+- `documentation/phase-2.6-tauri-command-bridge-for-task-execution.md`
 
 ### Phase 2.7: Frontend mode-aware chat UI
 
@@ -806,7 +814,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 2.6 Tauri command bridge for task execution.
-2. Expose the deterministic task runner through a Tauri command and TypeScript wrapper.
-3. Add frontend request/output types and clear browser fallback behavior.
-4. Keep provider settings, streaming, background jobs, and edit application out of Phase 2.6.
+1. Start Phase 2.7 frontend mode-aware chat UI.
+2. Add a chat panel, mode switcher, current target display, and deterministic task output rendering.
+3. Route task execution through `runDeterministicTask` and keep the browser fallback visible.
+4. Keep edit application, provider settings, streaming, and background jobs out of Phase 2.7.

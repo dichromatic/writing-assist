@@ -1,10 +1,14 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod task_commands;
+
 use std::path::Path;
 
 use writing_assist_core::{
     LoadedDocument, OpenedProject, ProjectConfig, ProjectDirectoryMapping, ProjectImportCandidate,
+    TaskResult,
 };
+use task_commands::DeterministicTaskCommandRequest;
 use tracing_subscriber::EnvFilter;
 
 #[tauri::command]
@@ -84,6 +88,13 @@ async fn load_configured_project_document(
         .map_err(|error| format!("Failed to load configured project document: {error}"))
 }
 
+#[tauri::command]
+fn run_deterministic_task_command(
+    request: DeterministicTaskCommandRequest,
+) -> Result<TaskResult, String> {
+    task_commands::run_deterministic_task_command(request)
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
@@ -96,7 +107,8 @@ fn main() {
             save_project_import_configuration,
             load_project_import_configuration,
             open_configured_project,
-            load_configured_project_document
+            load_configured_project_document,
+            run_deterministic_task_command
         ])
         .run(tauri::generate_context!())
         .expect("error while running writing assist desktop application");
