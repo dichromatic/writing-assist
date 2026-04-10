@@ -84,13 +84,15 @@ TDD applies:
 Behavior to test:
 
 - immediate child directories are discovered correctly
+- root-level Markdown files create a `.` root candidate
 - empty directories are either omitted or clearly marked
+- hidden/app directories such as `.git` and `.writing-assist` are not import candidates
 - heuristic suggestions are stable and deterministic
 
 Done when:
 
 - the frontend can request candidate directories for a project root
-- the backend returns structured import candidates
+- the backend returns structured import candidates, including a root candidate when root-level Markdown exists
 
 ### Phase 1.3: Import UI
 
@@ -152,6 +154,10 @@ Behavior to test:
 
 - only enabled mapped directories are scanned
 - only Markdown files are indexed
+- root-level Markdown files work through a safe `.` mapping
+- child directory mappings override broad `.` mappings by specificity
+- hidden/app directories are skipped when recursively discovering from broad mappings
+- supported Markdown extensions include `.md`, `.markdown`, `.mdown`, and uppercase variants
 - discovered documents inherit the correct role-derived type
 - stable ordering is preserved
 
@@ -240,6 +246,7 @@ Done when:
 - loaded documents render through a document workspace component
 - text selection updates app state
 - selection state includes selected text, character range, and overlapping span ordinals
+- selection state is lifted to the workspace parent so Phase 2 chat/pass UI can consume it
 - Phase 2 can target the current selection/window without depending on import UI internals
 
 ### Phase 1.9: Project context source taxonomy
@@ -278,18 +285,44 @@ Done when:
 
 - `implementation.md` and `todo.md` define context source semantics clearly enough to shape Phase 2 `PassRequest` and `ContextBundle`
 - `core` exposes context source taxonomy types and default mode policy helpers
+- context-source default inclusion checks activation and review state as well as source kind
 - prose/style/critique guides are not treated as ordinary notes
 - story/world/character/timeline/terminology bibles are not treated as untyped blobs
 - notes remain opt-in or retrieval-based, not automatically injected into prompts
+
+### Phase 1.10: Phase 1 hardening pass
+
+Deliverables:
+
+- validate directory mappings as safe project-relative paths
+- support root-level Markdown projects with a normalized `.` mapping
+- preserve saved mappings that are temporarily absent from a candidate rescan
+- skip hidden/app directories during broad discovery
+- clarify that parser-emitted spans are heading, paragraph, and scene-break spans, while sections/scenes/windows are target categories
+- lift document selection target state for Phase 2 chat/pass handoff
+- expose a context-source default inclusion helper that respects activation and review state
+
+TDD applies:
+
+- yes for mapping safety, discovery, context policy, and mapping-retention behavior
+- partial for component event handoff
+
+Done when:
+
+- Phase 1 review findings have concrete tests or documented scope boundaries
+- Phase 2 can build pass contracts without relying on unsafe mappings or private editor state
 
 ### Phase 1 completion criteria
 
 - project root import works
 - directory roles are user-defined and persisted
+- directory mappings are normalized and cannot escape the project root
+- root-level Markdown manuscripts can be imported through the `.` mapping
 - file discovery uses those mappings
 - Markdown parsing produces the first span model
 - imported documents can be opened in the editor
 - current editor selection can be mapped to parsed spans
+- current editor selection is available outside the document component for chat/pass handoff
 - project context source categories are defined before Phase 2 pass contracts
 - Phase 1 documentation exists in numbered subphase files such as `documentation/phase-1.1-*.md`
 
@@ -320,8 +353,8 @@ Behavior to test:
 - `Analysis` cannot emit draft changes
 - `Editing` emits bounded draft changes
 - `Ideation` emits idea outputs, not direct edits by default
-- pass requests can target the current selection/span set from Phase 1.8
-- context-source defaults use the taxonomy from Phase 1.9
+- pass requests can target the current selection/span/section/scene/window set from Phase 1.8/1.10
+- context-source defaults use the taxonomy from Phase 1.9 and the activation/review gate from Phase 1.10
 - notes are not included by default
 
 Done when:
@@ -565,7 +598,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Rewrite the current indexing tests around user-defined directory mappings.
-2. Replace hardcoded discovery/classification code with config-driven discovery.
-3. Define the first persisted schema for projects and directory mappings.
-4. Build the import UI for assigning directory roles.
+1. Start Phase 2.1 core pass contracts with TDD.
+2. Model `SelectionTarget` as a typed target over spans, sections, scenes, and future windows.
+3. Build `ContextBundle` policy around `context_source_included_by_default`, not only source kind.
+4. Keep provider/Rig types out of `core` contracts.

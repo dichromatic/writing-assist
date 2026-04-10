@@ -1,5 +1,7 @@
-use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::path::{Component, Path};
+
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -31,10 +33,53 @@ pub struct ProjectConfig {
 pub enum ProjectConfigValidationError {
     #[error("directory mapping paths must not be empty")]
     EmptyDirectoryPath,
+    #[error("directory mapping path must stay inside the project root: {0}")]
+    UnsafeDirectoryPath(String),
     #[error("duplicate directory mapping path: {0}")]
     DuplicateDirectoryPath(String),
     #[error("exactly one enabled primary manuscript directory is required")]
     InvalidPrimaryManuscriptCount,
+}
+
+pub fn normalize_project_directory_mapping_path(
+    path: &str,
+) -> Result<String, ProjectConfigValidationError> {
+    let trimmed_path = path.trim();
+
+    if trimmed_path.is_empty() {
+        return Err(ProjectConfigValidationError::EmptyDirectoryPath);
+    }
+
+    let parsed_path = Path::new(trimmed_path);
+
+    if parsed_path.is_absolute() {
+        return Err(ProjectConfigValidationError::UnsafeDirectoryPath(
+            trimmed_path.to_string(),
+        ));
+    }
+
+    let mut normalized_components = Vec::new();
+
+    for component in parsed_path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::Normal(component) => {
+                normalized_components.push(component.to_string_lossy().to_string());
+            }
+            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
+                return Err(ProjectConfigValidationError::UnsafeDirectoryPath(
+                    trimmed_path.to_string(),
+                ));
+            }
+        }
+    }
+
+    if normalized_components.is_empty() {
+        return Ok(".".to_string());
+    }
+
+    // Mapping paths are persisted with slash separators so UI/backend comparisons are stable.
+    Ok(normalized_components.join("/"))
 }
 
 pub fn validate_project_directory_mappings(
@@ -44,16 +89,12 @@ pub fn validate_project_directory_mappings(
     let mut primary_manuscript_count = 0;
 
     for mapping in directory_mappings {
-        let normalized_path = mapping.path.trim();
-
-        if normalized_path.is_empty() {
-            return Err(ProjectConfigValidationError::EmptyDirectoryPath);
-        }
+        let normalized_path = normalize_project_directory_mapping_path(&mapping.path)?;
 
         // Persistence rejects duplicates up front so later discovery does not depend on DB conflict handling.
-        if !seen_paths.insert(normalized_path.to_string()) {
+        if !seen_paths.insert(normalized_path.clone()) {
             return Err(ProjectConfigValidationError::DuplicateDirectoryPath(
-                normalized_path.to_string(),
+                normalized_path,
             ));
         }
 
@@ -123,6 +164,72 @@ mod tests {
             },
             ProjectDirectoryMapping {
                 path: "drafts".to_string(),
+                role: ProjectDirectoryRole::Reference,
+                enabled: true,
+            },
+        ]);
+
+        assert_eq!(
+            result,
+            Err(ProjectConfigValidationError::DuplicateDirectoryPath(
+                "drafts".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn accepts_root_directory_mapping_for_root_level_manuscript_files() {
+        let result = validate_project_directory_mappings(&[ProjectDirectoryMapping {
+            path: ".".to_string(),
+            role: ProjectDirectoryRole::PrimaryManuscript,
+            enabled: true,
+        }]);
+
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn rejects_mapping_paths_that_escape_the_project_root() {
+        let result = validate_project_directory_mappings(&[ProjectDirectoryMapping {
+            path: "../outside".to_string(),
+            role: ProjectDirectoryRole::PrimaryManuscript,
+            enabled: true,
+        }]);
+
+        assert_eq!(
+            result,
+            Err(ProjectConfigValidationError::UnsafeDirectoryPath(
+                "../outside".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn rejects_absolute_mapping_paths() {
+        let result = validate_project_directory_mappings(&[ProjectDirectoryMapping {
+            path: "/tmp/outside".to_string(),
+            role: ProjectDirectoryRole::PrimaryManuscript,
+            enabled: true,
+        }]);
+
+        assert_eq!(
+            result,
+            Err(ProjectConfigValidationError::UnsafeDirectoryPath(
+                "/tmp/outside".to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn detects_duplicate_paths_after_normalization() {
+        let result = validate_project_directory_mappings(&[
+            ProjectDirectoryMapping {
+                path: "drafts".to_string(),
+                role: ProjectDirectoryRole::PrimaryManuscript,
+                enabled: true,
+            },
+            ProjectDirectoryMapping {
+                path: "drafts/".to_string(),
                 role: ProjectDirectoryRole::Reference,
                 enabled: true,
             },

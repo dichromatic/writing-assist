@@ -53,12 +53,49 @@ fn discovers_only_immediate_child_directories_in_stable_order() {
     assert_eq!(
         paths,
         vec![
+            ".".to_string(),
             "chapters".to_string(),
             "empty".to_string(),
             "notes".to_string(),
             "research".to_string(),
         ]
     );
+
+    fs::remove_dir_all(root).expect("temp test dir should be removed");
+}
+
+#[test]
+fn root_markdown_files_create_a_root_candidate() {
+    let root = unique_temp_dir();
+
+    write_file(&root.join("chapter-1.MD"), "# Chapter 1");
+
+    let candidates =
+        discover_project_import_candidates(&root).expect("candidate discovery should succeed");
+    let root_candidate = candidate_by_path(&candidates, ".");
+
+    assert!(root_candidate.contains_markdown_files);
+    assert_eq!(
+        root_candidate.suggestion_reasons,
+        vec![ProjectImportSuggestionReason::ContainsMarkdownFiles]
+    );
+
+    fs::remove_dir_all(root).expect("temp test dir should be removed");
+}
+
+#[test]
+fn hidden_child_directories_are_not_import_candidates() {
+    let root = unique_temp_dir();
+
+    fs::create_dir_all(root.join(".writing-assist")).expect("app state dir should exist");
+    fs::create_dir_all(root.join(".git")).expect("git dir should exist");
+    fs::create_dir_all(root.join("chapters")).expect("chapters dir should exist");
+
+    let candidates =
+        discover_project_import_candidates(&root).expect("candidate discovery should succeed");
+    let paths: Vec<_> = candidates.iter().map(|candidate| candidate.path.clone()).collect();
+
+    assert_eq!(paths, vec!["chapters".to_string()]);
 
     fs::remove_dir_all(root).expect("temp test dir should be removed");
 }

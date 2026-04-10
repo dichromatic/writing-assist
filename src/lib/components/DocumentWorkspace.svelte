@@ -1,9 +1,18 @@
 <script lang="ts">
+  import { createEventDispatcher } from 'svelte';
   import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
-  import { mapSelectionToParsedSpans, type ParsedSelection } from '$lib/project-import/selection';
+  import {
+    mapSelectionToParsedSpans,
+    type DocumentSelectionTarget,
+    type ParsedSelection
+  } from '$lib/project-import/selection';
   import type { LoadedDocument } from '$lib/project-import/types';
 
   let { loadedDocument }: { loadedDocument: LoadedDocument } = $props();
+
+  const dispatch = createEventDispatcher<{
+    targetChange: DocumentSelectionTarget;
+  }>();
 
   let selection = $state<ParsedSelection>({
     selectedText: '',
@@ -12,6 +21,14 @@
     overlappingSpanOrdinals: [],
     primarySpanOrdinal: null
   });
+  let lastLoadedDocument: LoadedDocument | null = null;
+
+  function publishSelectionTarget(nextSelection: ParsedSelection) {
+    dispatch('targetChange', {
+      ...nextSelection,
+      documentPath: loadedDocument.document.path
+    });
+  }
 
   function updateSelection(event: CustomEvent<{ anchorChar: number; headChar: number }>) {
     selection = mapSelectionToParsedSpans(
@@ -20,11 +37,24 @@
       event.detail.anchorChar,
       event.detail.headChar
     );
+    // Phase 2 chat/pass orchestration will consume this parent-level document target.
+    publishSelectionTarget(selection);
   }
 
   $effect(() => {
+    if (lastLoadedDocument === loadedDocument) {
+      return;
+    }
+
+    lastLoadedDocument = loadedDocument;
     // Reset selection whenever the loaded document changes so Phase 2 never receives stale span targeting data.
-    selection = mapSelectionToParsedSpans(loadedDocument.parsed.spans, loadedDocument.markdown, 0, 0);
+    selection = mapSelectionToParsedSpans(
+      loadedDocument.parsed.spans,
+      loadedDocument.markdown,
+      0,
+      0
+    );
+    publishSelectionTarget(selection);
   });
 </script>
 

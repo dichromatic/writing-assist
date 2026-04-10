@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use writing_assist_core::{DocumentType, ProjectDirectoryMapping, ProjectDirectoryRole};
 
+use crate::project_files::{is_hidden_or_app_directory, is_supported_markdown_file};
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredDocument {
     pub path: PathBuf,
@@ -19,6 +21,16 @@ fn document_type_for_role(role: &ProjectDirectoryRole) -> Option<DocumentType> {
     }
 }
 
+fn mapping_specificity(mapping: &ProjectDirectoryMapping) -> usize {
+    let trimmed_path = mapping.path.trim();
+
+    if trimmed_path == "." {
+        return 0;
+    }
+
+    Path::new(trimmed_path).components().count()
+}
+
 fn mapping_matches_path(path: &Path, root: &Path, mapping: &ProjectDirectoryMapping) -> bool {
     if !mapping.enabled {
         return false;
@@ -28,7 +40,13 @@ fn mapping_matches_path(path: &Path, root: &Path, mapping: &ProjectDirectoryMapp
         return false;
     };
 
-    let mapping_path = Path::new(&mapping.path);
+    let mapping_path = mapping.path.trim();
+
+    if mapping_path == "." {
+        return true;
+    }
+
+    let mapping_path = Path::new(mapping_path);
     // Classification is derived from configured directory roots, not from hardcoded folder names.
     relative_path.starts_with(mapping_path)
 }
@@ -38,19 +56,28 @@ pub fn classify_document_path(
     root: &Path,
     mappings: &[ProjectDirectoryMapping],
 ) -> Option<DocumentType> {
-    if path.extension().and_then(|ext| ext.to_str()) != Some("md") {
+    if !is_supported_markdown_file(path) {
         return None;
     }
 
     // Phase 1 import mappings are the source of truth for document typing.
     mappings
         .iter()
-        .find(|mapping| mapping_matches_path(path, root, mapping))
+        .filter(|mapping| mapping_matches_path(path, root, mapping))
+        .max_by_key(|mapping| mapping_specificity(mapping))
         .and_then(|mapping| document_type_for_role(&mapping.role))
 }
 
-fn collect_markdown_files(directory: &Path, files: &mut Vec<PathBuf>) -> io::Result<()> {
+fn collect_markdown_files(
+    directory: &Path,
+    files: &mut Vec<PathBuf>,
+    is_mapped_root: bool,
+) -> io::Result<()> {
     if !directory.exists() {
+        return Ok(());
+    }
+
+    if !is_mapped_root && is_hidden_or_app_directory(directory) {
         return Ok(());
     }
 
@@ -60,11 +87,11 @@ fn collect_markdown_files(directory: &Path, files: &mut Vec<PathBuf>) -> io::Res
 
         if path.is_dir() {
             // Recurse now so later span parsing can assume discovery already resolved nested drafts.
-            collect_markdown_files(&path, files)?;
+            collect_markdown_files(&path, files, false)?;
             continue;
         }
 
-        if path.is_file() {
+        if path.is_file() && is_supported_markdown_file(&path) {
             files.push(path);
         }
     }
@@ -85,7 +112,7 @@ pub fn discover_project_documents(
         }
 
         // Discovery only walks directories the user has explicitly mapped during project import.
-        collect_markdown_files(&root.join(&mapping.path), &mut files)?;
+        collect_markdown_files(&root.join(&mapping.path), &mut files, true)?;
     }
 
     // Keep discovery deterministic so UI ordering and tests do not depend on filesystem traversal order.

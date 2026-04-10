@@ -14,14 +14,10 @@ fn normalize_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-pub fn supported_span_types() -> [SpanType; 5] {
-    [
-        SpanType::Heading,
-        SpanType::Paragraph,
-        SpanType::Section,
-        SpanType::Window,
-        SpanType::Scene,
-    ]
+pub fn supported_span_types() -> [SpanType; 3] {
+    // The parser emits concrete linear spans only; sections/scenes are separate target collections,
+    // and rolling windows remain a later context-assembly concern.
+    [SpanType::Heading, SpanType::Paragraph, SpanType::Scene]
 }
 
 fn is_heading_line(line: &str) -> bool {

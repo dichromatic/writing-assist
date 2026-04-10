@@ -2,6 +2,7 @@
   import DocumentWorkspace from '$lib/components/DocumentWorkspace.svelte';
   import { browserDemoDocument } from '$lib/demo/browserDemoDocument';
   import { applyPersistedMappingsToCandidates, toPersistedMappings } from '$lib/project-import/mappings';
+  import type { DocumentSelectionTarget } from '$lib/project-import/selection';
   import { validateImportSelection } from '$lib/project-import/validation';
   import type {
     LoadedDocument,
@@ -40,6 +41,7 @@
   let mappings: ProjectDirectoryMappingDraft[] = [];
   let openedProject: OpenedProject | null = null;
   let loadedDocument: LoadedDocument | null = null;
+  let activeSelectionTarget: DocumentSelectionTarget | null = null;
   let selectionState = validateImportSelection(mappings);
 
   function resetMappings(nextCandidates: ProjectImportCandidate[]) {
@@ -68,6 +70,7 @@
       scanMessage = error instanceof Error ? error.message : 'Candidate scan failed.';
       candidates = [];
       mappings = [];
+      activeSelectionTarget = null;
     }
   }
 
@@ -83,6 +86,7 @@
         persistenceMessage = 'No saved import configuration exists for this project root.';
         openedProject = null;
         loadedDocument = null;
+        activeSelectionTarget = null;
         projectState = 'idle';
         projectMessage = 'No configured project is currently open.';
         return;
@@ -122,6 +126,7 @@
     try {
       openedProject = await openConfiguredProject(root);
       loadedDocument = null;
+      activeSelectionTarget = null;
       documentLoadState = 'idle';
       documentLoadMessage = 'Select a discovered document to load it into the editor.';
       projectState = 'ready';
@@ -129,6 +134,7 @@
     } catch (error) {
       openedProject = null;
       loadedDocument = null;
+      activeSelectionTarget = null;
       projectState = 'error';
       projectMessage = error instanceof Error ? error.message : 'Opening configured project failed.';
     }
@@ -140,10 +146,12 @@
 
     try {
       loadedDocument = await loadConfiguredProjectDocument(root, documentPath);
+      activeSelectionTarget = null;
       documentLoadState = 'ready';
       documentLoadMessage = `Loaded ${loadedDocument.document.path}.`;
     } catch (error) {
       loadedDocument = null;
+      activeSelectionTarget = null;
       documentLoadState = 'error';
       documentLoadMessage = error instanceof Error ? error.message : 'Loading document failed.';
     }
@@ -152,8 +160,14 @@
   function loadBrowserDemoDocument() {
     // This is a browser-only smoke test path; it does not validate Tauri filesystem integration.
     loadedDocument = browserDemoDocument;
+    activeSelectionTarget = null;
     documentLoadState = 'ready';
     documentLoadMessage = 'Loaded embedded browser demo document. Tauri filesystem commands were not used.';
+  }
+
+  function updateSelectionTarget(event: CustomEvent<DocumentSelectionTarget>) {
+    // Keep this at the workspace parent boundary so Phase 2 chat can consume it without reaching into editor internals.
+    activeSelectionTarget = event.detail;
   }
 
   function updateRole(path: string, role: string) {
@@ -285,7 +299,14 @@
       <p class="message" data-state={documentLoadState}>{documentLoadMessage}</p>
 
       {#if loadedDocument}
-        <DocumentWorkspace {loadedDocument} />
+        <DocumentWorkspace {loadedDocument} on:targetChange={updateSelectionTarget} />
+      {/if}
+
+      {#if activeSelectionTarget?.selectedText}
+        <p class="handoff">
+          Current pass target: {activeSelectionTarget.documentPath}, spans
+          {activeSelectionTarget.overlappingSpanOrdinals.join(', ')}.
+        </p>
       {/if}
     </div>
   {/if}
@@ -293,7 +314,13 @@
   {#if loadedDocument && candidates.length === 0}
     <div class="project-open">
       <p class="message" data-state={documentLoadState}>{documentLoadMessage}</p>
-      <DocumentWorkspace {loadedDocument} />
+      <DocumentWorkspace {loadedDocument} on:targetChange={updateSelectionTarget} />
+      {#if activeSelectionTarget?.selectedText}
+        <p class="handoff">
+          Current pass target: {activeSelectionTarget.documentPath}, spans
+          {activeSelectionTarget.overlappingSpanOrdinals.join(', ')}.
+        </p>
+      {/if}
     </div>
   {/if}
 </section>
@@ -347,6 +374,7 @@
   .candidate p,
   .reasons,
   .message,
+  .handoff,
   .validation p {
     color: var(--muted);
   }

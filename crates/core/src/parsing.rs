@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 pub enum SpanType {
     Heading,
     Paragraph,
+    // Sections are targetable parse objects, but the current parser keeps them in `ParsedSection`.
     Section,
+    // Windows are reserved for Phase 2 context assembly and are not emitted by the Phase 1 parser.
     Window,
     Scene,
 }

@@ -63,11 +63,11 @@ describe('applyPersistedMappingsToCandidates', () => {
     ]);
   });
 
-  it('ignores saved mappings for directories not present in the current scan', () => {
+  it('preserves saved mappings for directories not present in the current scan', () => {
     expect(
       applyPersistedMappingsToCandidates([candidate('drafts', null)], [
         persisted('archive', 'notes')
       ])
-    ).toEqual([draft('drafts', null, true)]);
+    ).toEqual([draft('drafts', null, true), draft('archive', 'notes', true)]);
   });
 });

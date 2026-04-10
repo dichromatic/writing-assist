@@ -5,8 +5,9 @@ mod parsing;
 mod projects;
 
 pub use context::{
-    context_source_allowed_by_default, ContextSource, ContextSourceActivationPolicy,
-    ContextSourceKind, ContextSourceReviewState, GuideKind, ReferenceKind,
+    context_source_allowed_by_default, context_source_included_by_default, ContextSource,
+    ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState, GuideKind,
+    ReferenceKind,
 };
 pub use conversation::ConversationMode;
 pub use documents::{
@@ -17,7 +18,7 @@ pub use parsing::{
     SectionBoundaryKind, SpanType,
 };
 pub use projects::{
-    validate_project_directory_mappings, ProjectConfig, ProjectConfigValidationError,
-    ProjectDirectoryMapping, ProjectDirectoryRole, ProjectImportCandidate,
-    ProjectImportSuggestionReason,
+    normalize_project_directory_mapping_path, validate_project_directory_mappings, ProjectConfig,
+    ProjectConfigValidationError, ProjectDirectoryMapping, ProjectDirectoryRole,
+    ProjectImportCandidate, ProjectImportSuggestionReason,
 };

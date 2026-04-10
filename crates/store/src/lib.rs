@@ -5,8 +5,8 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::{Row, SqlitePool};
 use thiserror::Error;
 use writing_assist_core::{
-    validate_project_directory_mappings, ProjectConfig, ProjectConfigValidationError,
-    ProjectDirectoryMapping, ProjectDirectoryRole,
+    normalize_project_directory_mapping_path, validate_project_directory_mappings, ProjectConfig,
+    ProjectConfigValidationError, ProjectDirectoryMapping, ProjectDirectoryRole,
 };
 
 const APP_STATE_DIRECTORY: &str = ".writing-assist";
@@ -106,6 +106,16 @@ pub async fn save_project_config(
 
     let normalized_root = normalize_project_root(project_root)?;
     let database_path = project_database_path(&normalized_root);
+    let normalized_mappings = directory_mappings
+        .iter()
+        .map(|mapping| {
+            Ok(ProjectDirectoryMapping {
+                path: normalize_project_directory_mapping_path(&mapping.path)?,
+                role: mapping.role.clone(),
+                enabled: mapping.enabled,
+            })
+        })
+        .collect::<Result<Vec<_>, StoreError>>()?;
 
     if let Some(parent) = database_path.parent() {
         fs::create_dir_all(parent)?;
@@ -135,7 +145,7 @@ pub async fn save_project_config(
         .execute(&mut *transaction)
         .await?;
 
-    for mapping in directory_mappings {
+    for mapping in &normalized_mappings {
         // Phase 1.4 persists the reviewed import configuration as the source of truth for later discovery.
         sqlx::query(
             "INSERT INTO project_directory_mappings (project_id, path, role, enabled) VALUES (?, ?, ?, ?)",
@@ -152,7 +162,7 @@ pub async fn save_project_config(
 
     Ok(ProjectConfig {
         root_path: normalized_root_string,
-        directory_mappings: directory_mappings.to_vec(),
+        directory_mappings: normalized_mappings,
     })
 }
 

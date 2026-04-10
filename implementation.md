@@ -62,7 +62,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 - Define stable persisted types:
   - `ProjectConfig`: root path, provider settings, guide settings, directory-role mappings
   - `ProjectDirectoryRole`: `primary_manuscript`, `reference`, `notes`, `ignore`
-  - `ProjectDirectoryMapping`: relative directory path, assigned role, enabled state
+  - `ProjectDirectoryMapping`: normalized safe project-relative directory path, assigned role, enabled state
   - `ProjectImportCandidate`: discovered directory path, suggested role, reason for suggestion
   - `ContextSource`: source document path, source kind, activation policy, review state
   - `ContextSourceKind`: tagged source taxonomy with `guide`, `reference`, and `note`
@@ -93,7 +93,17 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - app scans candidate directories under that root
   - UI prompts the user to assign roles to directories before indexing begins
   - exactly one directory must be assigned as `primary_manuscript`
+  - root-level Markdown projects are represented by a normalized `.` mapping
   - zero or more additional directories may be assigned as `reference` or `notes`
+- Validate directory mappings before persistence:
+  - reject empty mappings
+  - reject absolute paths
+  - reject parent-directory traversal such as `..`
+  - normalize equivalent paths such as `drafts/` to `drafts`
+  - reject duplicates after normalization
+- Discovery uses the most specific enabled mapping when mappings overlap, so a broad `.` mapping can coexist with a more specific `lore/` reference mapping.
+- Broad discovery skips hidden/app directories such as `.git` and `.writing-assist` unless a user explicitly maps one later.
+- Markdown file discovery supports common Markdown extensions case-insensitively: `.md`, `.markdown`, and `.mdown`.
 - Treat folder-name heuristics as suggestions only:
   - if `chapters/` exists, suggest `primary_manuscript`
   - if `world_context/` exists, suggest `reference`
@@ -117,6 +127,11 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - exact byte and character offsets
   - whitespace-normalized sidecar text for retrieval/comparison
   - section-boundary metadata showing file-start, heading, or scene-break boundaries
+- Treat parser-emitted `ParsedSpan` records as linear spans only:
+  - heading
+  - paragraph
+  - explicit scene-break marker
+- Treat sections, scenes, and future rolling windows as target categories for pass construction rather than assuming all of them are emitted as `ParsedSpan` entries.
 - Keep rolling edit windows as a later context-assembly concern rather than a Phase 1 parser responsibility.
 - Build these indexes:
   - metadata index
@@ -154,6 +169,11 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - `Analysis`: include selected guide/rubric plus relevant approved references; do not mutate text
   - `Editing`: include selected prose/style/rewrite guides and only references needed to preserve meaning/canon
   - `Ideation`: include selected guide plus broader approved references when the user asks for expansion
+- Apply context-source defaults through both semantic kind and state:
+  - `Pinned` and `Retrieved` sources can be included by default when mode policy allows them
+  - `ExplicitOnly` sources require explicit user selection
+  - `UserAuthored` and `Approved` sources can be included by default
+  - `PendingReview` and `Stale` sources are excluded by default
 - Prefer lexical/entity/fact retrieval over vector retrieval for names, canon, terminology, and continuity checks.
 - Require evidence-first outputs for critique and fact extraction.
 - Run validator passes for rewrite suggestions before they enter the draft layer when feasible.
@@ -180,10 +200,19 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - model prose/style/critique/rewrite guides as first-class selected context inputs
   - model story/world/character/timeline/terminology bibles as first-class approved reference inputs
   - define how each context source type is allowed into Analysis, Editing, and Ideation requests
+- Phase 1.10: Phase 1 hardening
+  - enforce safe normalized directory mappings
+  - support root-level manuscript files through a `.` mapping
+  - skip hidden/app directories during broad discovery
+  - preserve saved mappings not present in a candidate rescan
+  - clarify emitted parser span types versus pass target categories
+  - lift editor selection target state for Phase 2 chat/pass handoff
+  - gate default context-source inclusion by activation and review state
 - Phase 2: mode-aware chat and pass orchestration
   - add Analysis/Editing/Ideation chat modes
   - implement `SelectionTarget`, `PassRequest`, `PassResult`, and `ContextBundle`
-  - use context source taxonomy from Phase 1.9 in pass context policies
+  - model `SelectionTarget` across spans, sections, scenes, and future windows
+  - use context source taxonomy from Phase 1.9 plus activation/review gates from Phase 1.10 in pass context policies
   - connect chat UI to orchestrator
   - emit comments, idea cards, and draft changes by mode
 - Phase 3: reviewable memory and retrieval
@@ -205,12 +234,19 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 ## Test Plan
 
 - Import a sample project with arbitrary directory names and verify the app does not assume folder names as truth.
+- Import a sample project with root-level Markdown files and verify the `.` mapping discovers them safely.
+- Verify unsafe mapping paths such as absolute paths and `..` are rejected before persistence/discovery.
+- Verify overlapping mappings use the most specific mapping for classification.
+- Verify hidden/app directories are skipped during broad discovery from `.`.
 - Verify the import flow requires one `primary_manuscript` directory before indexing can proceed.
 - Verify heuristic suggestions only prefill the import UI and do not override user choices.
+- Verify saved mappings are preserved if a rescan does not currently return the same candidate directory.
 - Verify configured directory-role mappings persist and are reused on subsequent project opens.
 - Verify file discovery only indexes Markdown files from user-enabled mapped directories.
 - Verify guide/reference/note context source distinctions are preserved in pass request construction.
+- Verify context sources excluded by review state or activation policy do not enter context bundles by default.
 - Verify CodeMirror selection offsets map to parsed spans before pass construction.
+- Verify the selected document target is available to the parent workspace/chat boundary, not only inside the editor component.
 - Confirm paragraph/window anchors survive ordinary edits and remain stable enough for comments, chat attachment, and draft application.
 - Verify Analysis mode can discuss a selected paragraph and produce findings/comments without creating draft changes.
 - Verify Editing mode can produce bounded diffs only for the selected span/window and route them into the draft layer.

@@ -90,9 +90,32 @@ pub fn context_source_allowed_by_default(
     }
 }
 
+pub fn context_source_included_by_default(
+    mode: ConversationMode,
+    source: &ContextSource,
+) -> bool {
+    let activation_allows_default_use = matches!(
+        source.activation_policy,
+        ContextSourceActivationPolicy::Pinned | ContextSourceActivationPolicy::Retrieved
+    );
+    let review_allows_default_use = matches!(
+        source.review_state,
+        ContextSourceReviewState::UserAuthored | ContextSourceReviewState::Approved
+    );
+
+    // Phase 2 context assembly must gate kind-level defaults by review and activation state.
+    activation_allows_default_use
+        && review_allows_default_use
+        && context_source_allowed_by_default(mode, &source.kind)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{context_source_allowed_by_default, ContextSourceKind, GuideKind, ReferenceKind};
+    use super::{
+        context_source_allowed_by_default, context_source_included_by_default, ContextSource,
+        ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState, GuideKind,
+        ReferenceKind,
+    };
     use crate::conversation::ConversationMode;
 
     #[test]
@@ -166,6 +189,37 @@ mod tests {
         assert!(!context_source_allowed_by_default(
             ConversationMode::Ideation,
             &ContextSourceKind::Note
+        ));
+    }
+
+    #[test]
+    fn default_context_inclusion_respects_activation_and_review_state() {
+        let approved_pinned_guide = ContextSource {
+            path: "guides/prose.md".to_string(),
+            kind: ContextSourceKind::Guide(GuideKind::Prose),
+            activation_policy: ContextSourceActivationPolicy::Pinned,
+            review_state: ContextSourceReviewState::Approved,
+        };
+        let explicit_only_guide = ContextSource {
+            activation_policy: ContextSourceActivationPolicy::ExplicitOnly,
+            ..approved_pinned_guide.clone()
+        };
+        let stale_guide = ContextSource {
+            review_state: ContextSourceReviewState::Stale,
+            ..approved_pinned_guide.clone()
+        };
+
+        assert!(context_source_included_by_default(
+            ConversationMode::Editing,
+            &approved_pinned_guide
+        ));
+        assert!(!context_source_included_by_default(
+            ConversationMode::Editing,
+            &explicit_only_guide
+        ));
+        assert!(!context_source_included_by_default(
+            ConversationMode::Editing,
+            &stale_guide
         ));
     }
 }

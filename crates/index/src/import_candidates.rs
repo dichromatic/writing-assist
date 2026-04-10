@@ -6,6 +6,24 @@ use writing_assist_core::{
     ProjectDirectoryRole, ProjectImportCandidate, ProjectImportSuggestionReason,
 };
 
+use crate::project_files::{is_hidden_or_app_directory, is_supported_markdown_file};
+
+fn has_direct_markdown_files(directory: &Path) -> io::Result<bool> {
+    if !directory.exists() {
+        return Ok(false);
+    }
+
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+
+        if path.is_file() && is_supported_markdown_file(&path) {
+            return Ok(true);
+        }
+    }
+
+    Ok(false)
+}
+
 fn has_markdown_files(directory: &Path) -> io::Result<bool> {
     if !directory.exists() {
         return Ok(false);
@@ -15,11 +33,17 @@ fn has_markdown_files(directory: &Path) -> io::Result<bool> {
         let entry = entry?;
         let path = entry.path();
 
-        if path.is_dir() && has_markdown_files(&path)? {
-            return Ok(true);
+        if path.is_dir() {
+            if is_hidden_or_app_directory(&path) {
+                continue;
+            }
+
+            if has_markdown_files(&path)? {
+                return Ok(true);
+            }
         }
 
-        if path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+        if path.is_file() && is_supported_markdown_file(&path) {
             return Ok(true);
         }
     }
@@ -50,11 +74,20 @@ fn suggested_role_for_directory_name(
 pub fn discover_project_import_candidates(root: &Path) -> io::Result<Vec<ProjectImportCandidate>> {
     let mut candidates = Vec::new();
 
+    if has_direct_markdown_files(root)? {
+        candidates.push(ProjectImportCandidate {
+            path: ".".to_string(),
+            contains_markdown_files: true,
+            suggested_role: None,
+            suggestion_reasons: vec![ProjectImportSuggestionReason::ContainsMarkdownFiles],
+        });
+    }
+
     for entry in fs::read_dir(root)? {
         let entry = entry?;
         let path = entry.path();
 
-        if !path.is_dir() {
+        if !path.is_dir() || is_hidden_or_app_directory(&path) {
             continue;
         }
 

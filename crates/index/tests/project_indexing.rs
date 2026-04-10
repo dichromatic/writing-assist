@@ -87,6 +87,92 @@ fn ignores_unmapped_disabled_or_non_markdown_files() {
 }
 
 #[test]
+fn root_mapping_discovers_root_level_markdown_files() {
+    let root = unique_temp_dir();
+
+    write_file(&root.join("chapter 1.md"), "# Chapter 1");
+    write_file(&root.join("chapter 2.markdown"), "# Chapter 2");
+    write_file(&root.join("scratch.txt"), "ignored");
+
+    let documents = discover_project_documents(
+        &root,
+        &[mapping(".", ProjectDirectoryRole::PrimaryManuscript)],
+    )
+    .expect("project discovery should succeed");
+
+    let relative_paths: Vec<_> = documents
+        .iter()
+        .map(|document| {
+            document
+                .path
+                .strip_prefix(&root)
+                .expect("document path should be under root")
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+
+    assert_eq!(
+        relative_paths,
+        vec!["chapter 1.md".to_string(), "chapter 2.markdown".to_string()]
+    );
+    assert!(documents
+        .iter()
+        .all(|document| document.document_type == DocumentType::Manuscript));
+
+    fs::remove_dir_all(root).expect("temp test dir should be removed");
+}
+
+#[test]
+fn more_specific_child_mapping_overrides_root_mapping() {
+    let root = PathBuf::from("/tmp/project");
+    let mappings = vec![
+        mapping(".", ProjectDirectoryRole::PrimaryManuscript),
+        mapping("lore", ProjectDirectoryRole::Reference),
+    ];
+
+    assert_eq!(
+        classify_document_path(&root.join("chapter 1.md"), &root, &mappings),
+        Some(DocumentType::Manuscript)
+    );
+    assert_eq!(
+        classify_document_path(&root.join("lore/history.md"), &root, &mappings),
+        Some(DocumentType::Reference)
+    );
+}
+
+#[test]
+fn discovery_skips_hidden_app_directories() {
+    let root = unique_temp_dir();
+
+    write_file(&root.join("chapter 1.md"), "# Chapter 1");
+    write_file(&root.join(".writing-assist/state.md"), "# Internal state");
+    write_file(&root.join(".git/notes.md"), "# Git internals");
+
+    let documents = discover_project_documents(
+        &root,
+        &[mapping(".", ProjectDirectoryRole::PrimaryManuscript)],
+    )
+    .expect("project discovery should succeed");
+
+    let relative_paths: Vec<_> = documents
+        .iter()
+        .map(|document| {
+            document
+                .path
+                .strip_prefix(&root)
+                .expect("document path should be under root")
+                .to_string_lossy()
+                .to_string()
+        })
+        .collect();
+
+    assert_eq!(relative_paths, vec!["chapter 1.md".to_string()]);
+
+    fs::remove_dir_all(root).expect("temp test dir should be removed");
+}
+
+#[test]
 fn discovers_only_markdown_files_from_enabled_mapped_directories() {
     let root = unique_temp_dir();
 

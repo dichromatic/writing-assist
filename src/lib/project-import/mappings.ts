@@ -25,7 +25,7 @@ export function applyPersistedMappingsToCandidates(
   );
 
   // Saved mappings override heuristic suggestions, while unmapped candidates keep their scan-time defaults.
-  return candidates.map((candidate) => {
+  const mappedCandidates = candidates.map((candidate) => {
     const persistedMapping = persistedByPath.get(candidate.path);
 
     if (persistedMapping) {
@@ -42,4 +42,16 @@ export function applyPersistedMappingsToCandidates(
       enabled: candidate.suggested_role !== 'ignore'
     };
   });
+
+  const candidatePaths = new Set(candidates.map((candidate) => candidate.path));
+  const missingPersistedMappings = persistedMappings
+    .filter((mapping) => !candidatePaths.has(mapping.path))
+    .map((mapping) => ({
+      path: mapping.path,
+      role: mapping.role,
+      enabled: mapping.enabled
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path));
+
+  return [...mappedCandidates, ...missingPersistedMappings];
 }

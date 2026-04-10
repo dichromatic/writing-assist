@@ -8,6 +8,10 @@ export type ParsedSelection = {
   primarySpanOrdinal: number | null;
 };
 
+export type DocumentSelectionTarget = ParsedSelection & {
+  documentPath: string;
+};
+
 function overlapsSelection(span: ParsedSpan, startChar: number, endChar: number): boolean {
   return span.start_char < endChar && span.end_char > startChar;
 }
