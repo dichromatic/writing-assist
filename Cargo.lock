@@ -5780,11 +5780,13 @@ name = "writing-assist-store"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "sqlx",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uuid",
  "writing-assist-core",
 ]
 

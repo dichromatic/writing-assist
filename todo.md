@@ -772,6 +772,10 @@ Documentation:
 
 ### Phase 3.3: Memory persistence schema
 
+Status:
+
+- completed
+
 Deliverables:
 
 - SQLite schema for reviewable memory:
@@ -807,6 +811,10 @@ Behavior to test:
 Done when:
 
 - store can persist and retrieve reviewable memory independently of frontend UI
+
+Documentation:
+
+- `documentation/phase-3.3-memory-persistence-schema.md`
 
 ### Phase 3.4: Context source classification and knowledge rail state
 
@@ -1059,7 +1067,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 3.3 memory persistence schema.
+1. Start Phase 3.4 context source classification and knowledge rail state.
 2. Keep the new workspace-state model as the frontend target for future UI refactors.
 3. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
 4. Keep context-source review and the knowledge rail in Phase 3 scope.
