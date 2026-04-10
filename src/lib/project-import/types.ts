@@ -48,3 +48,61 @@ export type OpenedProject = {
   config: ProjectConfig;
   documents: ProjectDocumentEntry[];
 };
+
+export type SpanType = 'heading' | 'paragraph' | 'section' | 'window' | 'scene';
+
+export type SectionBoundaryKind = 'file_start' | 'heading' | 'scene_break';
+
+export type ParsedSpan = {
+  ordinal: number;
+  span_type: SpanType;
+  text: string;
+  normalized_text: string;
+  start_line: number;
+  end_line: number;
+  start_byte: number;
+  end_byte: number;
+  start_char: number;
+  end_char: number;
+};
+
+export type ParsedSection = {
+  ordinal: number;
+  text: string;
+  normalized_text: string;
+  boundary_kind: SectionBoundaryKind;
+  boundary_text: string | null;
+  start_line: number;
+  end_line: number;
+  start_byte: number;
+  end_byte: number;
+  start_char: number;
+  end_char: number;
+};
+
+export type ParsedScene = {
+  ordinal: number;
+  text: string;
+  normalized_text: string;
+  separator: string | null;
+  start_line: number;
+  end_line: number;
+  start_byte: number;
+  end_byte: number;
+  start_char: number;
+  end_char: number;
+  start_span_ordinal: number;
+  end_span_ordinal: number;
+};
+
+export type ParsedMarkdownDocument = {
+  spans: ParsedSpan[];
+  sections: ParsedSection[];
+  scenes: ParsedScene[];
+};
+
+export type LoadedDocument = {
+  document: ProjectDocumentEntry;
+  markdown: string;
+  parsed: ParsedMarkdownDocument;
+};

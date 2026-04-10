@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::parsing::ParsedMarkdownDocument;
 use crate::projects::ProjectConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -22,6 +23,15 @@ pub struct ProjectDocumentEntry {
 pub struct OpenedProject {
     pub config: ProjectConfig,
     pub documents: Vec<ProjectDocumentEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LoadedDocument {
+    pub document: ProjectDocumentEntry,
+    // Keep raw Markdown in the load payload so CodeMirror can render the exact source file content.
+    pub markdown: String,
+    // Parsed spans are sent alongside the raw text so later selection/comment UI can anchor to parser ranges.
+    pub parsed: ParsedMarkdownDocument,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

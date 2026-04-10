@@ -1,5 +1,6 @@
 import { isTauriRuntime } from '$lib/tauri/healthcheck';
 import type {
+  LoadedDocument,
   OpenedProject,
   PersistedProjectDirectoryMapping,
   ProjectConfig,
@@ -52,4 +53,21 @@ export async function openConfiguredProject(root: string): Promise<OpenedProject
 
   // Phase 1.5 uses the saved project config as the source of truth for reopening and discovery.
   return invoke<OpenedProject>('open_configured_project', { root });
+}
+
+export async function loadConfiguredProjectDocument(
+  root: string,
+  documentPath: string
+): Promise<LoadedDocument> {
+  if (!isTauriRuntime()) {
+    throw new Error('Loading a configured project document requires the Tauri desktop runtime.');
+  }
+
+  const { invoke } = await import('@tauri-apps/api/core');
+
+  // Phase 1.7 loads only documents that backend discovery returned for the saved project config.
+  return invoke<LoadedDocument>('load_configured_project_document', {
+    root,
+    documentPath
+  });
 }

@@ -4,7 +4,9 @@ mod parsing;
 mod projects;
 
 pub use conversation::ConversationMode;
-pub use documents::{DocumentRecord, DocumentType, OpenedProject, ProjectDocumentEntry, SpanRecord};
+pub use documents::{
+    DocumentRecord, DocumentType, LoadedDocument, OpenedProject, ProjectDocumentEntry, SpanRecord,
+};
 pub use parsing::{
     ParagraphParsingMode, ParsedMarkdownDocument, ParsedScene, ParsedSection, ParsedSpan,
     SectionBoundaryKind, SpanType,

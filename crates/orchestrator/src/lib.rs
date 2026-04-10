@@ -1,7 +1,8 @@
-use std::path::Path;
+use std::fs;
+use std::path::{Component, Path};
 
 use thiserror::Error;
-use writing_assist_core::{OpenedProject, ProjectDocumentEntry};
+use writing_assist_core::{LoadedDocument, OpenedProject, ProjectDocumentEntry};
 
 pub fn phase_zero_status() -> &'static str {
     "scaffolded"
@@ -17,6 +18,17 @@ pub enum OpenProjectError {
     NotConfigured,
     #[error("discovered document path was not relative to the saved project root: {0}")]
     NonRelativeDiscoveredPath(String),
+    #[error("document path must be a safe project-relative path: {0}")]
+    InvalidDocumentPath(String),
+    #[error("document was not found in the configured project discovery results: {0}")]
+    DocumentNotDiscovered(String),
+}
+
+fn is_safe_project_relative_path(path: &Path) -> bool {
+    !path.as_os_str().is_empty()
+        && path
+            .components()
+            .all(|component| matches!(component, Component::Normal(_)))
 }
 
 pub async fn open_configured_project(project_root: &Path) -> Result<OpenedProject, OpenProjectError> {
@@ -52,6 +64,42 @@ pub async fn open_configured_project(project_root: &Path) -> Result<OpenedProjec
     Ok(OpenedProject { config, documents })
 }
 
+pub async fn load_configured_project_document(
+    project_root: &Path,
+    document_path: &str,
+) -> Result<LoadedDocument, OpenProjectError> {
+    let requested_path = Path::new(document_path);
+
+    // Phase 1.7 only allows loading files from discovery results, so reject traversal before joining paths.
+    if !is_safe_project_relative_path(requested_path) {
+        return Err(OpenProjectError::InvalidDocumentPath(
+            document_path.to_string(),
+        ));
+    }
+
+    let opened_project = open_configured_project(project_root).await?;
+    let Some(document) = opened_project
+        .documents
+        .iter()
+        .find(|document| document.path == document_path)
+        .cloned()
+    else {
+        return Err(OpenProjectError::DocumentNotDiscovered(
+            document_path.to_string(),
+        ));
+    };
+
+    let markdown_path = Path::new(&opened_project.config.root_path).join(document_path);
+    let markdown = fs::read_to_string(markdown_path)?;
+    let parsed = writing_assist_index::parse_markdown_document(&markdown);
+
+    Ok(LoadedDocument {
+        document,
+        markdown,
+        parsed,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use std::fs;
@@ -60,7 +108,7 @@ mod tests {
     use tempfile::tempdir;
     use writing_assist_core::{DocumentType, ProjectDirectoryMapping, ProjectDirectoryRole};
 
-    use super::{open_configured_project, OpenProjectError};
+    use super::{load_configured_project_document, open_configured_project, OpenProjectError};
 
     fn mapping(path: &str, role: ProjectDirectoryRole) -> ProjectDirectoryMapping {
         ProjectDirectoryMapping {
@@ -119,5 +167,74 @@ mod tests {
             .expect_err("project should not open without saved config");
 
         assert!(matches!(error, OpenProjectError::NotConfigured));
+    }
+
+    #[tokio::test]
+    async fn loads_discovered_markdown_document_with_parsed_spans() {
+        let project_root = tempdir().expect("project root");
+
+        write_file(
+            &project_root.path().join("drafts/chapter 1.md"),
+            "# Chapter 1\n\nFirst paragraph.\n\n---\n\nSecond paragraph.",
+        );
+
+        writing_assist_store::save_project_config(
+            project_root.path(),
+            &[mapping("drafts", ProjectDirectoryRole::PrimaryManuscript)],
+        )
+        .await
+        .expect("save project config");
+
+        let loaded = load_configured_project_document(project_root.path(), "drafts/chapter 1.md")
+            .await
+            .expect("load configured document");
+
+        assert_eq!(loaded.document.path, "drafts/chapter 1.md");
+        assert_eq!(loaded.document.document_type, DocumentType::Manuscript);
+        assert_eq!(loaded.markdown, "# Chapter 1\n\nFirst paragraph.\n\n---\n\nSecond paragraph.");
+        assert_eq!(loaded.parsed.spans.len(), 4);
+        assert_eq!(loaded.parsed.sections.len(), 2);
+        assert_eq!(loaded.parsed.scenes.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn refuses_to_load_unmapped_documents() {
+        let project_root = tempdir().expect("project root");
+
+        write_file(&project_root.path().join("drafts/chapter 1.md"), "# Chapter 1");
+        write_file(&project_root.path().join("private/notes.md"), "# Hidden");
+
+        writing_assist_store::save_project_config(
+            project_root.path(),
+            &[mapping("drafts", ProjectDirectoryRole::PrimaryManuscript)],
+        )
+        .await
+        .expect("save project config");
+
+        let error = load_configured_project_document(project_root.path(), "private/notes.md")
+            .await
+            .expect_err("unmapped document should not load");
+
+        assert!(matches!(error, OpenProjectError::DocumentNotDiscovered(path) if path == "private/notes.md"));
+    }
+
+    #[tokio::test]
+    async fn refuses_to_load_paths_that_escape_the_project_root() {
+        let project_root = tempdir().expect("project root");
+
+        write_file(&project_root.path().join("drafts/chapter 1.md"), "# Chapter 1");
+
+        writing_assist_store::save_project_config(
+            project_root.path(),
+            &[mapping("drafts", ProjectDirectoryRole::PrimaryManuscript)],
+        )
+        .await
+        .expect("save project config");
+
+        let error = load_configured_project_document(project_root.path(), "../outside.md")
+            .await
+            .expect_err("path traversal should not load");
+
+        assert!(matches!(error, OpenProjectError::InvalidDocumentPath(path) if path == "../outside.md"));
     }
 }

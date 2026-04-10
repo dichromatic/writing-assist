@@ -1,13 +1,16 @@
 <script lang="ts">
+  import MarkdownEditor from '$lib/components/MarkdownEditor.svelte';
   import { applyPersistedMappingsToCandidates, toPersistedMappings } from '$lib/project-import/mappings';
   import { validateImportSelection } from '$lib/project-import/validation';
   import type {
+    LoadedDocument,
     OpenedProject,
     ProjectDirectoryMappingDraft,
     ProjectDirectoryRole,
     ProjectImportCandidate
   } from '$lib/project-import/types';
   import {
+    loadConfiguredProjectDocument,
     loadProjectImportConfiguration,
     openConfiguredProject,
     saveProjectImportConfiguration,
@@ -29,9 +32,12 @@
   let persistenceMessage = 'Import configuration has not been saved yet.';
   let projectState: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
   let projectMessage = 'No configured project is currently open.';
+  let documentLoadState: 'idle' | 'loading' | 'error' | 'ready' = 'idle';
+  let documentLoadMessage = 'Select a discovered document to load it into the editor.';
   let candidates: ProjectImportCandidate[] = [];
   let mappings: ProjectDirectoryMappingDraft[] = [];
   let openedProject: OpenedProject | null = null;
+  let loadedDocument: LoadedDocument | null = null;
   let selectionState = validateImportSelection(mappings);
 
   function resetMappings(nextCandidates: ProjectImportCandidate[]) {
@@ -74,6 +80,7 @@
         persistenceState = 'ready';
         persistenceMessage = 'No saved import configuration exists for this project root.';
         openedProject = null;
+        loadedDocument = null;
         projectState = 'idle';
         projectMessage = 'No configured project is currently open.';
         return;
@@ -112,12 +119,31 @@
 
     try {
       openedProject = await openConfiguredProject(root);
+      loadedDocument = null;
+      documentLoadState = 'idle';
+      documentLoadMessage = 'Select a discovered document to load it into the editor.';
       projectState = 'ready';
       projectMessage = `Opened configured project with ${openedProject.documents.length} discovered Markdown documents.`;
     } catch (error) {
       openedProject = null;
+      loadedDocument = null;
       projectState = 'error';
       projectMessage = error instanceof Error ? error.message : 'Opening configured project failed.';
+    }
+  }
+
+  async function loadDocument(documentPath: string) {
+    documentLoadState = 'loading';
+    documentLoadMessage = `Loading ${documentPath}...`;
+
+    try {
+      loadedDocument = await loadConfiguredProjectDocument(root, documentPath);
+      documentLoadState = 'ready';
+      documentLoadMessage = `Loaded ${loadedDocument.document.path}.`;
+    } catch (error) {
+      loadedDocument = null;
+      documentLoadState = 'error';
+      documentLoadMessage = error instanceof Error ? error.message : 'Loading document failed.';
     }
   }
 
@@ -228,11 +254,48 @@
         <div class="document-list">
           {#each openedProject.documents as document}
             <article class="document">
-              <h3>{document.path}</h3>
-              <p>{document.document_type}</p>
+              <div>
+                <h3>{document.path}</h3>
+                <p>{document.document_type}</p>
+              </div>
+              <button
+                type="button"
+                disabled={documentLoadState === 'loading'}
+                on:click={() => loadDocument(document.path)}
+              >
+                Load document
+              </button>
             </article>
           {/each}
         </div>
+      {/if}
+
+      <p class="message" data-state={documentLoadState}>{documentLoadMessage}</p>
+
+      {#if loadedDocument}
+        <article class="loaded-document">
+          <div class="loaded-header">
+            <div>
+              <p class="label">Phase 1.7</p>
+              <h3>{loadedDocument.document.path}</h3>
+            </div>
+            <dl class="parsed-summary">
+              <div>
+                <dt>Spans</dt>
+                <dd>{loadedDocument.parsed.spans.length}</dd>
+              </div>
+              <div>
+                <dt>Sections</dt>
+                <dd>{loadedDocument.parsed.sections.length}</dd>
+              </div>
+              <div>
+                <dt>Scenes</dt>
+                <dd>{loadedDocument.parsed.scenes.length}</dd>
+              </div>
+            </dl>
+          </div>
+          <MarkdownEditor value={loadedDocument.markdown} />
+        </article>
       {/if}
     </div>
   {/if}
@@ -374,11 +437,63 @@
     border: 1px solid var(--panel-border);
     border-radius: 14px;
     background: rgba(255, 255, 255, 0.02);
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: center;
+  }
+
+  .loaded-document {
+    display: grid;
+    gap: 1rem;
+    margin-top: 1rem;
+    padding: 1rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 18px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .loaded-header {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  .parsed-summary {
+    display: flex;
+    gap: 0.75rem;
+    margin: 0;
+  }
+
+  .parsed-summary div {
+    min-width: 4.5rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.03);
+  }
+
+  .parsed-summary dt,
+  .parsed-summary dd {
+    margin: 0;
+  }
+
+  .parsed-summary dt {
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+
+  .parsed-summary dd {
+    margin-top: 0.2rem;
+    font-weight: 700;
   }
 
   @media (max-width: 720px) {
     .controls,
-    .candidate-header {
+    .candidate-header,
+    .document,
+    .loaded-header {
       grid-template-columns: 1fr;
       display: grid;
     }
