@@ -2,6 +2,7 @@ mod chat;
 mod context;
 mod conversation;
 mod documents;
+mod memory;
 mod parsing;
 mod tasks;
 mod projects;
@@ -15,6 +16,10 @@ pub use context::{
 pub use conversation::ConversationMode;
 pub use documents::{
     DocumentRecord, DocumentType, LoadedDocument, OpenedProject, ProjectDocumentEntry, SpanRecord,
+};
+pub use memory::{
+    EntityCandidate, MemoryReviewState, MemorySourceReference, MemoryStalenessState,
+    ReviewableFact, ReviewableSummary,
 };
 pub use tasks::{
     AnalysisComment, ContextBundle, DraftChange, IdeaCard, TaskContractError, TaskOutput,

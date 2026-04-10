@@ -305,8 +305,8 @@ Transience rules:
   - `SpanRecord`: stable span ID, document ID, span type, ordinal, parent span, source range, text hash
   - `ChatThread`: mode, scope attachment, selected guides, created context policy
   - `DraftChange`: target span/region, original text, proposed text, diff, source task, state
-  - `ReviewableFact`: subject, predicate, object/value, source span, confidence, review state, stale state
-  - `ReviewableSummary`: scope, text, source spans, confidence, review state, stale state
+  - `ReviewableFact`: subject, predicate, object/value, source span, review state, stale state, optional confidence once extraction produces a defensible score
+  - `ReviewableSummary`: scope, text, source spans, review state, stale state, optional confidence once extraction produces a defensible score
   - `TaskRequest`: mode, task type, scope, allowed context sources, provider, guide set
   - `TaskResult`: comments, suggestions, extracted records, citations, confidence, validator outcome
   - `ContextBundle`: exact spans, guides, approved facts, approved summaries, semantic fallbacks used
@@ -412,6 +412,111 @@ Transience rules:
 - Run validator tasks for rewrite suggestions before they enter the draft layer when feasible.
 - Allow explicit uncertainty states such as `needs broader context` and `cannot determine`.
 
+### Phase 3 retrieval and memory scope
+
+Phase 3 introduces reviewable project memory and retrieval, but it should stay deterministic and review-gated before provider-generated extraction is added.
+
+Execution order:
+
+- define reviewable memory contracts in `core`
+- add deterministic entity extraction from parsed Markdown spans
+- persist reviewable memory and review/stale states in SQLite
+- add context-source classification and frontend knowledge-rail state
+- add deterministic fact/summary candidate scaffolding
+- add memory review UI and Tauri/store commands
+- add retrieval v1 and context inspector
+
+#### Reviewable memory contracts
+
+Core memory types should be provider-agnostic:
+
+- `EntityCandidate`
+- `ReviewableFact`
+- `ReviewableSummary`
+- `MemoryReviewState`
+- `MemoryStalenessState`
+- source document/span references
+
+Memory reuse rules:
+
+- pending memory is not reusable in task context
+- rejected memory is not reusable in task context
+- stale memory is not reusable in task context
+- approved memory remains source-linked
+- IDs are stable fields, not inferred from display text
+
+#### Deterministic extraction first
+
+The first extraction slice should not use LLM calls. It should produce conservative pending candidates only:
+
+- repeated proper nouns
+- capitalized names/phrases with noise controls
+- glossary-like or structured reference lines where present
+- document path and span anchors on every candidate
+
+Fact and summary candidate generation should start as scaffolding:
+
+- facts only from structured reference-like lines, not broad prose claims
+- summaries at document/section scope as pending records
+- no automatic approval
+- no provider-generated summaries until the review and persistence path is stable
+
+#### Persistence and staleness
+
+SQLite should store:
+
+- entity candidates
+- reviewable facts
+- reviewable summaries
+- source references
+- review states
+- stale states
+
+Store APIs should support:
+
+- saving pending candidates
+- listing pending/approved/stale records
+- approving and rejecting records
+- marking dependent records stale when source hashes change
+- querying only reusable memory for task context
+
+#### Knowledge rail and context-source state
+
+The knowledge rail should be the explicit frontend control surface for source selection:
+
+- guide toggles
+- reference toggles
+- note toggles
+- active context path state
+
+Task requests should pass active paths as `explicitly_selected_source_paths`. The backend must still apply task context selection policy, activation policy, and review-state gates. Frontend toggles are requests for inclusion, not authority to bypass memory review.
+
+#### Retrieval v1
+
+Retrieval should prefer deterministic, inspectable signals before vector fallback:
+
+- metadata retrieval
+- lexical retrieval over parser-normalized text
+- approved entity/fact/summary retrieval
+- vector retrieval abstraction only, with concrete embeddings deferred if needed
+
+Retrieval tests should verify:
+
+- pending/rejected/stale memory is excluded
+- lexical/entity/fact matches rank ahead of vector fallbacks for names, canon, and terminology
+- context inspector shows the exact selected context for a task
+
+#### Context inspector and anchors
+
+The context inspector should show:
+
+- included context sources
+- excluded context sources and exclusion reasons where available
+- approved memory records used
+- target spans and source anchors
+
+Thread/editor anchors remain session-local until durable span IDs or revalidated anchors exist. Phase 4 will own stale-anchor updates after accepted draft mutations.
+
 ### Implementation phases
 
 - Phase 0: workspace setup
@@ -450,11 +555,14 @@ Transience rules:
   - emit comments, idea cards, and draft changes by mode
   - define the Writer's IDE frontend workspace architecture before locking in the chat-panel layout
 - Phase 3: reviewable memory and retrieval
-  - add entities, candidate facts, candidate summaries
+  - define reviewable memory contracts
+  - add deterministic entity extraction
+  - persist memory review and stale states
+  - add context-source classification and knowledge rail state
+  - add deterministic fact and summary candidate scaffolding
   - add memory review UI and approval workflow
-  - add the knowledge rail and context-source picker
-  - add hybrid retrieval and context inspector
-  - add stale tracking
+  - add retrieval v1 and context inspector
+  - keep vector retrieval optional behind an abstraction
 - Phase 4: diffs, validation, and consistency
   - diff review and accept/reject flow
   - render draft changes as CodeMirror review overlays

@@ -675,73 +675,272 @@ Documentation:
 
 Goal:
 
-- add reviewable project memory and hybrid retrieval
+- add reviewable project memory, context-source controls, and deterministic retrieval inputs
+- keep all generated memory review-gated before it can influence task context
+- avoid provider-dependent extraction until the storage/contracts/review flow is stable
 
-### Phase 3.1: Entity extraction
+### Phase 3.1: Reviewable memory contracts
+
+Status:
+
+- completed
 
 Deliverables:
 
-- extract candidate entities from imported docs
-- persist candidates
+- core types for:
+  - `EntityCandidate`
+  - `ReviewableFact`
+  - `ReviewableSummary`
+  - `MemoryReviewState`
+  - `MemoryStalenessState`
+  - source span/document references
+- validation rules for reviewable memory:
+  - pending memory is not reusable
+  - rejected memory is not reusable
+  - stale memory is not reusable
+  - approved memory remains source-linked
+- serialization tests for frontend/Tauri wire compatibility
+
+Out of scope:
+
+- LLM extraction
+- database persistence
+- frontend review UI
+- retrieval ranking
 
 TDD applies:
 
 - yes
 
-### Phase 3.2: Fact and summary candidates
+Behavior to test:
+
+- pending/rejected/stale records are excluded from reusable memory
+- approved records preserve source document path and span anchors
+- entity/fact/summary IDs are stable fields, not inferred from display text
+- review state and stale state serialize in snake_case
+
+Done when:
+
+- `core` can represent reviewable memory without depending on provider/Rig types
+
+Documentation:
+
+- `documentation/phase-3.1-reviewable-memory-contracts.md`
+
+### Phase 3.2: Deterministic entity extraction spike
 
 Deliverables:
 
-- candidate facts
-- candidate summaries
-- review state and stale state
+- deterministic local extractor for obvious entity candidates from parsed Markdown spans
+- extraction limited to imported documents and parsed spans
+- output as pending `EntityCandidate` records with source anchors
+- conservative heuristics only:
+  - capitalized names/phrases
+  - repeated proper nouns
+  - glossary-like lines if present
+
+Out of scope:
+
+- LLM extraction
+- fact claims
+- summaries
+- entity merging beyond deterministic exact/normalized matching
+- persistence
 
 TDD applies:
 
 - yes
 
-### Phase 3.3: Memory review UI
+Behavior to test:
+
+- extractor emits candidates with document path and span ordinal
+- repeated entities deduplicate deterministically
+- ordinary sentence capitalization does not create noisy single-use entities where avoidable
+- extraction order is stable
+
+Done when:
+
+- the index crate can produce pending entity candidates from a loaded parsed document
+
+### Phase 3.3: Memory persistence schema
 
 Deliverables:
 
-- approve/reject summaries
-- approve/reject facts
-- knowledge rail view for guide/reference/note source toggles
-- active context paths passed into task requests as explicit source selections
+- SQLite schema for reviewable memory:
+  - entity candidates
+  - reviewable facts
+  - reviewable summaries
+  - source references
+  - review and stale states
+- store APIs for:
+  - save pending candidates
+  - list pending/approved/stale records
+  - approve/reject memory records
+  - mark records stale when source hashes change
+
+Out of scope:
+
+- frontend review UI
+- LLM extraction
+- vector indexes
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- pending records persist and reload
+- approve/reject transitions persist
+- stale records are excluded from reusable memory queries
+- source references survive round trip
+- duplicate candidate handling is deterministic
+
+Done when:
+
+- store can persist and retrieve reviewable memory independently of frontend UI
+
+### Phase 3.4: Context source classification and knowledge rail state
+
+Deliverables:
+
+- document-level context-source classification helpers for:
+  - guides
+  - references
+  - notes
+- frontend `KnowledgeRail` state model for active context paths
+- task request builder accepts active context paths and sends them as `explicitly_selected_source_paths`
+- UI planning for guide/reference/note toggles, but minimal rendering only if needed to validate data flow
+
+Out of scope:
+
+- fact/summary review UI
+- semantic retrieval
+- vector search
+- final rail visual design
+
+TDD applies:
+
+- yes for classification and request payload behavior
+- partial for frontend rail state
+
+Behavior to test:
+
+- prose/style/critique/rewrite documents classify as guide sources when explicitly marked or confidently named
+- story/world/character/timeline/terminology documents classify as reference sources when explicitly marked or confidently named
+- ambiguous files remain custom/unclassified instead of guessed aggressively
+- active context paths flow into task requests without bypassing backend review-state gates
+
+Done when:
+
+- selected guide/reference/note context can be represented in frontend state and included in task request payloads
+
+### Phase 3.5: Fact and summary candidate generation
+
+Deliverables:
+
+- deterministic summary candidate scaffolding for document/section scope
+- deterministic fact candidate scaffolding for structured reference-like lines
+- all generated records start as pending review
+- source references include document path and span/section anchors where available
+
+Out of scope:
+
+- provider-generated summaries
+- broad claim extraction from prose
+- automatic approval
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- generated facts/summaries are pending by default
+- generated records include source references
+- stale or rejected records are not returned for task context
+- extractor avoids inventing facts from ordinary manuscript prose
+
+Done when:
+
+- fact and summary records can enter the review queue safely without becoming reusable memory
+
+### Phase 3.6: Memory review UI
+
+Deliverables:
+
+- review UI for:
+  - entity candidates
+  - facts
+  - summaries
+- approve/reject controls through Tauri/store commands
+- visible stale state
+- no automatic use of pending memory in task context
+
+Out of scope:
+
+- polished final visual design
+- bulk merge UX
+- provider extraction
 
 TDD applies:
 
 - partial
 
-### Phase 3.4: Hybrid retrieval
+Behavior to test:
+
+- UI calls review commands with stable record IDs
+- approved records become available to reusable-memory queries
+- rejected records stay hidden from reusable-memory queries
+- stale records remain visible but excluded from task context
+
+Done when:
+
+- user can review generated memory before it is allowed into retrieval/context selection
+
+### Phase 3.7: Retrieval v1 and context inspector
 
 Deliverables:
 
 - metadata retrieval
-- lexical retrieval
-- fact/entity retrieval
-- vector retrieval abstraction
+- lexical retrieval over parsed normalized text
+- approved entity/fact/summary retrieval
+- vector retrieval abstraction only, with implementation deferred if needed
+- context inspector showing exact included/excluded sources and memory records for a task
+- thread-local anchor display in the intelligence hub
+
+Out of scope:
+
+- production-grade embeddings
+- provider calls
+- automatic draft mutation
 
 TDD applies:
 
-- yes
+- yes for retrieval ranking and memory gating
+- partial for context inspector UI
 
-### Phase 3.5: Context inspector and anchor display
+Behavior to test:
 
-Deliverables:
+- retrieval excludes pending/rejected/stale memory
+- lexical/entity/fact matches rank ahead of vector fallbacks for names and canon terms
+- context inspector displays the exact context bundle used by the task
+- anchor display uses session-local anchors and marks stale anchors once Phase 4 mutations exist
 
-- show the exact context bundle used for each task
-- render task/chat output links back to editor spans
-- show thread-local anchor state in the intelligence hub
+Done when:
 
-TDD applies:
-
-- partial
+- approved memory can be used in policy-gated context selection and inspected after a task
 
 ### Phase 3 completion criteria
 
-- approved memory can be reused in context bundles
-- stale memory is excluded until refreshed
+- reviewable memory contracts exist in `core`
+- deterministic extraction can produce pending entity/fact/summary candidates
+- memory records persist with source links, review state, and stale state
+- pending/rejected/stale memory is excluded from reusable context
+- approved memory can be reused in policy-gated context selection
+- the knowledge rail can pass explicit active context paths into task requests
+- the context inspector can show the exact context used for a task
+- vector retrieval remains optional behind an abstraction, not a blocker for Phase 3
 
 ## Phase 4
 
@@ -852,7 +1051,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 3.1 entity extraction planning and contracts.
+1. Start Phase 3.2 deterministic entity extraction.
 2. Keep the new workspace-state model as the frontend target for future UI refactors.
 3. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
 4. Keep context-source review and the knowledge rail in Phase 3 scope.
