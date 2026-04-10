@@ -42,6 +42,31 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 - Use `SvelteKit` as the frontend framework inside a Tauri desktop shell.
 - Use `CodeMirror` as the v1 editor because Markdown files are the primary source format and paragraph/window diffs map naturally to text editing.
 - Keep the editor integration behind an internal editor abstraction so a later `ProseMirror`/`Tiptap` frontend can replace the editing surface without changing backend contracts.
+- Treat the current Phase 2 `ModeAwareChatPanel` as a prototype task surface, not the final locked frontend architecture.
+- Move toward a `WriterWorkspace` shell rather than a side-chat wrapper:
+  - project tree and document navigation
+  - primary manuscript editor pane
+  - optional reference editor panes for bibles, guides, outlines, and notes
+  - intelligence hub for mode-aware chat, task outputs, context inspection, and thread anchors
+  - knowledge rail for guide/reference/note context controls
+  - draft review layer rendered over editor content
+- Track focus and selection through explicit workspace state:
+  - `focusedPaneId`
+  - a selection registry keyed by pane ID
+  - a derived `activeTaskTarget` that becomes the default input for `TaskRequest` construction
+- Keep multi-pane layout pragmatic at first:
+  - support a small set of fixed or lightly configurable layouts before building a full window manager
+  - support pinning project files into reference panes once the pane registry exists
+- Treat early span ordinal anchors as session-local:
+  - use document path, character offsets, and span ordinals in Phase 2
+  - add document content hashes and revision metadata before relying on anchors across edits
+  - add durable span IDs or revalidated anchor records before accepting edits changes target text
+- Render `DraftChange` output as non-destructive review UI:
+  - Phase 2 can display suggestions
+  - Phase 4 owns CodeMirror decoration overlays, accept/reject commands, filesystem mutation, and stale anchor handling
+- Make the knowledge rail the explicit control surface for context sources:
+  - guide/reference/note toggles should feed `explicitly_selected_source_paths`
+  - backend task context selection must still apply mode policy, activation policy, and review-state gates
 - Implement frontend modules for:
   - project/file navigation
   - Markdown editor with character selection mapped to parsed spans
@@ -51,6 +76,203 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - diff review and accept/reject flow
   - context inspector showing exact retrieved context
   - memory review UI for facts and summaries
+
+### Frontend workspace architecture spec
+
+The target frontend is a Writer's IDE, not a document editor with a side-chat wrapper. It should coordinate editor state, context controls, task execution, draft review, and chat references through explicit workspace state.
+
+#### Workspace shell
+
+The top-level UI should move toward a `WriterWorkspace` shell with these primary regions:
+
+- project tree and document navigation
+- primary manuscript editor pane
+- optional reference editor panes for bibles, guides, outlines, and notes
+- intelligence hub for chat, task outputs, context inspection, and thread anchors
+- knowledge rail for guide/reference/note context controls
+- draft review layer rendered over editor content
+
+Likely component/module split:
+
+```txt
+src/lib/workspace/
+  WriterWorkspace.svelte
+  workspaceState.ts
+  paneRegistry.ts
+  selectionRegistry.ts
+  draftReviewState.ts
+  contextSourceState.ts
+  anchorState.ts
+
+src/lib/components/
+  PrimaryEditorPane.svelte
+  ReferenceEditorPane.svelte
+  IntelligenceHub.svelte
+  KnowledgeRail.svelte
+  DraftChangeOverlay.svelte
+```
+
+The exact file names can change during implementation, but the responsibility boundaries should remain clear.
+
+#### Focus and selection state
+
+The frontend needs global focus and selection state because model tasks can originate from any editor pane.
+
+Recommended state shape:
+
+```ts
+type PaneId = string;
+
+type PaneSelection = {
+  paneId: PaneId;
+  documentPath: string;
+  selectedText: string;
+  startChar: number;
+  endChar: number;
+  overlappingSpanOrdinals: number[];
+  primarySpanOrdinal: number | null;
+  documentContentHash?: string;
+};
+
+type ActiveTaskTarget = {
+  sourcePaneId: PaneId;
+  documentPath: string;
+  selectedText: string;
+  startChar: number;
+  endChar: number;
+  anchors: Array<{ kind: 'span' | 'section' | 'scene' | 'window'; ordinal: number }>;
+  documentContentHash?: string;
+};
+
+type WorkspaceState = {
+  focusedPaneId: PaneId | null;
+  activeSelectionPaneId: PaneId | null;
+  panes: WorkspacePane[];
+  selectionByPaneId: Record<PaneId, PaneSelection>;
+};
+```
+
+`focusedPaneId` tracks general UI focus. `activeSelectionPaneId` tracks the editor pane that last produced a taskable selection. This distinction is required because the user will commonly select manuscript text and then move focus into the intelligence hub to run a task.
+
+`activeTaskTarget` should be derived from the latest active editor selection, not from generic UI focus. The UI should return no task target if no editor selection has ever been activated rather than guessing from an arbitrary pane.
+
+#### Span identity and stability
+
+Early frontend anchors can use document path, character offsets, and parsed span ordinals, but those anchors are only session-local. Span ordinals can shift after edits.
+
+Anchor stability should progress in phases:
+
+- Phase 2: use document path, character offsets, and span ordinals
+- Phase 3: include content hashes and parsed document revision metadata in targets
+- Phase 4: introduce durable span IDs or revalidated anchor records before accepted edits mutate target text
+
+Multi-span selections must preserve all overlapping span ordinals instead of collapsing to only the primary span.
+
+#### Multi-pane layout
+
+The workspace should support these pane types:
+
+```ts
+type WorkspacePane =
+  | { paneType: 'primary_editor'; paneId: PaneId; documentPath: string | null }
+  | { paneType: 'reference_editor'; paneId: PaneId; documentPath: string }
+  | { paneType: 'intelligence_hub'; paneId: PaneId }
+  | { paneType: 'knowledge_rail'; paneId: PaneId };
+```
+
+The first layout implementation should stay pragmatic. A fixed grid or a small set of layouts is preferable to building a full window manager early.
+
+A project-tree `Pin to reference pane` action should create or reuse a `ReferenceEditor` pane with the chosen `documentPath`.
+
+#### Intelligence hub
+
+The intelligence hub should absorb the current `ModeAwareChatPanel` responsibilities and expand them:
+
+- mode switcher: `Analysis`, `Editing`, `Ideation`
+- current target display
+- task input and run controls
+- task output rendering
+- context inspector for the exact `ContextBundle`
+- links back to editor spans
+- thread-local anchor list
+
+The hub should not own editor selection state. It reads `activeTaskTarget` and sends task requests through the shared request builder and Tauri wrapper.
+
+#### Draft review layer
+
+Editing mode returns `DraftChange` objects. These should eventually be rendered non-destructively in CodeMirror with decorations:
+
+- use CodeMirror 6 `Decoration.mark` to style the original target range
+- use `Decoration.widget` to insert a review card near the target range
+- show original text as dimmed or struck through
+- show proposed text as a highlighted suggestion block
+- provide `Accept` and `Reject` actions in the widget
+
+Draft lifecycle:
+
+1. `TaskResult` returns a `DraftChange`
+2. frontend matches the draft target to an open editor document
+3. editor enters a visible review state for that draft
+4. `Reject` clears the session draft overlay
+5. `Accept` is deferred to Phase 4, where a backend command applies the mutation and refreshes document state
+
+Scope boundary:
+
+- Phase 2 can display draft suggestions
+- Phase 3 can add context and memory that improve suggestions
+- Phase 4 owns file mutation, accept/reject persistence, and revalidation after edits
+
+#### Knowledge rail
+
+The knowledge rail should make project context an explicit control surface.
+
+Initial rail contents:
+
+- guide sources: prose guideline, style guide, critique rubric, rewrite guide, custom guide
+- reference sources: story summary, world summary, character bible, timeline, terminology, research, custom reference
+- notes: explicit-only scratch notes and loose ideation files
+
+Recommended state:
+
+```ts
+type ActiveContextState = {
+  activeContextPaths: Set<string>;
+};
+```
+
+Task requests should pass active context paths as `explicitly_selected_source_paths`. The backend should still apply mode-specific policy, activation policy, and review-state gates rather than blindly including every frontend toggle.
+
+Fact and summary review belongs in Phase 3 because it depends on persisted `ReviewableFact` and `ReviewableSummary` records.
+
+#### Transient anchor system
+
+Anchors should connect chat messages, task outputs, and editor spans within the active thread.
+
+Chat to editor:
+
+- model/task output contains target anchors
+- rendered output exposes a clickable link or chip
+- clicking updates `activeTaskTarget`
+- focused editor pane scrolls to the matching span or selection range
+
+Editor to chat:
+
+- editor gutter markers represent spans referenced in the active `ChatThread`
+- clicking a marker scrolls the intelligence hub to the relevant message or task output
+
+Transience rules:
+
+- anchors are session/thread-local until durable span IDs exist
+- accepting a draft change should mark related anchors stale
+- stale anchors should be dimmed and should require revalidation before reuse as task targets
+
+#### Frontend contract rules
+
+- convert selection state through one `SelectionTarget` adapter path
+- send task execution through one Tauri wrapper path
+- pass user-selected context paths explicitly
+- never mutate manuscript files from Phase 2 UI code
+- keep provider and Rig-specific details out of frontend task state
 
 ### Backend architecture
 
@@ -143,7 +365,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - paragraph
   - explicit scene-break marker
 - Treat sections, scenes, and future rolling windows as target categories for task construction rather than assuming all of them are emitted as `ParsedSpan` entries.
-- Keep rolling edit windows as a later context-assembly concern rather than a Phase 1 parser responsibility.
+- Keep rolling edit windows as a later task context selection concern rather than a Phase 1 parser responsibility.
 - Build these indexes:
   - metadata index
   - SQLite FTS lexical index
@@ -226,14 +448,18 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - use context source taxonomy from Phase 1.9 plus activation/review gates from Phase 1.10 in task context policies
   - connect chat UI to orchestrator
   - emit comments, idea cards, and draft changes by mode
+  - define the Writer's IDE frontend workspace architecture before locking in the chat-panel layout
 - Phase 3: reviewable memory and retrieval
   - add entities, candidate facts, candidate summaries
   - add memory review UI and approval workflow
+  - add the knowledge rail and context-source picker
   - add hybrid retrieval and context inspector
   - add stale tracking
 - Phase 4: diffs, validation, and consistency
   - diff review and accept/reject flow
+  - render draft changes as CodeMirror review overlays
   - apply accepted changes back to Markdown files
+  - mark affected anchors stale after accepted changes
   - validator task for rewrites
   - canon/terminology consistency checks using approved memory
 - Phase 5: provider polish

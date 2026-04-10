@@ -487,7 +487,7 @@ Behavior to test:
 
 - a new thread stores its mode and initial target scope
 - mode does not silently change when selection changes
-- selected context source paths are preserved separately from assembled context bundles
+- selected context source paths are preserved separately from `ContextBundle` values selected for tasks
 - chat messages append in order
 
 Done when:
@@ -630,8 +630,16 @@ Documentation:
 
 ### Phase 2.8: Phase 2 hardening sweep
 
+Status:
+
+- completed
+
 Deliverables:
 
+- move the frontend workspace architecture spec into `implementation.md` before locking in the current chat-panel prototype
+- define the intended `WriterWorkspace`, `IntelligenceHub`, `KnowledgeRail`, and editor pane responsibilities
+- document global focus and selection state requirements for multi-pane task targeting
+- document why span ordinal anchors are session-local until durable span IDs or revalidated anchors exist
 - verify task terminology is consistent across code, UI, and planning docs
 - verify no frontend path bypasses the `SelectionTarget` adapter
 - verify no model/provider dependency leaked into `core`
@@ -646,13 +654,18 @@ TDD applies:
 Done when:
 
 - Phase 2 can hand off to Phase 3 retrieval/memory without hidden provider dependencies or unsafe edit paths
+- frontend architecture is explicit enough to guide the next UI refactor without prematurely implementing Phase 3/4 features
+
+Documentation:
+
+- `documentation/phase-2.8-phase-2-hardening-sweep.md`
 
 ### Phase 2 completion criteria
 
 - user can start or simulate a thread in each mode
 - frontend selection state is converted through the `SelectionTarget` adapter
 - backend receives structured `TaskRequest` values
-- local `ContextBundle` assembly is deterministic and policy-gated
+- local `ContextBundle` selection is deterministic and policy-gated
 - outputs are mode-correct and validated through `TaskResult::new`
 - editing outputs are suggestions only; no manuscript files are mutated in Phase 2
 - browser demo remains usable without a desktop backend
@@ -693,6 +706,8 @@ Deliverables:
 
 - approve/reject summaries
 - approve/reject facts
+- knowledge rail view for guide/reference/note source toggles
+- active context paths passed into task requests as explicit source selections
 
 TDD applies:
 
@@ -710,6 +725,18 @@ Deliverables:
 TDD applies:
 
 - yes
+
+### Phase 3.5: Context inspector and anchor display
+
+Deliverables:
+
+- show the exact context bundle used for each task
+- render task/chat output links back to editor spans
+- show thread-local anchor state in the intelligence hub
+
+TDD applies:
+
+- partial
 
 ### Phase 3 completion criteria
 
@@ -729,6 +756,7 @@ Deliverables:
 - `DraftChange`
 - draft lifecycle states
 - diff payload storage
+- frontend session state for unresolved draft overlays
 
 TDD applies:
 
@@ -738,8 +766,10 @@ TDD applies:
 
 Deliverables:
 
+- CodeMirror decoration overlays for draft changes
 - accept/reject draft changes
 - apply accepted edits to Markdown files
+- stale related chat/editor anchors after accepted edits
 
 TDD applies:
 
@@ -822,7 +852,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 2.8 Phase 2 hardening sweep.
-2. Verify task terminology is consistent across code, UI, and planning docs.
-3. Verify no frontend path bypasses the `SelectionTarget` adapter.
-4. Confirm Phase 2 still has no provider dependency or manuscript mutation path.
+1. Start Phase 3.1 entity extraction planning and contracts.
+2. Keep the new workspace-state model as the frontend target for future UI refactors.
+3. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
+4. Keep context-source review and the knowledge rail in Phase 3 scope.

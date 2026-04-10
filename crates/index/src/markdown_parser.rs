@@ -16,7 +16,7 @@ fn normalize_whitespace(text: &str) -> String {
 
 pub fn supported_span_types() -> [SpanType; 3] {
     // The parser emits concrete linear spans only; sections/scenes are separate target collections,
-    // and rolling windows remain a later context-assembly concern.
+    // and rolling windows remain a later task context selection concern.
     [SpanType::Heading, SpanType::Paragraph, SpanType::Scene]
 }
 

@@ -1,4 +1,4 @@
-import type { TaskSelectionTarget } from '$lib/project-import/selection';
+import type { TaskSelectionTarget } from '$lib/task/targets';
 
 export type ConversationMode = 'analysis' | 'editing' | 'ideation';
 

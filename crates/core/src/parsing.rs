@@ -52,7 +52,7 @@ pub struct ParsedSection {
     pub text: String,
     // Section normalization keeps paragraph boundaries searchable without mutating the stored Markdown text.
     pub normalized_text: String,
-    // Section boundary metadata lets later prompt assembly distinguish file-start context from heading/scene transitions.
+    // Section boundary metadata lets later task context selection distinguish file-start context from heading/scene transitions.
     pub boundary_kind: SectionBoundaryKind,
     pub boundary_text: Option<String>,
     pub start_line: usize,

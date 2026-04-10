@@ -124,7 +124,7 @@ impl SelectionTarget {
     }
 }
 
-/// Deterministic local context assembled before retrieval/model-provider code exists.
+/// Deterministic context selected for a task before retrieval or provider code exists.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ContextBundle {
     pub target: Option<SelectionTarget>,
