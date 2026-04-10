@@ -371,17 +371,64 @@ Documentation:
 
 - `documentation/phase-2.1-mode-aware-llm-task-contracts.md`
 
-### Phase 2.2: Context bundle assembly stub
+### Phase 2.2: Selection target adapter
+
+Status:
+
+- completed
 
 Deliverables:
 
-- build a local `ContextBundle` from:
-  - selected document path
-  - selected text
-  - selected span ordinals
-  - selected/pinned context sources
-- no embeddings or LLM calls yet
-- no automatic retrieval yet
+- convert the frontend `DocumentSelectionTarget` shape into the core `SelectionTarget` contract
+- preserve document path, selected text, character range, and overlapping span ordinals
+- map span ordinals into `TargetAnchor::span`
+- leave section, scene, and window anchors empty until the frontend has enough metadata to map them correctly
+- reject or surface invalid targets before constructing a `TaskRequest`
+
+Out of scope:
+
+- automatic window expansion
+- section/scene inference from span ordinals
+- retrieval, embeddings, or model calls
+
+TDD applies:
+
+- yes for adapter behavior and invalid-target handling
+
+Behavior to test:
+
+- empty selections do not create executable task targets
+- reversed or invalid character ranges are normalized or rejected consistently
+- span ordinals become span anchors without guessing section/scene/window anchors
+- adapter output can be passed into `TaskRequest::new`
+
+Done when:
+
+- the app has one explicit conversion path from UI selection state to core task target state
+
+Documentation:
+
+- `documentation/phase-2.2-selection-target-adapter.md`
+
+### Phase 2.3: Local context bundle assembly
+
+Deliverables:
+
+- build a deterministic `ContextBundle` from:
+  - `ConversationMode`
+  - `SelectionTarget`
+  - available project context sources
+  - explicitly selected/pinned context source paths
+- apply `context_source_included_by_default` rather than duplicating source-policy logic
+- preserve included and excluded source lists for later context-inspector UI
+- keep all assembly local and deterministic
+
+Out of scope:
+
+- automatic semantic retrieval
+- vector search
+- summary/fact memory
+- token-budget packing
 
 TDD applies:
 
@@ -389,39 +436,128 @@ TDD applies:
 
 Behavior to test:
 
-- selected text and span ordinals are preserved
-- allowed context sources are included according to mode policy
-- disallowed/default-excluded notes stay out unless explicitly selected
+- selected target is preserved in the bundle
+- pinned/approved guides and references enter according to mode policy
+- notes remain excluded by default
+- explicitly selected user-authored or approved notes can enter
+- pending/stale sources remain excluded even if selected
 
 Done when:
 
-- orchestrator can construct a deterministic context bundle from local app state
+- orchestrator-facing code can construct a `ContextBundle` without depending on provider/Rig types or retrieval crates
 
-### Phase 2.3: Chat thread model
+### Phase 2.4: Chat thread model
 
 Deliverables:
 
 - `ChatThread`
-- thread attachment to selection/document/project scope
-- stored mode and context policy per thread
+- stable thread ID
+- stored `ConversationMode`
+- current scope attachment:
+  - selection
+  - document
+  - project
+- message list with author role and timestamp
+- selected guide/reference/note source paths captured as thread state
+- lightweight persistence plan or explicit decision to keep threads in-memory until a later phase
+
+Out of scope:
+
+- streaming
+- model-provider transcripts
+- long-term conversation compaction
 
 TDD applies:
 
-- yes
+- yes for thread construction, scope attachment, and mode persistence
 
-### Phase 2.4: Orchestrator path
+Behavior to test:
+
+- a new thread stores its mode and initial target scope
+- mode does not silently change when selection changes
+- selected context source paths are preserved separately from assembled context bundles
+- chat messages append in order
+
+Done when:
+
+- a thread can be created before task execution and can carry enough state to reproduce the local task request
+
+### Phase 2.5: Deterministic task runner stub
 
 Deliverables:
 
-- route frontend requests into mode-aware task execution
-- basic provider stub path using the existing healthcheck-style bridge
-- return deterministic placeholder outputs before real model calls
+- orchestrator function that accepts:
+  - `ConversationMode`
+  - `TaskType`
+  - `SelectionTarget`
+  - context source candidates
+  - explicit context source selections
+- construct `ContextBundle`
+- construct `TaskRequest`
+- return deterministic `TaskResult` placeholder outputs by mode:
+  - `Analysis`: one `AnalysisComment`
+  - `Editing`: one bounded `DraftChange`
+  - `Ideation`: one `IdeaCard`
+- use the existing mode constraints in `TaskResult::new`
+- keep provider/Rig integration out of this phase slice
+
+Out of scope:
+
+- actual prompt construction
+- network calls
+- streaming responses
+- draft persistence or file mutation
 
 TDD applies:
 
 - yes
 
-### Phase 2.5: Frontend mode-aware chat UI
+Behavior to test:
+
+- analysis requests never produce draft changes
+- editing requests produce only bounded draft changes
+- ideation requests produce idea cards only
+- invalid draft targets fail through `TaskResult::new`
+- deterministic outputs include enough target data for the UI to display them
+
+Done when:
+
+- a non-UI test can execute each mode through the orchestrator stub and receive mode-correct structured outputs
+
+### Phase 2.6: Tauri command bridge for task execution
+
+Deliverables:
+
+- expose a Tauri command for deterministic task execution
+- TypeScript wrapper under `src/lib/tauri/`
+- shared frontend types for task request inputs and task outputs
+- clear non-desktop/browser fallback behavior for the demo app
+- basic error mapping from Rust errors to UI-friendly messages
+
+Out of scope:
+
+- provider settings
+- streaming
+- background job queue
+- applying edits to disk
+
+TDD applies:
+
+- yes for Rust command-adjacent business behavior if separated from Tauri wiring
+- partial for TypeScript wrapper behavior
+- no for trivial Tauri `invoke` wiring
+
+Behavior to test:
+
+- command input maps to the same orchestrator path as Rust tests
+- browser fallback does not pretend to call the desktop backend
+- errors preserve enough detail to debug invalid targets or context-policy exclusions
+
+Done when:
+
+- frontend code has a single API wrapper for running a local deterministic task
+
+### Phase 2.7: Frontend mode-aware chat UI
 
 Deliverables:
 
@@ -431,16 +567,56 @@ Deliverables:
 - display of task outputs
 - show current selected text/span target from the document workspace
 - show selected/pinned context sources once available
+- send task requests through the Tauri wrapper or browser fallback
+- keep Analysis, Editing, and Ideation visually distinct enough to avoid accidental edit workflows
+- show draft changes as suggestions, not applied manuscript edits
 
 TDD applies:
 
 - partial
 
+Behavior to test:
+
+- mode switcher state is explicit and visible
+- current selection target appears before task execution
+- Analysis output renders as comments/findings
+- Editing output renders as proposed draft changes without mutating the editor text
+- Ideation output renders as idea cards
+- browser demo path can exercise the UI without desktop-only Tauri failure noise
+
+Done when:
+
+- user can manually run a deterministic local task from the loaded demo/imported document and inspect the structured output
+
+### Phase 2.8: Phase 2 hardening sweep
+
+Deliverables:
+
+- verify task terminology is consistent across code, UI, and planning docs
+- verify no frontend path bypasses the `SelectionTarget` adapter
+- verify no model/provider dependency leaked into `core`
+- verify no task execution path mutates manuscript files
+- document Phase 2 limitations and Phase 3 handoff points
+
+TDD applies:
+
+- yes for any discovered behavioral bug
+- no for terminology-only documentation cleanup
+
+Done when:
+
+- Phase 2 can hand off to Phase 3 retrieval/memory without hidden provider dependencies or unsafe edit paths
+
 ### Phase 2 completion criteria
 
-- user can start a thread in each mode
-- backend receives structured task requests
-- outputs are mode-correct
+- user can start or simulate a thread in each mode
+- frontend selection state is converted through the `SelectionTarget` adapter
+- backend receives structured `TaskRequest` values
+- local `ContextBundle` assembly is deterministic and policy-gated
+- outputs are mode-correct and validated through `TaskResult::new`
+- editing outputs are suggestions only; no manuscript files are mutated in Phase 2
+- browser demo remains usable without a desktop backend
+- Phase 2 documentation exists in numbered subphase files such as `documentation/phase-2.2-*.md`
 
 ## Phase 3
 
@@ -606,7 +782,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 2.2 context bundle assembly stub with TDD.
-2. Convert the frontend `DocumentSelectionTarget` shape into the core `SelectionTarget` contract.
-3. Build deterministic local context bundles from selected/pinned context sources.
-4. Keep embeddings, retrieval, and model/provider calls out of Phase 2.2.
+1. Start Phase 2.3 local context bundle assembly with TDD.
+2. Use `ConversationMode`, `SelectionTarget`, available context sources, and explicit context selections as inputs.
+3. Preserve included and excluded source lists for the later context inspector.
+4. Keep retrieval, embeddings, summary/fact memory, and token-budget packing out of Phase 2.3.

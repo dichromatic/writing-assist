@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { ParsedSpan } from './types';
-import { mapSelectionToParsedSpans } from './selection';
+import { mapSelectionToParsedSpans, toTaskSelectionTarget } from './selection';
 
 function span(ordinal: number, startChar: number, endChar: number, text: string): ParsedSpan {
   return {
@@ -78,6 +78,100 @@ describe('mapSelectionToParsedSpans', () => {
       endChar: 29,
       overlappingSpanOrdinals: [1],
       primarySpanOrdinal: 1
+    });
+  });
+});
+
+describe('toTaskSelectionTarget', () => {
+  it('maps a document selection into the core SelectionTarget wire shape', () => {
+    expect(
+      toTaskSelectionTarget({
+        documentPath: 'chapters/chapter-1.md',
+        selectedText: 'Second',
+        startChar: 13,
+        endChar: 19,
+        overlappingSpanOrdinals: [1, 2],
+        primarySpanOrdinal: 1
+      })
+    ).toEqual({
+      ok: true,
+      target: {
+        document_path: 'chapters/chapter-1.md',
+        selected_text: 'Second',
+        start_char: 13,
+        end_char: 19,
+        anchors: [
+          { kind: 'span', ordinal: 1 },
+          { kind: 'span', ordinal: 2 }
+        ]
+      }
+    });
+  });
+
+  it('does not infer section, scene, or window anchors from span ordinals', () => {
+    const result = toTaskSelectionTarget({
+      documentPath: 'chapters/chapter-1.md',
+      selectedText: 'Second',
+      startChar: 13,
+      endChar: 19,
+      overlappingSpanOrdinals: [1],
+      primarySpanOrdinal: 1
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.target.anchors).toEqual([{ kind: 'span', ordinal: 1 }]);
+    }
+  });
+
+  it('rejects empty selections before task construction', () => {
+    expect(
+      toTaskSelectionTarget({
+        documentPath: 'chapters/chapter-1.md',
+        selectedText: '',
+        startChar: 13,
+        endChar: 13,
+        overlappingSpanOrdinals: [],
+        primarySpanOrdinal: null
+      })
+    ).toEqual({
+      ok: false,
+      error: 'empty_selection',
+      message: 'Select text before running a task.'
+    });
+  });
+
+  it('rejects reversed character ranges consistently', () => {
+    expect(
+      toTaskSelectionTarget({
+        documentPath: 'chapters/chapter-1.md',
+        selectedText: 'Second',
+        startChar: 19,
+        endChar: 13,
+        overlappingSpanOrdinals: [1],
+        primarySpanOrdinal: 1
+      })
+    ).toEqual({
+      ok: false,
+      error: 'invalid_range',
+      message: 'Selection range must have startChar before endChar.'
+    });
+  });
+
+  it('rejects invalid span ordinals', () => {
+    expect(
+      toTaskSelectionTarget({
+        documentPath: 'chapters/chapter-1.md',
+        selectedText: 'Second',
+        startChar: 13,
+        endChar: 19,
+        overlappingSpanOrdinals: [-1],
+        primarySpanOrdinal: null
+      })
+    ).toEqual({
+      ok: false,
+      error: 'invalid_span_ordinal',
+      message: 'Selection target contains an invalid span ordinal.'
     });
   });
 });
