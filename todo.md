@@ -246,7 +246,7 @@ Done when:
 - loaded documents render through a document workspace component
 - text selection updates app state
 - selection state includes selected text, character range, and overlapping span ordinals
-- selection state is lifted to the workspace parent so Phase 2 chat/pass UI can consume it
+- selection state is lifted to the workspace parent so Phase 2 chat/task UI can consume it
 - Phase 2 can target the current selection/window without depending on import UI internals
 
 ### Phase 1.9: Project context source taxonomy
@@ -269,11 +269,11 @@ Deliverables:
   - research
   - custom reference
 - define how `guide`, `reference`, and `note` sources enter `Analysis`, `Editing`, and `Ideation`
-- decide which parts must be implemented before Phase 2 pass contracts and which parts can wait for Phase 3 retrieval/memory
+- decide which parts must be implemented before Phase 2 task contracts and which parts can wait for Phase 3 retrieval/memory
 
 TDD applies:
 
-- yes once source classification or pass-context policy becomes executable business logic
+- yes once source classification or task-context policy becomes executable business logic
 
 Test:
 
@@ -283,14 +283,14 @@ Test:
 
 Done when:
 
-- `implementation.md` and `todo.md` define context source semantics clearly enough to shape Phase 2 `PassRequest` and `ContextBundle`
+- `implementation.md` and `todo.md` define context source semantics clearly enough to shape Phase 2 `TaskRequest` and `ContextBundle`
 - `core` exposes context source taxonomy types and default mode policy helpers
 - context-source default inclusion checks activation and review state as well as source kind
 - prose/style/critique guides are not treated as ordinary notes
 - story/world/character/timeline/terminology bibles are not treated as untyped blobs
 - notes remain opt-in or retrieval-based, not automatically injected into prompts
 
-### Phase 1.10: Phase 1 hardening pass
+### Phase 1.10: Phase 1 hardening sweep
 
 Deliverables:
 
@@ -299,7 +299,7 @@ Deliverables:
 - preserve saved mappings that are temporarily absent from a candidate rescan
 - skip hidden/app directories during broad discovery
 - clarify that parser-emitted spans are heading, paragraph, and scene-break spans, while sections/scenes/windows are target categories
-- lift document selection target state for Phase 2 chat/pass handoff
+- lift document selection target state for Phase 2 chat/task handoff
 - expose a context-source default inclusion helper that respects activation and review state
 
 TDD applies:
@@ -310,7 +310,7 @@ TDD applies:
 Done when:
 
 - Phase 1 review findings have concrete tests or documented scope boundaries
-- Phase 2 can build pass contracts without relying on unsafe mappings or private editor state
+- Phase 2 can build task contracts without relying on unsafe mappings or private editor state
 
 ### Phase 1 completion criteria
 
@@ -322,26 +322,30 @@ Done when:
 - Markdown parsing produces the first span model
 - imported documents can be opened in the editor
 - current editor selection can be mapped to parsed spans
-- current editor selection is available outside the document component for chat/pass handoff
-- project context source categories are defined before Phase 2 pass contracts
+- current editor selection is available outside the document component for chat/task handoff
+- project context source categories are defined before Phase 2 task contracts
 - Phase 1 documentation exists in numbered subphase files such as `documentation/phase-1.1-*.md`
 
 ## Phase 2
 
 Goal:
 
-- introduce mode-aware chat and pass orchestration for `Analysis`, `Editing`, and `Ideation`
+- introduce mode-aware chat and task orchestration for `Analysis`, `Editing`, and `Ideation`
 
-### Phase 2.1: Core pass contracts
+### Phase 2.1: Core task contracts
+
+Status:
+
+- completed
 
 Deliverables:
 
 - `SelectionTarget`
-- `PassRequest`
-- `PassResult`
+- `TaskRequest`
+- `TaskResult`
 - `ContextBundle`
 - mode-specific allowed output types and context-source policies
-- stable pass IDs and schema/version fields for future persistence
+- stable task IDs and schema/version fields for future persistence
 - explicit references to selected guide/reference/note source IDs or paths
 
 TDD applies:
@@ -353,15 +357,19 @@ Behavior to test:
 - `Analysis` cannot emit draft changes
 - `Editing` emits bounded draft changes
 - `Ideation` emits idea outputs, not direct edits by default
-- pass requests can target the current selection/span/section/scene/window set from Phase 1.8/1.10
+- task requests can target the current selection/span/section/scene/window set from Phase 1.8/1.10
 - context-source defaults use the taxonomy from Phase 1.9 and the activation/review gate from Phase 1.10
 - notes are not included by default
 
 Done when:
 
-- core pass contracts compile without depending on provider/Rig types
+- core task contracts compile without depending on provider/Rig types
 - mode output constraints are test-covered
-- pass context inputs can represent selected spans and selected/pinned context sources
+- task context inputs can represent selected spans and selected/pinned context sources
+
+Documentation:
+
+- `documentation/phase-2.1-mode-aware-llm-task-contracts.md`
 
 ### Phase 2.2: Context bundle assembly stub
 
@@ -405,7 +413,7 @@ TDD applies:
 
 Deliverables:
 
-- route frontend requests into mode-aware pass execution
+- route frontend requests into mode-aware task execution
 - basic provider stub path using the existing healthcheck-style bridge
 - return deterministic placeholder outputs before real model calls
 
@@ -420,7 +428,7 @@ Deliverables:
 - chat panel
 - mode switcher
 - current scope display
-- display of pass outputs
+- display of task outputs
 - show current selected text/span target from the document workspace
 - show selected/pinned context sources once available
 
@@ -431,7 +439,7 @@ TDD applies:
 ### Phase 2 completion criteria
 
 - user can start a thread in each mode
-- backend receives structured pass requests
+- backend receives structured task requests
 - outputs are mode-correct
 
 ## Phase 3
@@ -522,7 +530,7 @@ TDD applies:
 - yes for backend file-application logic
 - partial for UI
 
-### Phase 4.3: Validator pass
+### Phase 4.3: Validator task
 
 Deliverables:
 
@@ -537,8 +545,8 @@ TDD applies:
 
 Deliverables:
 
-- canon consistency pass
-- terminology consistency pass
+- canon consistency task
+- terminology consistency task
 
 TDD applies:
 
@@ -598,7 +606,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 2.1 core pass contracts with TDD.
-2. Model `SelectionTarget` as a typed target over spans, sections, scenes, and future windows.
-3. Build `ContextBundle` policy around `context_source_included_by_default`, not only source kind.
-4. Keep provider/Rig types out of `core` contracts.
+1. Start Phase 2.2 context bundle assembly stub with TDD.
+2. Convert the frontend `DocumentSelectionTarget` shape into the core `SelectionTarget` contract.
+3. Build deterministic local context bundles from selected/pinned context sources.
+4. Keep embeddings, retrieval, and model/provider calls out of Phase 2.2.

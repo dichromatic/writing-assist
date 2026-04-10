@@ -37,7 +37,7 @@
       event.detail.anchorChar,
       event.detail.headChar
     );
-    // Phase 2 chat/pass orchestration will consume this parent-level document target.
+    // Phase 2 chat/task orchestration will consume this parent-level document target.
     publishSelectionTarget(selection);
   }
 

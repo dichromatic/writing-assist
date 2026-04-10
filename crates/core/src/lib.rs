@@ -2,6 +2,7 @@ mod context;
 mod conversation;
 mod documents;
 mod parsing;
+mod tasks;
 mod projects;
 
 pub use context::{
@@ -12,6 +13,11 @@ pub use context::{
 pub use conversation::ConversationMode;
 pub use documents::{
     DocumentRecord, DocumentType, LoadedDocument, OpenedProject, ProjectDocumentEntry, SpanRecord,
+};
+pub use tasks::{
+    AnalysisComment, ContextBundle, DraftChange, IdeaCard, TaskContractError, TaskOutput,
+    TaskRequest, TaskResult, TaskType, SelectionTarget, TargetAnchor, TargetAnchorKind,
+    TASK_CONTRACT_SCHEMA_VERSION,
 };
 pub use parsing::{
     ParagraphParsingMode, ParsedMarkdownDocument, ParsedScene, ParsedSection, ParsedSpan,

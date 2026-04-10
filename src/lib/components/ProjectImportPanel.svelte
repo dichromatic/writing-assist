@@ -304,7 +304,7 @@
 
       {#if activeSelectionTarget?.selectedText}
         <p class="handoff">
-          Current pass target: {activeSelectionTarget.documentPath}, spans
+          Current task target: {activeSelectionTarget.documentPath}, spans
           {activeSelectionTarget.overlappingSpanOrdinals.join(', ')}.
         </p>
       {/if}
@@ -317,7 +317,7 @@
       <DocumentWorkspace {loadedDocument} on:targetChange={updateSelectionTarget} />
       {#if activeSelectionTarget?.selectedText}
         <p class="handoff">
-          Current pass target: {activeSelectionTarget.documentPath}, spans
+          Current task target: {activeSelectionTarget.documentPath}, spans
           {activeSelectionTarget.overlappingSpanOrdinals.join(', ')}.
         </p>
       {/if}

@@ -20,10 +20,10 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - `Ideation`: constrained brainstorming over current selection/window and approved memory, no direct edits by default
 - Default all chat sessions to `current selection/window` scope, with explicit expansion to nearby text, scene, chapter, and approved project memory.
 - Treat active writing guides, prose guidelines, and critique rubrics as first-class context sources rather than generic reference notes.
-- Preserve structured non-chat actions as shortcuts into the same backend pass system:
+- Preserve structured non-chat actions as shortcuts into the same backend task system:
   - comment on selection
   - rewrite selection
-  - run pass on scene
+  - run task on scene
   - check consistency
 
 ### Frontend architecture
@@ -49,7 +49,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - `index`: parsing, chunking, entity/fact extraction, summary generation, staleness tracking
   - `retrieval`: metadata + lexical + entity/fact + vector retrieval and context packing
   - `llm`: provider abstraction and Rig-backed adapters
-  - `orchestrator`: pass execution, validation, job state, and draft emission
+  - `orchestrator`: task execution, validation, job state, and draft emission
   - `desktop`: Tauri commands and filesystem integration
 - Keep Rig behind internal traits; domain logic must not depend on Rig types directly.
 - Support two first-class auth/provider paths:
@@ -71,11 +71,11 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - `DocumentRecord`: path, type, title, modified time, content hash
   - `SpanRecord`: stable span ID, document ID, span type, ordinal, parent span, source range, text hash
   - `ChatThread`: mode, scope attachment, selected guides, created context policy
-  - `DraftChange`: target span/region, original text, proposed text, diff, source pass, state
+  - `DraftChange`: target span/region, original text, proposed text, diff, source task, state
   - `ReviewableFact`: subject, predicate, object/value, source span, confidence, review state, stale state
   - `ReviewableSummary`: scope, text, source spans, confidence, review state, stale state
-  - `PassRequest`: mode, pass type, scope, allowed context sources, provider, guide set
-  - `PassResult`: comments, suggestions, extracted records, citations, confidence, validator outcome
+  - `TaskRequest`: mode, task type, scope, allowed context sources, provider, guide set
+  - `TaskResult`: comments, suggestions, extracted records, citations, confidence, validator outcome
   - `ContextBundle`: exact spans, guides, approved facts, approved summaries, semantic fallbacks used
 - Keep output contracts structured and versioned for:
   - analysis comments/findings
@@ -113,7 +113,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - `guide` context sources can become active prompt/rubric context
   - `reference` context sources can become story/world/character/timeline/terminology context
   - `note` context sources remain available but should not enter prompts automatically without explicit selection or retrieval
-- Add a document-level context source classification pass after import:
+- Add a document-level context source classification task after import:
   - prose guideline and style guide documents should be first-class `guide` sources
   - story summary, world summary, character bible, timeline, terminology, and research documents should be first-class `reference` sources
   - scratch notes and loose ideation should remain `note` sources
@@ -131,7 +131,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - heading
   - paragraph
   - explicit scene-break marker
-- Treat sections, scenes, and future rolling windows as target categories for pass construction rather than assuming all of them are emitted as `ParsedSpan` entries.
+- Treat sections, scenes, and future rolling windows as target categories for task construction rather than assuming all of them are emitted as `ParsedSpan` entries.
 - Keep rolling edit windows as a later context-assembly concern rather than a Phase 1 parser responsibility.
 - Build these indexes:
   - metadata index
@@ -152,7 +152,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - generate candidate summaries
   - store all derived memory as pending review
   - build cross-links from spans to entities and approved memory
-- Reuse only approved summaries and approved facts in retrieval and consistency passes.
+- Reuse only approved summaries and approved facts in retrieval and consistency tasks.
 - Mark derived memory stale whenever source hashes change.
 
 ### Retrieval and hallucination controls
@@ -176,7 +176,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - `PendingReview` and `Stale` sources are excluded by default
 - Prefer lexical/entity/fact retrieval over vector retrieval for names, canon, terminology, and continuity checks.
 - Require evidence-first outputs for critique and fact extraction.
-- Run validator passes for rewrite suggestions before they enter the draft layer when feasible.
+- Run validator tasks for rewrite suggestions before they enter the draft layer when feasible.
 - Allow explicit uncertainty states such as `needs broader context` and `cannot determine`.
 
 ### Implementation phases
@@ -205,14 +205,14 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
   - support root-level manuscript files through a `.` mapping
   - skip hidden/app directories during broad discovery
   - preserve saved mappings not present in a candidate rescan
-  - clarify emitted parser span types versus pass target categories
-  - lift editor selection target state for Phase 2 chat/pass handoff
+  - clarify emitted parser span types versus task target categories
+  - lift editor selection target state for Phase 2 chat/task handoff
   - gate default context-source inclusion by activation and review state
-- Phase 2: mode-aware chat and pass orchestration
+- Phase 2: mode-aware chat and task orchestration
   - add Analysis/Editing/Ideation chat modes
-  - implement `SelectionTarget`, `PassRequest`, `PassResult`, and `ContextBundle`
+  - implement `SelectionTarget`, `TaskRequest`, `TaskResult`, and `ContextBundle`
   - model `SelectionTarget` across spans, sections, scenes, and future windows
-  - use context source taxonomy from Phase 1.9 plus activation/review gates from Phase 1.10 in pass context policies
+  - use context source taxonomy from Phase 1.9 plus activation/review gates from Phase 1.10 in task context policies
   - connect chat UI to orchestrator
   - emit comments, idea cards, and draft changes by mode
 - Phase 3: reviewable memory and retrieval
@@ -223,7 +223,7 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 - Phase 4: diffs, validation, and consistency
   - diff review and accept/reject flow
   - apply accepted changes back to Markdown files
-  - validator pass for rewrites
+  - validator task for rewrites
   - canon/terminology consistency checks using approved memory
 - Phase 5: provider polish
   - API-key provider setup
@@ -243,9 +243,9 @@ The manuscript folder remains canonical, but the app uses an internal draft laye
 - Verify saved mappings are preserved if a rescan does not currently return the same candidate directory.
 - Verify configured directory-role mappings persist and are reused on subsequent project opens.
 - Verify file discovery only indexes Markdown files from user-enabled mapped directories.
-- Verify guide/reference/note context source distinctions are preserved in pass request construction.
+- Verify guide/reference/note context source distinctions are preserved in task request construction.
 - Verify context sources excluded by review state or activation policy do not enter context bundles by default.
-- Verify CodeMirror selection offsets map to parsed spans before pass construction.
+- Verify CodeMirror selection offsets map to parsed spans before task construction.
 - Verify the selected document target is available to the parent workspace/chat boundary, not only inside the editor component.
 - Confirm paragraph/window anchors survive ordinary edits and remain stable enough for comments, chat attachment, and draft application.
 - Verify Analysis mode can discuss a selected paragraph and produce findings/comments without creating draft changes.
