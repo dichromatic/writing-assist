@@ -1,15 +1,18 @@
 use uuid::Uuid;
 use writing_assist_core::{
-    DocumentArchetype, EvidenceContext, MentionCandidate, MentionFeature,
-    MemorySourceReference, StructuredFieldCandidate, TargetAnchor,
+    DocumentArchetype, EvidenceContext, MentionCandidate, MentionFeature, MentionOccurrence,
+    MemorySourceReference, SentenceType, StructuredFieldCandidate, TargetAnchor,
 };
 
 #[test]
 fn mention_features_serialize_as_snake_case() {
     let repeated =
         serde_json::to_string(&MentionFeature::HeadingMentioned).expect("serialize feature");
+    let sentence_type =
+        serde_json::to_string(&SentenceType::BlockQuote).expect("serialize sentence type");
 
     assert_eq!(repeated, "\"heading_mentioned\"");
+    assert_eq!(sentence_type, "\"block_quote\"");
 }
 
 #[test]
@@ -18,28 +21,30 @@ fn evidence_candidates_preserve_source_links_and_contexts() {
         id: Uuid::nil(),
         surface: "Captain Mara".to_string(),
         normalized_surface: "captain mara".to_string(),
-        occurrence_count: 2,
         source: MemorySourceReference::new(
             "chapters/chapter-1.md",
             vec![TargetAnchor::span(4), TargetAnchor::span(9)],
             10,
             42,
         ),
-        contexts: vec![EvidenceContext {
+        occurrences: vec![MentionOccurrence {
             span_anchor: TargetAnchor::span(4),
             section_anchor: Some(TargetAnchor::section(0)),
             heading: Some("Arrival".to_string()),
-            excerpt: "Captain Mara reaches the harbor before dawn.".to_string(),
+            snippet: "Captain Mara reaches the harbor before dawn.".to_string(),
+            sentence_type: SentenceType::Narrative,
+            cooccurring_mentions: vec!["Radiant Firth".to_string()],
         }],
-        features: vec![MentionFeature::Repeated, MentionFeature::Titled],
+        aggregate_features: vec![MentionFeature::Repeated, MentionFeature::Titled],
         archetype: DocumentArchetype::Manuscript,
     };
 
     let serialized = serde_json::to_value(&mention).expect("serialize mention");
 
     assert_eq!(serialized["source"]["document_path"], "chapters/chapter-1.md");
-    assert_eq!(serialized["contexts"][0]["heading"], "Arrival");
-    assert_eq!(serialized["features"][0], "repeated");
+    assert_eq!(serialized["occurrences"][0]["heading"], "Arrival");
+    assert_eq!(serialized["occurrences"][0]["sentence_type"], "narrative");
+    assert_eq!(serialized["aggregate_features"][0], "repeated");
     assert_eq!(serialized["archetype"], "manuscript");
 }
 

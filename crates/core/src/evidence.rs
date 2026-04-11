@@ -25,14 +25,38 @@ pub enum MentionFeature {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SentenceType {
+    Dialogue,
+    Narrative,
+    Heading,
+    ListItem,
+    BlockQuote,
+    Other,
+}
+
+/// Per-occurrence local evidence for a harvested mention.
+///
+/// This lets later semantic consolidation judge a mention without reloading the
+/// full span store for every candidate.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MentionOccurrence {
+    pub span_anchor: TargetAnchor,
+    pub section_anchor: Option<TargetAnchor>,
+    pub heading: Option<String>,
+    pub snippet: String,
+    pub sentence_type: SentenceType,
+    pub cooccurring_mentions: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MentionCandidate {
     pub id: Uuid,
     pub surface: String,
     pub normalized_surface: String,
-    pub occurrence_count: usize,
     pub source: MemorySourceReference,
-    pub contexts: Vec<EvidenceContext>,
-    pub features: Vec<MentionFeature>,
+    pub occurrences: Vec<MentionOccurrence>,
+    pub aggregate_features: Vec<MentionFeature>,
     pub archetype: DocumentArchetype,
 }
 

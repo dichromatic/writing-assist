@@ -18,9 +18,9 @@ pub fn extract_entity_candidates(
     harvest_mention_candidates(document_path.as_ref(), DocumentArchetype::Manuscript, parsed)
         .into_iter()
         .filter(|candidate| {
-            candidate.occurrence_count > 1
+            candidate.occurrences.len() > 1
                 || candidate
-                    .features
+                    .aggregate_features
                     .iter()
                     .any(|feature| {
                         matches!(

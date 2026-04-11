@@ -1,5 +1,5 @@
 use writing_assist_core::{
-    DocumentArchetype, MentionFeature, TargetAnchor,
+    DocumentArchetype, MentionFeature, SentenceType, TargetAnchor,
 };
 use writing_assist_index::{
     harvest_definition_candidates, harvest_mention_candidates, harvest_section_summary_seeds,
@@ -30,11 +30,41 @@ fn harvests_manuscript_mentions_with_context_and_noise_suppression() {
         .iter()
         .find(|candidate| candidate.surface == "Kohaku")
         .expect("expected normalized possessive mention");
-    assert_eq!(kohaku.occurrence_count, 2);
+    assert_eq!(kohaku.occurrences.len(), 2);
     assert_eq!(kohaku.source.document_path, "chapters/chapter-1.md");
-    assert!(kohaku.features.contains(&MentionFeature::PossessiveObserved));
-    assert_eq!(kohaku.contexts[0].section_anchor, Some(TargetAnchor::section(0)));
-    assert_eq!(kohaku.contexts[0].heading.as_deref(), Some("Arrival"));
+    assert!(kohaku.aggregate_features.contains(&MentionFeature::PossessiveObserved));
+    assert_eq!(
+        kohaku.occurrences[0].section_anchor,
+        Some(TargetAnchor::section(0))
+    );
+    assert_eq!(kohaku.occurrences[0].heading.as_deref(), Some("Arrival"));
+    assert_eq!(kohaku.occurrences[0].sentence_type, SentenceType::Narrative);
+    assert!(kohaku.occurrences[0].snippet.contains("Kohaku"));
+    assert!(kohaku.occurrences[0]
+        .cooccurring_mentions
+        .contains(&"Captain Mara".to_string()));
+}
+
+#[test]
+fn labels_dialogue_occurrences_so_the_semantic_layer_can_treat_them_differently() {
+    let parsed = parse_markdown_document(
+        "“Kohaku, move,” Captain Mara said.\n\nCaptain Mara entered the dock office.\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "chapters/chapter-2.md",
+        DocumentArchetype::Manuscript,
+        &parsed,
+    );
+
+    let captain_mara = mentions
+        .iter()
+        .find(|candidate| candidate.surface == "Captain Mara")
+        .expect("expected titled mention");
+
+    assert_eq!(captain_mara.occurrences.len(), 2);
+    assert_eq!(captain_mara.occurrences[0].sentence_type, SentenceType::Dialogue);
+    assert_eq!(captain_mara.occurrences[1].sentence_type, SentenceType::Narrative);
 }
 
 #[test]

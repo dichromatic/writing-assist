@@ -21,7 +21,7 @@ pub use documents::{
 };
 pub use evidence::{
     DefinitionCandidate, EvidenceContext, MentionCandidate, MentionFeature,
-    SectionSummarySeed, StructuredFieldCandidate,
+    MentionOccurrence, SectionSummarySeed, SentenceType, StructuredFieldCandidate,
 };
 pub use knowledge::{
     structured_knowledge_intended_use, DocumentArchetype, EntityProfileCandidate,

@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use uuid::Uuid;
 use writing_assist_core::{
     DefinitionCandidate, DocumentArchetype, EvidenceContext, MemorySourceReference,
-    MentionCandidate, MentionFeature, ParsedMarkdownDocument, ParsedSection, ParsedSpan,
-    SectionSummarySeed, SpanType, StructuredFieldCandidate, TargetAnchor,
+    MentionCandidate, MentionFeature, MentionOccurrence, ParsedMarkdownDocument, ParsedSection,
+    ParsedSpan, SectionSummarySeed, SentenceType, SpanType, StructuredFieldCandidate,
+    TargetAnchor,
 };
 
 const MAX_MENTION_WORDS: usize = 5;
@@ -15,9 +16,8 @@ struct MentionObservation {
     surface: String,
     normalized_surface: String,
     source: MemorySourceReference,
-    contexts: Vec<EvidenceContext>,
-    occurrence_count: usize,
-    features: Vec<MentionFeature>,
+    occurrences: Vec<MentionOccurrence>,
+    aggregate_features: Vec<MentionFeature>,
 }
 
 #[derive(Debug, Clone)]
@@ -51,10 +51,12 @@ pub fn harvest_mention_candidates(
                 index_by_normalized_surface.get(&harvested.normalized_surface).copied()
             {
                 let existing = &mut observations[existing_index];
-                existing.occurrence_count += 1;
                 merge_anchors(&mut existing.source.anchors, &harvested.source.anchors);
-                merge_contexts(&mut existing.contexts, &harvested.contexts);
-                merge_features(&mut existing.features, &harvested.features);
+                merge_occurrences(&mut existing.occurrences, &harvested.occurrences);
+                merge_features(
+                    &mut existing.aggregate_features,
+                    &harvested.aggregate_features,
+                );
             } else {
                 index_by_normalized_surface
                     .insert(harvested.normalized_surface.clone(), observations.len());
@@ -67,9 +69,11 @@ pub fn harvest_mention_candidates(
         .into_iter()
         .filter(|observation| mention_survives_aggregation(observation, &archetype))
         .map(|observation| {
-            let mut features = observation.features;
-            if observation.occurrence_count > 1 && !features.contains(&MentionFeature::Repeated) {
-                features.push(MentionFeature::Repeated);
+            let mut aggregate_features = observation.aggregate_features;
+            if observation.occurrences.len() > 1
+                && !aggregate_features.contains(&MentionFeature::Repeated)
+            {
+                aggregate_features.push(MentionFeature::Repeated);
             }
 
             MentionCandidate {
@@ -81,10 +85,9 @@ pub fn harvest_mention_candidates(
                 ),
                 surface: observation.surface,
                 normalized_surface: observation.normalized_surface,
-                occurrence_count: observation.occurrence_count,
                 source: observation.source,
-                contexts: observation.contexts,
-                features,
+                occurrences: observation.occurrences,
+                aggregate_features,
                 archetype: archetype.clone(),
             }
         })
@@ -288,19 +291,21 @@ fn mentions_in_span(
             continue;
         }
 
-        let mut features = Vec::new();
+        let mut aggregate_features = Vec::new();
         if word_count > 1 {
-            features.push(MentionFeature::MultiWord);
+            aggregate_features.push(MentionFeature::MultiWord);
         }
         if titled {
-            features.push(MentionFeature::Titled);
+            aggregate_features.push(MentionFeature::Titled);
         }
         if span.span_type == SpanType::Heading {
-            features.push(MentionFeature::HeadingMentioned);
+            aggregate_features.push(MentionFeature::HeadingMentioned);
         }
         if words.iter().any(|word| word.had_possessive) {
-            features.push(MentionFeature::PossessiveObserved);
+            aggregate_features.push(MentionFeature::PossessiveObserved);
         }
+
+        let occurrence = build_occurrence(span, parsed, &surface);
 
         mentions.push(MentionObservation {
             surface,
@@ -311,9 +316,8 @@ fn mentions_in_span(
                 span.start_char,
                 span.end_char,
             ),
-            contexts: vec![build_context(span, parsed)],
-            occurrence_count: 1,
-            features,
+            occurrences: vec![occurrence],
+            aggregate_features,
         });
     }
 
@@ -330,6 +334,25 @@ fn build_context(span: &ParsedSpan, parsed: &ParsedMarkdownDocument) -> Evidence
         section_anchor: section.map(|section| TargetAnchor::section(section.ordinal)),
         heading: section.and_then(section_heading),
         excerpt: truncate_to_char_limit(&span.normalized_text, SUMMARY_TEXT_LIMIT),
+    }
+}
+
+fn build_occurrence(
+    span: &ParsedSpan,
+    parsed: &ParsedMarkdownDocument,
+    surface: &str,
+) -> MentionOccurrence {
+    let section = parsed.sections.iter().find(|section| {
+        span.start_char >= section.start_char && span.end_char <= section.end_char
+    });
+
+    MentionOccurrence {
+        span_anchor: TargetAnchor::span(span.ordinal),
+        section_anchor: section.map(|section| TargetAnchor::section(section.ordinal)),
+        heading: section.and_then(section_heading),
+        snippet: build_occurrence_snippet(&span.normalized_text, surface),
+        sentence_type: classify_sentence_type(span),
+        cooccurring_mentions: cooccurring_mentions_in_span(span, surface),
     }
 }
 
@@ -364,6 +387,53 @@ fn clean_entity_token(token: &str) -> TokenObservation {
         had_possessive,
         ends_phrase,
     }
+}
+
+fn classify_sentence_type(span: &ParsedSpan) -> SentenceType {
+    let trimmed = span.text.trim_start();
+
+    if span.span_type == SpanType::Heading {
+        return SentenceType::Heading;
+    }
+
+    if trimmed.starts_with('>') {
+        return SentenceType::BlockQuote;
+    }
+
+    if trimmed.starts_with("- ")
+        || trimmed.starts_with("* ")
+        || trimmed.starts_with("+ ")
+        || starts_with_numbered_list_item(trimmed)
+    {
+        return SentenceType::ListItem;
+    }
+
+    if trimmed.starts_with('"')
+        || trimmed.starts_with('“')
+        || trimmed.starts_with('‘')
+        || trimmed.starts_with('\'')
+        || trimmed.starts_with('—')
+    {
+        return SentenceType::Dialogue;
+    }
+
+    SentenceType::Narrative
+}
+
+fn starts_with_numbered_list_item(text: &str) -> bool {
+    let mut characters = text.chars();
+    let mut saw_digit = false;
+
+    while let Some(character) = characters.next() {
+        if character.is_ascii_digit() {
+            saw_digit = true;
+            continue;
+        }
+
+        return saw_digit && character == '.';
+    }
+
+    false
 }
 
 fn is_mention_token(token: &str) -> bool {
@@ -499,9 +569,9 @@ fn mention_survives_aggregation(
 
     match archetype {
         DocumentArchetype::Manuscript => {
-            observation.occurrence_count > 1
+            observation.occurrences.len() > 1
                 || observation
-                    .features
+                    .aggregate_features
                     .iter()
                     .any(|feature| {
                         matches!(feature, MentionFeature::MultiWord | MentionFeature::Titled)
@@ -534,6 +604,73 @@ fn should_reject_harvested_mention(
         DocumentArchetype::Manuscript => !(word_count > 1 || titled || !is_noise_singleton(surface)),
         _ => false,
     }
+}
+
+fn build_occurrence_snippet(text: &str, surface: &str) -> String {
+    let normalized_text = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let lowercase_text = normalized_text.to_lowercase();
+    let lowercase_surface = surface.to_lowercase();
+
+    let Some(match_start) = lowercase_text.find(&lowercase_surface) else {
+        return truncate_to_char_limit(&normalized_text, SUMMARY_TEXT_LIMIT);
+    };
+
+    let match_end = match_start + lowercase_surface.len();
+    let match_start_char = lowercase_text[..match_start].chars().count();
+    let match_end_char = lowercase_text[..match_end].chars().count();
+    let start_char = match_start_char.saturating_sub(80);
+    let end_char = (match_end_char + 120).min(normalized_text.chars().count());
+
+    normalized_text
+        .chars()
+        .skip(start_char)
+        .take(end_char.saturating_sub(start_char))
+        .collect::<String>()
+        .trim()
+        .to_string()
+}
+
+fn cooccurring_mentions_in_span(span: &ParsedSpan, surface: &str) -> Vec<String> {
+    let tokens = span
+        .normalized_text
+        .split_whitespace()
+        .map(clean_entity_token)
+        .filter(|token| !token.text.is_empty())
+        .collect::<Vec<_>>();
+    let mut mentions = Vec::new();
+    let mut index = 0;
+
+    while index < tokens.len() {
+        if !is_mention_token(&tokens[index].text) {
+            index += 1;
+            continue;
+        }
+
+        let start_index = index;
+        index += 1;
+
+        while index < tokens.len()
+            && is_mention_token(&tokens[index].text)
+            && !tokens[index - 1].ends_phrase
+        {
+            index += 1;
+        }
+
+        let words = tokens[start_index..index]
+            .iter()
+            .map(|token| token.text.as_str())
+            .collect::<Vec<_>>();
+        let mention = words.join(" ");
+
+        if mention.is_empty() || mention == surface || mentions.contains(&mention) {
+            continue;
+        }
+
+        mentions.push(mention);
+    }
+
+    mentions.truncate(4);
+    mentions
 }
 
 fn is_title_prefix(token: &str) -> bool {
@@ -722,9 +859,12 @@ fn merge_anchors(existing: &mut Vec<TargetAnchor>, incoming: &[TargetAnchor]) {
     }
 }
 
-fn merge_contexts(existing: &mut Vec<EvidenceContext>, incoming: &[EvidenceContext]) {
-    for context in incoming {
-        if existing.iter().any(|existing_context| existing_context == context) {
+fn merge_occurrences(existing: &mut Vec<MentionOccurrence>, incoming: &[MentionOccurrence]) {
+    for occurrence in incoming {
+        if existing
+            .iter()
+            .any(|existing_occurrence| existing_occurrence == occurrence)
+        {
             continue;
         }
 
@@ -732,7 +872,7 @@ fn merge_contexts(existing: &mut Vec<EvidenceContext>, incoming: &[EvidenceConte
             break;
         }
 
-        existing.push(context.clone());
+        existing.push(occurrence.clone());
     }
 }
 
