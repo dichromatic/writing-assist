@@ -20,8 +20,9 @@ pub use documents::{
     DocumentRecord, DocumentType, LoadedDocument, OpenedProject, ProjectDocumentEntry, SpanRecord,
 };
 pub use evidence::{
-    DefinitionCandidate, EvidenceContext, MentionCandidate, MentionFeature,
-    MentionOccurrence, SectionSummarySeed, SentenceType, StructuredFieldCandidate,
+    DefinitionCandidate, EvidenceContext, MentionCandidate, MentionCluster,
+    MentionClusterLink, MentionClusterLinkKind, MentionFeature, MentionOccurrence,
+    SectionSummarySeed, SentenceType, StructuredFieldCandidate,
 };
 pub use knowledge::{
     structured_knowledge_intended_use, DocumentArchetype, EntityProfileCandidate,

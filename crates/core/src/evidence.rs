@@ -50,6 +50,21 @@ pub struct MentionOccurrence {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum MentionClusterLinkKind {
+    StructuredField,
+    Definition,
+    SectionSummarySeed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MentionClusterLink {
+    pub kind: MentionClusterLinkKind,
+    pub evidence_id: Uuid,
+    pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MentionCandidate {
     pub id: Uuid,
     pub surface: String,
@@ -57,6 +72,25 @@ pub struct MentionCandidate {
     pub source: MemorySourceReference,
     pub occurrences: Vec<MentionOccurrence>,
     pub aggregate_features: Vec<MentionFeature>,
+    pub archetype: DocumentArchetype,
+}
+
+/// Deterministic per-document grouping over harvested mentions.
+///
+/// Clusters stay local to one document and deliberately stop short of semantic
+/// identity across files. Their job is to make the later semantic layer consume
+/// grouped evidence instead of isolated surface forms.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MentionCluster {
+    pub id: Uuid,
+    pub display_surface: String,
+    pub normalized_surface: String,
+    pub source: MemorySourceReference,
+    pub member_mention_ids: Vec<Uuid>,
+    pub member_surfaces: Vec<String>,
+    pub occurrences: Vec<MentionOccurrence>,
+    pub aggregate_features: Vec<MentionFeature>,
+    pub linked_evidence: Vec<MentionClusterLink>,
     pub archetype: DocumentArchetype,
 }
 

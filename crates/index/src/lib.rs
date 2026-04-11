@@ -1,5 +1,6 @@
 mod discovery;
 mod document_archetypes;
+mod evidence_clustering;
 mod evidence_harvesting;
 mod entity_extraction;
 mod fact_extraction;
@@ -10,6 +11,7 @@ mod summary_generation;
 
 pub use discovery::{classify_document_path, discover_project_documents, DiscoveredDocument};
 pub use document_archetypes::classify_document_archetype;
+pub use evidence_clustering::cluster_document_mentions;
 pub use evidence_harvesting::{
     harvest_definition_candidates, harvest_mention_candidates, harvest_section_summary_seeds,
     harvest_structured_field_candidates,
