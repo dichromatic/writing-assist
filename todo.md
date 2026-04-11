@@ -967,39 +967,72 @@ Documentation:
 
 - `documentation/phase-3.6-document-archetypes-structured-knowledge-and-rag-preparation.md`
 
-### Phase 3.7: Memory review UI
+Notes:
+
+- The completed entity/fact/summary spikes should now be treated as temporary scaffolding.
+- The next extraction step should package evidence for later semantic review instead of trying to deterministically infer final entity truth from prose.
+
+### Phase 3.7: Deterministic evidence harvesting and packaging
+
+Status:
+
+- completed
 
 Deliverables:
 
-- review UI for:
-  - entity candidates
-  - facts
-  - summaries
-  - future structured knowledge candidates where the schema is stable enough to review
-- approve/reject controls through Tauri/store commands
-- visible stale state
-- no automatic use of pending memory in task context
+- evidence-oriented deterministic candidate contracts and extractor boundaries for:
+  - `MentionCandidate`
+  - `RepeatedPhraseCandidate`
+  - `StructuredFieldCandidate`
+  - `DefinitionCandidate`
+  - `SectionSummarySeed`
+  - local context/neighbor packaging for later semantic filtering
+- archetype-aware harvesting rules so:
+  - manuscripts favor repeated surface forms and titled mentions
+  - dossiers favor labeled fields and profile sections
+  - planning notes favor outline labels, beat lists, and arc headings
+  - taxonomy/reference notes favor definition-like lines and terminology blocks
+  - expository world articles favor bounded extractive summary seeds and explicit repeated terms
+- deterministic junk suppression for obvious prose noise:
+  - pronouns
+  - contractions
+  - sentence-opener stopwords
+  - malformed title-case fragments
+- source-linking rules so every evidence record preserves:
+  - document path
+  - span/section anchors
+  - local surrounding text or heading context
+- migration/refactor plan for the current `EntityCandidate` and fact-summary spikes so they become either:
+  - retained narrow scaffolds
+  - or promotion outputs from the new evidence layer
 
 Out of scope:
 
-- polished final visual design
-- bulk merge UX
-- provider extraction
+- final semantic typing
+- alias resolution
+- canon-versus-planning judgment
+- provider calls
+- frontend review UI
 
 TDD applies:
 
-- partial
+- yes
 
 Behavior to test:
 
-- UI calls review commands with stable record IDs
-- approved records become available to reusable-memory queries
-- rejected records stay hidden from reusable-memory queries
-- stale records remain visible but excluded from task context
+- obvious prose noise is suppressed without collapsing useful repeated mentions
+- harvested evidence preserves local context and source anchors deterministically
+- dossier/planning/taxonomy/article archetypes emit different evidence shapes from the same parser output
+- manuscript harvesting stays high-recall but avoids trivial garbage such as `I`, `We`, `It`, and mixed dialogue fragments
 
 Done when:
 
-- user can review generated memory before it is allowed into retrieval/context selection
+- the deterministic layer emits inspectable evidence records that are good inputs for later semantic consolidation
+- the current noisy manuscript entity spike has a clear replacement path
+
+Documentation:
+
+- `documentation/phase-3.7-deterministic-evidence-harvesting-and-packaging.md`
 
 ### Phase 3.8: Retrieval v1 and context inspector
 
@@ -1007,7 +1040,8 @@ Deliverables:
 
 - metadata retrieval
 - lexical retrieval over parsed normalized text
-- approved entity/fact/summary retrieval
+- deterministic evidence retrieval where useful for inspection or semantic promotion
+- approved entity/fact/summary retrieval where available
 - archetype-aware retrieval over structured deterministic candidates where available
 - vector retrieval abstraction only, with implementation deferred if needed
 - context inspector showing exact included/excluded sources and memory records for a task
@@ -1028,6 +1062,7 @@ Behavior to test:
 
 - retrieval excludes pending/rejected/stale memory
 - lexical/entity/fact matches rank ahead of vector fallbacks for names and canon terms
+- exact text and deterministic evidence hits can be inspected even when they are not yet approved canon memory
 - archetype-aware units outrank generic raw-text chunks when a dossier/timeline/terminology candidate is a better fit
 - context inspector displays the exact context bundle used by the task
 - anchor display uses session-local anchors and marks stale anchors once Phase 4 mutations exist
@@ -1039,10 +1074,9 @@ Done when:
 ### Phase 3 completion criteria
 
 - reviewable memory contracts exist in `core`
-- deterministic extraction can classify document archetypes and produce structured pending candidates suitable for later LLM and retrieval work
+- deterministic extraction can classify document archetypes and produce evidence-oriented pending candidates suitable for later LLM and retrieval work
 - memory records persist with source links, review state, and stale state
 - pending/rejected/stale memory is excluded from reusable context
-- approved memory can be reused in policy-gated context selection
 - the knowledge rail can pass explicit active context paths into task requests
 - the context inspector can show the exact context used for a task
 - vector retrieval remains optional behind an abstraction, not a blocker for Phase 3
@@ -1149,14 +1183,80 @@ TDD applies:
 
 - partial
 
+### Phase 5.4: Provider-backed semantic consolidation and schema validation
+
+Deliverables:
+
+- provider-backed semantic filter pipeline that consumes deterministic evidence records
+- schema-validated promotion from evidence into typed candidates such as:
+  - `EntityProfileCandidate`
+  - `RelationshipCandidate`
+  - `TimelineEventCandidate`
+  - `StoryArcCandidate`
+  - `WorldRuleCandidate`
+  - `TerminologyCandidate`
+  - semantically reviewed memory candidates where still appropriate
+- explicit rejection path for borderline or noisy harvested evidence
+- alias-resolution policy that remains reviewable and source-linked
+
+Out of scope:
+
+- bulk merge UX
+- final polished review UI
+
+TDD applies:
+
+- yes for schema validation, promotion rules, and failure handling
+
+Behavior to test:
+
+- provider output cannot bypass schema validation
+- promoted candidates preserve source anchors from harvested evidence
+- semantically rejected evidence does not enter reusable memory
+- alias merges remain inspectable and reversible
+
+Done when:
+
+- harvested evidence can be turned into typed, reviewable candidates without trusting raw LLM output directly
+
+### Phase 5.5: Memory review UI
+
+Deliverables:
+
+- review UI for semantically consolidated candidates and retained deterministic summaries/facts where still useful
+- approve/reject controls through Tauri/store commands
+- visible stale state
+- no automatic use of pending memory in task context
+
+Out of scope:
+
+- polished final visual design
+- bulk merge UX
+
+TDD applies:
+
+- partial
+
+Behavior to test:
+
+- UI calls review commands with stable record IDs
+- approved records become available to reusable-memory queries
+- rejected records stay hidden from reusable-memory queries
+- stale records remain visible but excluded from task context
+
+Done when:
+
+- user can review promoted memory before it is allowed into retrieval/context selection
+
 ### Phase 5 completion criteria
 
 - provider configuration is stable
+- semantic consolidation is schema-validated and source-linked
 - adapter failures do not corrupt project state
 
 ## Immediate Next Tasks
 
-1. Start Phase 3.7 memory review UI.
+1. Start Phase 3.8 retrieval v1 and context inspector.
 2. Keep the new workspace-state model as the frontend target for future UI refactors.
 3. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
 4. Keep context-source review and the knowledge rail in Phase 3 scope.

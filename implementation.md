@@ -589,12 +589,14 @@ Phase 3 introduces reviewable project memory and retrieval, but it should stay d
 Execution order:
 
 - define reviewable memory contracts in `core`
-- add deterministic entity extraction from parsed Markdown spans
+- add initial deterministic entity extraction spike from parsed Markdown spans
 - persist reviewable memory and review/stale states in SQLite
 - add context-source classification and frontend knowledge-rail state
 - add deterministic fact/summary candidate scaffolding
-- add memory review UI and Tauri/store commands
-- add retrieval v1 and context inspector
+- add document archetype classification and structured knowledge contracts
+- refactor deterministic extraction toward evidence harvesting and packaging
+- add retrieval v1 and context inspector over exact text, evidence units, and approved memory where available
+- defer provider-backed semantic consolidation and memory review UI until provider integration is stable
 
 #### Reviewable memory contracts
 
@@ -619,10 +621,40 @@ Memory reuse rules:
 
 The first extraction slice should not use LLM calls. It should produce conservative pending candidates only:
 
-- repeated proper nouns
-- capitalized names/phrases with noise controls
+- obvious repeated surface forms
 - glossary-like or structured reference lines where present
 - document path and span anchors on every candidate
+
+The deterministic layer should focus on high-recall evidence harvesting, not semantic truth.
+
+It should be responsible for:
+
+- removing obvious noise
+- preserving exact source anchors
+- packaging local context around a candidate
+- surfacing repeated or structurally meaningful patterns
+- exposing document archetype and section context
+
+It should not try to fully solve:
+
+- person/place/ship/institution typing
+- alias resolution
+- canon-versus-planning judgment
+- broad claim extraction from prose
+- confident name understanding in freeform manuscript dialogue
+
+That semantic consolidation belongs in a later LLM-assisted filter/review step once provider work is available.
+
+The deterministic extraction layer should move toward evidence-oriented candidate types such as:
+
+- `MentionCandidate`
+- `RepeatedPhraseCandidate`
+- `StructuredFieldCandidate`
+- `DefinitionCandidate`
+- `SectionSummarySeed`
+- `SpanNeighborhood`
+
+Those evidence records can later be promoted into richer memory or structured-knowledge records after an LLM-assisted review step validates them.
 
 Fact and summary candidate generation should start as scaffolding:
 
@@ -633,7 +665,7 @@ Fact and summary candidate generation should start as scaffolding:
 - no automatic approval
 - no provider-generated summaries until the review and persistence path is stable
 
-The current fact/summary scaffolding should be treated as an initial spike, not the final knowledge model. The broader deterministic extraction layer should become document-archetype aware so later retrieval and LLM tasks work from structure that actually matches writing projects.
+The current entity/fact/summary scaffolding should be treated as an initial spike, not the final knowledge model. The broader deterministic extraction layer should become document-archetype aware and evidence-oriented so later retrieval and LLM tasks work from structure that actually matches writing projects.
 
 #### Document archetypes and structured knowledge
 
@@ -647,7 +679,7 @@ Imported writing projects usually contain several different document archetypes:
 - long expository world articles
 - loose brainstorming notes
 
-These should be treated differently in deterministic extraction, review, retrieval, and later LLM schema design.
+These should be treated differently in deterministic extraction, evidence packaging, retrieval, and later LLM schema design.
 
 The deterministic knowledge layer should eventually support candidate types such as:
 
@@ -674,6 +706,23 @@ This phase should also define which candidate types are:
 - unsuitable for automatic reuse without additional review
 
 That distinction is necessary before the app lets retrieval or LLM tasks treat planning notes and world reference files as equivalent.
+
+#### Semantic consolidation and review boundary
+
+The boundary between deterministic extraction and LLM-assisted processing should be explicit:
+
+- deterministic passes harvest evidence and attach anchors/context
+- LLM-assisted passes interpret, normalize, type, merge, and reject borderline candidates
+- review UI should prefer semantically consolidated candidates over raw evidence records
+
+Examples of later LLM-assisted responsibilities:
+
+- decide whether a repeated surface form is actually a person, place, ship, institution, concept, or noise
+- resolve likely aliases such as titled forms versus bare-name forms
+- convert dossier/planning/reference evidence into typed structured outputs that match the archetype schema
+- reject semantically invalid candidates that survived deterministic high-recall harvesting
+
+This means the future review queue should sit after semantic consolidation for most candidate types, not directly on top of raw manuscript mention harvesting.
 
 The first implementation slice should include:
 
@@ -719,6 +768,7 @@ This should be treated as a hybrid RAG workflow, but not a generic vector-first 
 
 - metadata retrieval
 - lexical retrieval over parser-normalized text
+- deterministic evidence retrieval such as mention/definition/field hits where useful for inspection or later semantic promotion
 - approved entity/fact/summary retrieval
 - archetype-aware retrieval over structured knowledge candidates such as profiles, terminology, world rules, timelines, and story arcs
 - explicitly selected context sources from the knowledge rail
@@ -782,13 +832,13 @@ Thread/editor anchors remain session-local until durable span IDs or revalidated
   - define the Writer's IDE frontend workspace architecture before locking in the chat-panel layout
 - Phase 3: reviewable memory and retrieval
   - define reviewable memory contracts
-  - add deterministic entity extraction
+  - add initial deterministic entity extraction spike
   - persist memory review and stale states
   - add context-source classification and knowledge rail state
   - add deterministic fact and summary candidate scaffolding as an initial extraction spike
   - add document archetype classification and structured knowledge schemas
-  - prepare archetype-aware retrieval/RAG inputs before review UI and retrieval implementation
-  - add memory review UI and approval workflow
+  - refactor deterministic extraction toward evidence harvesting and packaging
+  - prepare archetype-aware retrieval/RAG inputs before semantic consolidation and review UI implementation
   - add retrieval v1 and context inspector
   - keep vector retrieval optional behind an abstraction
 - Phase 4: diffs, validation, and consistency
@@ -802,6 +852,8 @@ Thread/editor anchors remain session-local until durable span IDs or revalidated
   - API-key provider setup
   - experimental subscription-auth bridge adapter
   - provider selection/settings UX
+  - provider-backed semantic consolidation and schema validation for harvested evidence
+  - memory review UI and approval workflow for semantically consolidated candidates
   - logging and recovery for auth/provider failures
 
 ## Test Plan
