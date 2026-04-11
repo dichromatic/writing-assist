@@ -861,6 +861,10 @@ Documentation:
 
 ### Phase 3.5: Fact and summary candidate generation
 
+Status:
+
+- completed
+
 Deliverables:
 
 - deterministic summary candidate scaffolding for document/section scope
@@ -889,7 +893,72 @@ Done when:
 
 - fact and summary records can enter the review queue safely without becoming reusable memory
 
-### Phase 3.6: Memory review UI
+Documentation:
+
+- `documentation/phase-3.5-fact-and-summary-candidate-generation.md`
+
+Notes:
+
+- This phase is now treated as a narrow deterministic spike, not the final extraction architecture.
+- A later Phase 3.6 will generalize deterministic extraction around document archetypes, richer candidate schemas, and retrieval preparation.
+
+### Phase 3.6: Document archetypes, structured knowledge schemas, and retrieval preparation
+
+Deliverables:
+
+- document archetype classification for imported project documents, including:
+  - dossier/profile
+  - story planning / outline
+  - taxonomy / glossary / world-rule reference
+  - expository world article
+  - generic loose note
+- structured knowledge candidate contracts for deterministic extraction and later LLM output validation, including:
+  - `EntityProfileCandidate`
+  - `RelationshipCandidate`
+  - `TimelineEventCandidate`
+  - `StoryArcCandidate`
+  - `WorldRuleCandidate`
+  - `TerminologyCandidate`
+  - extractive summaries as one candidate type among others, not the only fallback
+- archetype-aware retrieval unit planning:
+  - when retrieval should use sections
+  - when it should use bullet/list items
+  - when it should use profile fields
+  - when it should use timeline/arc nodes
+- source-linking rules so all extracted candidates and retrieval units preserve document path plus span/section anchors
+- planning notes for how later LLM tasks should consume and emit these schemas safely
+- hybrid RAG design for later phases:
+  - exact target vicinity
+  - explicitly selected guide/reference/note sources
+  - lexical/entity/terminology retrieval
+  - approved structured memory retrieval
+  - vector retrieval only as optional fallback
+
+Out of scope:
+
+- provider implementation
+- embeddings as a hard requirement
+- final memory review UI
+- final retrieval ranking implementation
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- dossier-style files classify differently from planning files and world-reference articles
+- taxonomy/reference files expose deterministic terminology/world-rule extraction targets
+- planning files are not flattened into canon-like fact memory automatically
+- long expository files prefer extractive summary/definition units over aggressive claim explosion
+- source anchors survive archetype classification and candidate shaping
+
+Done when:
+
+- the program has a stable, readable structured-knowledge model that can guide both deterministic extraction and later LLM schema design
+- retrieval planning no longer assumes raw spans or generic fact triples are the only useful units
+
+### Phase 3.7: Memory review UI
 
 Deliverables:
 
@@ -897,6 +966,7 @@ Deliverables:
   - entity candidates
   - facts
   - summaries
+  - future structured knowledge candidates where the schema is stable enough to review
 - approve/reject controls through Tauri/store commands
 - visible stale state
 - no automatic use of pending memory in task context
@@ -922,13 +992,14 @@ Done when:
 
 - user can review generated memory before it is allowed into retrieval/context selection
 
-### Phase 3.7: Retrieval v1 and context inspector
+### Phase 3.8: Retrieval v1 and context inspector
 
 Deliverables:
 
 - metadata retrieval
 - lexical retrieval over parsed normalized text
 - approved entity/fact/summary retrieval
+- archetype-aware retrieval over structured deterministic candidates where available
 - vector retrieval abstraction only, with implementation deferred if needed
 - context inspector showing exact included/excluded sources and memory records for a task
 - thread-local anchor display in the intelligence hub
@@ -948,6 +1019,7 @@ Behavior to test:
 
 - retrieval excludes pending/rejected/stale memory
 - lexical/entity/fact matches rank ahead of vector fallbacks for names and canon terms
+- archetype-aware units outrank generic raw-text chunks when a dossier/timeline/terminology candidate is a better fit
 - context inspector displays the exact context bundle used by the task
 - anchor display uses session-local anchors and marks stale anchors once Phase 4 mutations exist
 
@@ -958,7 +1030,7 @@ Done when:
 ### Phase 3 completion criteria
 
 - reviewable memory contracts exist in `core`
-- deterministic extraction can produce pending entity/fact/summary candidates
+- deterministic extraction can classify document archetypes and produce structured pending candidates suitable for later LLM and retrieval work
 - memory records persist with source links, review state, and stale state
 - pending/rejected/stale memory is excluded from reusable context
 - approved memory can be reused in policy-gated context selection
@@ -1075,7 +1147,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 3.5 fact and summary candidate generation.
+1. Start Phase 3.6 document archetypes, structured knowledge schemas, and retrieval preparation.
 2. Keep the new workspace-state model as the frontend target for future UI refactors.
 3. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
 4. Keep context-source review and the knowledge rail in Phase 3 scope.

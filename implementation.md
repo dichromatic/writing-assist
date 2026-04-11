@@ -625,9 +625,53 @@ The first extraction slice should not use LLM calls. It should produce conservat
 Fact and summary candidate generation should start as scaffolding:
 
 - facts only from structured reference-like lines, not broad prose claims
+- fact scaffolding should be limited to `reference` documents until note-specific extraction rules exist
 - summaries at document/section scope as pending records
+- summaries should be deterministic extractive snippets from source text, not provider-written prose
 - no automatic approval
 - no provider-generated summaries until the review and persistence path is stable
+
+The current fact/summary scaffolding should be treated as an initial spike, not the final knowledge model. The broader deterministic extraction layer should become document-archetype aware so later retrieval and LLM tasks work from structure that actually matches writing projects.
+
+#### Document archetypes and structured knowledge
+
+The app should not assume every useful project note reduces cleanly to `subject/predicate/object` facts or plain summaries.
+
+Imported writing projects usually contain several different document archetypes:
+
+- dossier/profile documents
+- story planning and outline documents
+- taxonomy/glossary/world-rule references
+- long expository world articles
+- loose brainstorming notes
+
+These should be treated differently in deterministic extraction, review, retrieval, and later LLM schema design.
+
+The deterministic knowledge layer should eventually support candidate types such as:
+
+- `EntityProfileCandidate`
+- `RelationshipCandidate`
+- `TimelineEventCandidate`
+- `StoryArcCandidate`
+- `WorldRuleCandidate`
+- `TerminologyCandidate`
+- `ReviewableSummary`
+
+Why this matters:
+
+- dossier files want profile fields and relationship edges, not only summary text
+- planning files want story-arc and scene-purpose records, not canon facts by default
+- glossary/taxonomy files want terminology and rule extraction
+- long-form world articles want extractive summaries plus carefully bounded explicit claims
+
+This phase should also define which candidate types are:
+
+- likely canon reference memory
+- planning-only memory
+- note-like working context
+- unsuitable for automatic reuse without additional review
+
+That distinction is necessary before the app lets retrieval or LLM tasks treat planning notes and world reference files as equivalent.
 
 #### Persistence and staleness
 
@@ -661,17 +705,23 @@ Task requests should pass active paths as `explicitly_selected_source_paths`. Th
 
 #### Retrieval v1
 
-Retrieval should prefer deterministic, inspectable signals before vector fallback:
+Retrieval should prefer deterministic, inspectable signals before vector fallback.
+
+This should be treated as a hybrid RAG workflow, but not a generic vector-first one. The context package for a task should be assembled from several ordered sources:
 
 - metadata retrieval
 - lexical retrieval over parser-normalized text
 - approved entity/fact/summary retrieval
+- archetype-aware retrieval over structured knowledge candidates such as profiles, terminology, world rules, timelines, and story arcs
+- explicitly selected context sources from the knowledge rail
+- exact target-vicinity text around the current selection
 - vector retrieval abstraction only, with concrete embeddings deferred if needed
 
 Retrieval tests should verify:
 
 - pending/rejected/stale memory is excluded
 - lexical/entity/fact matches rank ahead of vector fallbacks for names, canon, and terminology
+- archetype-aware structured hits outrank generic raw text when they are the more precise unit
 - context inspector shows the exact selected context for a task
 
 #### Context inspector and anchors
@@ -727,7 +777,9 @@ Thread/editor anchors remain session-local until durable span IDs or revalidated
   - add deterministic entity extraction
   - persist memory review and stale states
   - add context-source classification and knowledge rail state
-  - add deterministic fact and summary candidate scaffolding
+  - add deterministic fact and summary candidate scaffolding as an initial extraction spike
+  - add document archetype classification and structured knowledge schemas
+  - prepare archetype-aware retrieval/RAG inputs before review UI and retrieval implementation
   - add memory review UI and approval workflow
   - add retrieval v1 and context inspector
   - keep vector retrieval optional behind an abstraction
