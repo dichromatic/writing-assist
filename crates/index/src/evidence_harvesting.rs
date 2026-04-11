@@ -46,7 +46,7 @@ pub fn harvest_mention_candidates(
         .iter()
         .filter(|span| matches!(span.span_type, SpanType::Heading | SpanType::Paragraph))
     {
-        for harvested in mentions_in_span(document_path, span, parsed, &archetype) {
+        for harvested in mention_observations_in_span(document_path, span, parsed, &archetype) {
             if let Some(existing_index) =
                 index_by_normalized_surface.get(&harvested.normalized_surface).copied()
             {
@@ -223,7 +223,47 @@ pub fn harvest_section_summary_seeds(
         .collect()
 }
 
-fn mentions_in_span(
+fn mention_observations_in_span(
+    document_path: &str,
+    span: &ParsedSpan,
+    parsed: &ParsedMarkdownDocument,
+    archetype: &DocumentArchetype,
+) -> Vec<MentionObservation> {
+    match archetype {
+        DocumentArchetype::Manuscript => {
+            capitalized_mentions_in_span(document_path, span, parsed, archetype)
+        }
+        DocumentArchetype::DossierProfile => {
+            let mut observations =
+                capitalized_mentions_in_span(document_path, span, parsed, archetype);
+            observations.extend(alias_field_mentions_in_span(document_path, span, parsed));
+            observations
+        }
+        DocumentArchetype::TaxonomyReference | DocumentArchetype::ExpositoryWorldArticle => {
+            let mut observations =
+                capitalized_mentions_in_span(document_path, span, parsed, archetype);
+            observations.extend(definition_term_mentions_in_span(
+                document_path,
+                span,
+                parsed,
+            ));
+            observations
+        }
+        DocumentArchetype::StoryPlanning => {
+            let mut observations =
+                capitalized_mentions_in_span(document_path, span, parsed, archetype);
+            observations.extend(story_planning_field_mentions_in_span(
+                document_path,
+                span,
+                parsed,
+            ));
+            observations
+        }
+        DocumentArchetype::LooseNote => capitalized_mentions_in_span(document_path, span, parsed, archetype),
+    }
+}
+
+fn capitalized_mentions_in_span(
     document_path: &str,
     span: &ParsedSpan,
     parsed: &ParsedMarkdownDocument,
@@ -291,34 +331,106 @@ fn mentions_in_span(
             continue;
         }
 
-        let mut aggregate_features = Vec::new();
-        if word_count > 1 {
-            aggregate_features.push(MentionFeature::MultiWord);
-        }
-        if titled {
-            aggregate_features.push(MentionFeature::Titled);
-        }
-        if span.span_type == SpanType::Heading {
-            aggregate_features.push(MentionFeature::HeadingMentioned);
-        }
-        if words.iter().any(|word| word.had_possessive) {
+        let mut aggregate_features = aggregate_features_for_surface(span, &surface);
+        if words.iter().any(|word| word.had_possessive)
+            && !aggregate_features.contains(&MentionFeature::PossessiveObserved)
+        {
             aggregate_features.push(MentionFeature::PossessiveObserved);
         }
 
-        let occurrence = build_occurrence(span, parsed, &surface);
-
-        mentions.push(MentionObservation {
+        mentions.push(build_surface_observation(
+            document_path,
+            span,
+            parsed,
             surface,
-            normalized_surface,
-            source: MemorySourceReference::new(
-                document_path,
-                vec![TargetAnchor::span(span.ordinal)],
-                span.start_char,
-                span.end_char,
-            ),
-            occurrences: vec![occurrence],
             aggregate_features,
-        });
+        ));
+    }
+
+    mentions
+}
+
+fn alias_field_mentions_in_span(
+    document_path: &str,
+    span: &ParsedSpan,
+    parsed: &ParsedMarkdownDocument,
+) -> Vec<MentionObservation> {
+    let mut mentions = Vec::new();
+
+    for line in span.text.lines() {
+        let Some((label, value)) = parse_structured_field_line(line) else {
+            continue;
+        };
+
+        if !is_alias_like_label(&label) || !value.chars().any(|character| character.is_alphabetic()) {
+            continue;
+        }
+
+        mentions.push(build_surface_observation(
+            document_path,
+            span,
+            parsed,
+            value.clone(),
+            aggregate_features_for_surface(span, &value),
+        ));
+    }
+
+    mentions
+}
+
+fn definition_term_mentions_in_span(
+    document_path: &str,
+    span: &ParsedSpan,
+    parsed: &ParsedMarkdownDocument,
+) -> Vec<MentionObservation> {
+    let mut mentions = Vec::new();
+
+    for line in span.text.lines() {
+        let Some((term, _definition)) = parse_definition_line(line) else {
+            continue;
+        };
+
+        if !term.chars().any(|character| character.is_alphabetic()) {
+            continue;
+        }
+
+        mentions.push(build_surface_observation(
+            document_path,
+            span,
+            parsed,
+            term.clone(),
+            aggregate_features_for_surface(span, &term),
+        ));
+    }
+
+    mentions
+}
+
+fn story_planning_field_mentions_in_span(
+    document_path: &str,
+    span: &ParsedSpan,
+    parsed: &ParsedMarkdownDocument,
+) -> Vec<MentionObservation> {
+    let mut mentions = Vec::new();
+
+    for line in span.text.lines() {
+        let Some((label, value)) = parse_structured_field_line(line) else {
+            continue;
+        };
+
+        if !is_story_planning_participant_label(&label) {
+            continue;
+        }
+
+        for surface in split_story_planning_mentions(&value) {
+            mentions.push(build_surface_observation(
+                document_path,
+                span,
+                parsed,
+                surface.clone(),
+                aggregate_features_for_surface(span, &surface),
+            ));
+        }
     }
 
     mentions
@@ -356,6 +468,49 @@ fn build_occurrence(
     }
 }
 
+fn build_surface_observation(
+    document_path: &str,
+    span: &ParsedSpan,
+    parsed: &ParsedMarkdownDocument,
+    surface: String,
+    aggregate_features: Vec<MentionFeature>,
+) -> MentionObservation {
+    MentionObservation {
+        normalized_surface: normalize_mention_surface(&surface),
+        source: MemorySourceReference::new(
+            document_path,
+            vec![TargetAnchor::span(span.ordinal)],
+            span.start_char,
+            span.end_char,
+        ),
+        occurrences: vec![build_occurrence(span, parsed, &surface)],
+        surface,
+        aggregate_features,
+    }
+}
+
+fn aggregate_features_for_surface(span: &ParsedSpan, surface: &str) -> Vec<MentionFeature> {
+    let mut aggregate_features = Vec::new();
+    let word_count = surface.split_whitespace().count();
+    let titled = surface
+        .split_whitespace()
+        .next()
+        .map(is_title_prefix)
+        .unwrap_or(false);
+
+    if word_count > 1 {
+        aggregate_features.push(MentionFeature::MultiWord);
+    }
+    if titled {
+        aggregate_features.push(MentionFeature::Titled);
+    }
+    if span.span_type == SpanType::Heading {
+        aggregate_features.push(MentionFeature::HeadingMentioned);
+    }
+
+    aggregate_features
+}
+
 fn section_heading(section: &ParsedSection) -> Option<String> {
     section
         .boundary_text
@@ -365,9 +520,18 @@ fn section_heading(section: &ParsedSection) -> Option<String> {
 }
 
 fn clean_entity_token(token: &str) -> TokenObservation {
+    let abbreviation_without_punctuation = token
+        .trim_matches(|character: char| {
+            character.is_ascii_punctuation()
+                || matches!(character, '“' | '”' | '‘' | '’' | '—' | '–' | '…')
+        });
+    let period_ends_phrase = token.ends_with('.') && !is_title_prefix(abbreviation_without_punctuation);
     let ends_phrase = token.ends_with(',')
         || token.ends_with(';')
         || token.ends_with(':')
+        || period_ends_phrase
+        || token.ends_with('!')
+        || token.ends_with('?')
         || token.ends_with('—')
         || token.ends_with('–');
     let cleaned = token.trim_matches(|character: char| {
@@ -526,8 +690,11 @@ fn is_noise_singleton(token: &str) -> bool {
             | "Would"
             | "Could"
             | "Should"
+            | "Did"
             | "Has"
             | "Had"
+            | "What"
+            | "Let"
             | "Welcome"
             | "Good"
             | "Real"
@@ -734,6 +901,38 @@ fn parse_structured_field_line(line: &str) -> Option<(String, String)> {
     }
 
     Some((label, value))
+}
+
+fn is_alias_like_label(label: &str) -> bool {
+    matches!(
+        label.to_ascii_lowercase().as_str(),
+        "alias" | "aliases" | "nickname" | "callsign"
+    )
+}
+
+fn is_story_planning_participant_label(label: &str) -> bool {
+    matches!(
+        label.to_ascii_lowercase().as_str(),
+        "participant"
+            | "participants"
+            | "focus"
+            | "target"
+            | "character"
+            | "characters"
+            | "crew"
+            | "speaker"
+            | "speakers"
+    )
+}
+
+fn split_story_planning_mentions(value: &str) -> Vec<String> {
+    value.split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .filter(|part| part.chars().any(|character| character.is_alphabetic()))
+        .filter(|part| part.split_whitespace().count() <= 3)
+        .map(|part| part.to_string())
+        .collect()
 }
 
 fn parse_definition_line(line: &str) -> Option<(String, String)> {
