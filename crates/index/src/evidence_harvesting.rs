@@ -259,8 +259,22 @@ fn mention_observations_in_span(
             ));
             observations
         }
-        DocumentArchetype::LooseNote => capitalized_mentions_in_span(document_path, span, parsed, archetype),
+        DocumentArchetype::LooseNote => {
+            loose_note_mentions_in_span(document_path, span, parsed, archetype)
+        }
     }
+}
+
+fn loose_note_mentions_in_span(
+    document_path: &str,
+    span: &ParsedSpan,
+    parsed: &ParsedMarkdownDocument,
+    archetype: &DocumentArchetype,
+) -> Vec<MentionObservation> {
+    capitalized_mentions_in_span(document_path, span, parsed, archetype)
+        .into_iter()
+        .filter(|observation| !should_reject_loose_note_observation(observation, span))
+        .collect()
 }
 
 fn capitalized_mentions_in_span(
@@ -366,6 +380,10 @@ fn alias_field_mentions_in_span(
             continue;
         }
 
+        if contains_emoji_characters(&value) {
+            continue;
+        }
+
         mentions.push(build_surface_observation(
             document_path,
             span,
@@ -391,6 +409,10 @@ fn definition_term_mentions_in_span(
         };
 
         if !term.chars().any(|character| character.is_alphabetic()) {
+            continue;
+        }
+
+        if contains_emoji_characters(&term) {
             continue;
         }
 
@@ -423,6 +445,10 @@ fn story_planning_field_mentions_in_span(
         }
 
         for surface in split_story_planning_mentions(&value) {
+            if contains_emoji_characters(&surface) {
+                continue;
+            }
+
             mentions.push(build_surface_observation(
                 document_path,
                 span,
@@ -520,20 +546,24 @@ fn section_heading(section: &ParsedSection) -> Option<String> {
 }
 
 fn clean_entity_token(token: &str) -> TokenObservation {
-    let abbreviation_without_punctuation = token
+    let token_for_phrase_break = token.trim_end_matches(|character: char| {
+        matches!(character, '“' | '”' | '‘' | '’' | '"' | '\'')
+    });
+    let abbreviation_without_punctuation = token_for_phrase_break
         .trim_matches(|character: char| {
             character.is_ascii_punctuation()
                 || matches!(character, '“' | '”' | '‘' | '’' | '—' | '–' | '…')
         });
-    let period_ends_phrase = token.ends_with('.') && !is_title_prefix(abbreviation_without_punctuation);
-    let ends_phrase = token.ends_with(',')
-        || token.ends_with(';')
-        || token.ends_with(':')
+    let period_ends_phrase = token_for_phrase_break.ends_with('.')
+        && !is_title_prefix(abbreviation_without_punctuation);
+    let ends_phrase = token_for_phrase_break.ends_with(',')
+        || token_for_phrase_break.ends_with(';')
+        || token_for_phrase_break.ends_with(':')
         || period_ends_phrase
-        || token.ends_with('!')
-        || token.ends_with('?')
-        || token.ends_with('—')
-        || token.ends_with('–');
+        || token_for_phrase_break.ends_with('!')
+        || token_for_phrase_break.ends_with('?')
+        || token_for_phrase_break.ends_with('—')
+        || token_for_phrase_break.ends_with('–');
     let cleaned = token.trim_matches(|character: char| {
         character.is_ascii_punctuation()
             || matches!(character, '“' | '”' | '‘' | '’' | '—' | '–' | '…')
@@ -616,6 +646,7 @@ fn is_leading_drop_token(token: &str) -> bool {
         token,
         "The" | "A" | "An" | "Hey" | "Oh" | "Ah" | "Well" | "Yes" | "No" | "Please"
             | "But" | "And" | "So" | "Though" | "When" | "While" | "After" | "Before"
+            | "As" | "How" | "Since" | "Wait"
     )
 }
 
@@ -663,7 +694,9 @@ fn is_noise_singleton(token: &str) -> bool {
             | "While"
             | "After"
             | "Before"
+            | "Wait"
             | "If"
+            | "Since"
             | "Then"
             | "Today"
             | "Opening"
@@ -719,7 +752,31 @@ fn is_noise_singleton(token: &str) -> bool {
             | "Don't"
             | "I’ve"
             | "I've"
+            | "I-I"
     )
+}
+
+fn contains_emoji_characters(text: &str) -> bool {
+    text.chars().any(is_emoji_character)
+}
+
+fn is_emoji_character(character: char) -> bool {
+    // Reject emoji-bearing surfaces early so decorative glyphs do not get
+    // promoted into mention evidence or later semantic inputs.
+    let scalar = character as u32;
+
+    matches!(scalar, 0x200D | 0xFE0F | 0x20E3)
+        || (0x1F1E6..=0x1F1FF).contains(&scalar)
+        || (0x1F300..=0x1F5FF).contains(&scalar)
+        || (0x1F600..=0x1F64F).contains(&scalar)
+        || (0x1F680..=0x1F6FF).contains(&scalar)
+        || (0x1F700..=0x1F77F).contains(&scalar)
+        || (0x1F780..=0x1F7FF).contains(&scalar)
+        || (0x1F800..=0x1F8FF).contains(&scalar)
+        || (0x1F900..=0x1F9FF).contains(&scalar)
+        || (0x1FA70..=0x1FAFF).contains(&scalar)
+        || (0x2600..=0x26FF).contains(&scalar)
+        || (0x2700..=0x27BF).contains(&scalar)
 }
 
 fn mention_survives_aggregation(
@@ -744,6 +801,32 @@ fn mention_survives_aggregation(
                         matches!(feature, MentionFeature::MultiWord | MentionFeature::Titled)
                     })
         }
+        DocumentArchetype::LooseNote => {
+            if observation.surface.split_whitespace().count() == 1
+                && observation
+                    .occurrences
+                    .iter()
+                    .all(|occurrence| occurrence.sentence_type == SentenceType::ListItem)
+                && !observation.aggregate_features.iter().any(|feature| {
+                    matches!(
+                        feature,
+                        MentionFeature::MultiWord
+                            | MentionFeature::Titled
+                            | MentionFeature::PossessiveObserved
+                    )
+                })
+                && observation.occurrences.iter().all(|occurrence| {
+                    occurrence
+                        .snippet
+                        .trim_start_matches("- ")
+                        .starts_with(&observation.surface)
+                })
+            {
+                return false;
+            }
+
+            true
+        }
         _ => true,
     }
 }
@@ -763,14 +846,173 @@ fn should_reject_harvested_mention(
         return true;
     }
 
+    if contains_emoji_characters(surface) {
+        return true;
+    }
+
     if normalized_surface.split_whitespace().all(is_noise_singleton) {
         return true;
     }
 
     match archetype {
-        DocumentArchetype::Manuscript => !(word_count > 1 || titled || !is_noise_singleton(surface)),
+        DocumentArchetype::Manuscript => {
+            if word_count > 1
+                && surface
+                    .split_whitespace()
+                    .next()
+                    .map(is_leading_drop_token)
+                    .unwrap_or(false)
+            {
+                return true;
+            }
+
+            !(word_count > 1 || titled || !is_noise_singleton(surface))
+        }
         _ => false,
     }
+}
+
+fn should_reject_loose_note_observation(
+    observation: &MentionObservation,
+    span: &ParsedSpan,
+) -> bool {
+    let surface_word_count = observation.surface.split_whitespace().count();
+    let lower_surface = observation.surface.to_lowercase();
+
+    for line in span.text.lines() {
+        let normalized_line = line
+            .trim()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let lower_line = normalized_line.to_lowercase();
+
+        if surface_word_count == 1
+            && lower_line.starts_with(&format!("{lower_surface} "))
+            && follows_loose_note_label_pattern(lower_line[lower_surface.len()..].trim_start())
+        {
+            return true;
+        }
+
+        if let Some((label, value)) = parse_structured_field_line(line.trim()) {
+            let normalized_label = normalize_mention_surface(&label);
+            let lower_value = value.to_lowercase();
+
+            if normalized_label == observation.normalized_surface {
+                return true;
+            }
+
+            if surface_word_count == 1
+                && lower_value.starts_with(&lower_surface)
+                && is_loose_note_generic_field_label(&label)
+            {
+                return true;
+            }
+        }
+    }
+
+    if span
+        .text
+        .lines()
+        .filter(|line| line.trim_start().starts_with("- "))
+        .any(|line| {
+            first_cleaned_token(line.trim())
+                .map(|token| token.to_lowercase() == lower_surface)
+                .unwrap_or(false)
+        })
+        && !observation
+            .aggregate_features
+            .contains(&MentionFeature::PossessiveObserved)
+        && is_loose_note_list_item_singleton(&observation.surface)
+    {
+        return true;
+    }
+
+    false
+}
+
+fn follows_loose_note_label_pattern(remaining_text: &str) -> bool {
+    matches!(
+        remaining_text.split_whitespace().next(),
+        Some(
+            "with"
+                | "to"
+                | "of"
+                | "for"
+                | "friend"
+                | "identity"
+                | "profile"
+                | "summary"
+                | "background"
+        )
+    )
+}
+
+fn is_loose_note_generic_field_label(label: &str) -> bool {
+    label
+        .split_whitespace()
+        .any(|word| {
+            matches!(
+                word.to_ascii_lowercase().as_str(),
+                "role"
+                    | "history"
+                    | "relationship"
+                    | "dynamic"
+                    | "identity"
+                    | "personality"
+                    | "purpose"
+                    | "tone"
+                    | "outcome"
+                    | "opening"
+                    | "closing"
+                    | "summary"
+            )
+        })
+}
+
+fn is_loose_note_list_item_singleton(surface: &str) -> bool {
+    matches!(
+        surface,
+        "Calm"
+            | "Critical"
+            | "Childhood"
+            | "Deep"
+            | "Known"
+            | "Drives"
+            | "Loved"
+            | "Idolizes"
+            | "Moves"
+            | "Often"
+            | "Frequently"
+            | "Feels"
+            | "Shares"
+            | "Serves"
+            | "Assigned"
+            | "Acts"
+            | "Accidentally"
+            | "Flawless"
+            | "Friendly"
+            | "Half"
+            | "Helps"
+            | "Manages"
+            | "Mutual"
+            | "Overprepares"
+            | "Perfect"
+            | "Picks"
+            | "Quietly"
+            | "Speaks"
+            | "Sometimes"
+            | "Surprisingly"
+            | "Energetic"
+            | "Genuinely"
+    )
+}
+
+fn first_cleaned_token(text: &str) -> Option<String> {
+    text.split_whitespace()
+        .map(clean_entity_token)
+        .find(|token| !token.text.is_empty())
+        .map(|token| token.text)
 }
 
 fn build_occurrence_snippet(text: &str, surface: &str) -> String {
@@ -896,6 +1138,10 @@ fn parse_structured_field_line(line: &str) -> Option<(String, String)> {
         || !(1..=4).contains(&label_word_count)
         || !label.chars().any(|character| character.is_alphanumeric())
         || !value.chars().any(|character| character.is_alphanumeric())
+        // Decorative glyphs in labels/values are usually chatty note markup,
+        // not stable structured evidence we want to reuse downstream.
+        || contains_emoji_characters(&label)
+        || contains_emoji_characters(&value)
     {
         return None;
     }
@@ -961,6 +1207,10 @@ fn parse_definition_line(line: &str) -> Option<(String, String)> {
         || term.split_whitespace().count() > 6
         || !term.chars().any(|character| character.is_alphanumeric())
         || !definition.chars().any(|character| character.is_alphanumeric())
+        // Keep terminology/definition evidence text-clean for retrieval and
+        // later semantic consolidation.
+        || contains_emoji_characters(&term)
+        || contains_emoji_characters(&definition)
     {
         return None;
     }

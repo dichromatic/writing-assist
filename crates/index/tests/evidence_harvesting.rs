@@ -125,6 +125,30 @@ fn manuscript_harvesting_suppresses_repeated_dialogue_artifact_singletons() {
 }
 
 #[test]
+fn manuscript_harvesting_suppresses_remaining_repeated_singleton_noise() {
+    let parsed = parse_markdown_document(
+        "“Wait, I can explain.”\n\n\
+         “Of course! Wait, sorry, that came out strangely.”\n\n\
+         Since the hatch was still warm, she stepped back.\n\n\
+         “Since we still have time, let’s keep moving.”\n\n\
+         “I-I can prepare the report.”\n\n\
+         “I-I don’t know.”\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "chapters/chapter-5b.md",
+        DocumentArchetype::Manuscript,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"Wait"));
+    assert!(!surfaces.contains(&"Since"));
+    assert!(!surfaces.contains(&"I-I"));
+}
+
+#[test]
 fn manuscript_harvesting_suppresses_stutter_artifacts() {
     let parsed =
         parse_markdown_document("“S-sorry.”\n\n“I-I don’t know.”\n\n“Y-Yoshiko-chan...”\n");
@@ -140,6 +164,97 @@ fn manuscript_harvesting_suppresses_stutter_artifacts() {
     assert!(!surfaces.contains(&"S-sorry"));
     assert!(!surfaces.contains(&"I-I"));
     assert!(!surfaces.contains(&"Y-Yoshiko-chan"));
+}
+
+#[test]
+fn harvesting_suppresses_emoji_bearing_surfaces() {
+    let manuscript = parse_markdown_document(
+        "Kohaku🙂 reached the docking arm.\n\nCaptain Mara✨ checked the chart.\n",
+    );
+    let story_planning = parse_markdown_document(
+        "participants: yō, kohaku🙂, dia\n\nfocus: yoshiko✨\n",
+    );
+    let taxonomy = parse_markdown_document(
+        "tau🙂 field: local resonance envelope\n\nharmonic baseline: steady floor\n",
+    );
+
+    let manuscript_mentions = harvest_mention_candidates(
+        "chapters/chapter-emoji.md",
+        DocumentArchetype::Manuscript,
+        &manuscript,
+    );
+    let planning_mentions = harvest_mention_candidates(
+        "story planning/emoji-outline.txt",
+        DocumentArchetype::StoryPlanning,
+        &story_planning,
+    );
+    let taxonomy_mentions = harvest_mention_candidates(
+        "world context/emoji-taxonomy.txt",
+        DocumentArchetype::TaxonomyReference,
+        &taxonomy,
+    );
+
+    let manuscript_surfaces: Vec<_> = manuscript_mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
+    let planning_surfaces: Vec<_> = planning_mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
+    let taxonomy_surfaces: Vec<_> = taxonomy_mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
+
+    assert!(!manuscript_surfaces.contains(&"Kohaku🙂"));
+    assert!(!manuscript_surfaces.contains(&"Captain Mara✨"));
+    assert!(!planning_surfaces.contains(&"kohaku🙂"));
+    assert!(!planning_surfaces.contains(&"yoshiko✨"));
+    assert!(!taxonomy_surfaces.contains(&"tau🙂 field"));
+}
+
+#[test]
+fn manuscript_harvesting_does_not_merge_quote_end_mentions_with_following_speaker_names() {
+    let parsed = parse_markdown_document(
+        "“I know what day it is, Kohaku,” Yō says.\n\n\
+         “I... see. My apologies, Mrs. Yō.” Kohaku does not finish the thought.\n\n\
+         “I’ll leave you to Kohaku then, Miss Yoshiko.” Earlean consults her tablet.\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "chapters/chapter-7.md",
+        DocumentArchetype::Manuscript,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"Kohaku Yō"));
+    assert!(!surfaces.contains(&"Mrs Yō Kohaku"));
+    assert!(!surfaces.contains(&"Miss Yoshiko Earlean"));
+    assert!(surfaces.contains(&"Kohaku"));
+    assert!(surfaces.contains(&"Mrs Yō"));
+    assert!(surfaces.contains(&"Miss Yoshiko"));
+}
+
+#[test]
+fn manuscript_harvesting_drops_leading_discourse_words_from_multiword_fragments() {
+    let parsed = parse_markdown_document(
+        "As Yō tries to pry open the skylight, sand falls through the crack.\n\n\
+         “How’s Yoshiko doing in there?”\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "chapters/chapter-8.md",
+        DocumentArchetype::Manuscript,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"As Yō"));
+    assert!(!surfaces.contains(&"How Yoshiko"));
 }
 
 #[test]
@@ -164,6 +279,137 @@ fn harvests_structured_fields_from_profile_and_planning_lines() {
     assert_eq!(dossier_fields[0].label, "Role");
     assert_eq!(dossier_fields[0].value, "Operations Lead");
     assert_eq!(planning_fields[1].label, "Outcome");
+}
+
+#[test]
+fn structured_field_harvesting_suppresses_emoji_bearing_fields() {
+    let parsed = parse_markdown_document(
+        "Role: Operations Lead✨\n\nAlias: kohaku🙂\n\nOutcome: the crew reaches the station.\n",
+    );
+
+    let fields = harvest_structured_field_candidates(
+        "story planning/emoji-fields.txt",
+        DocumentArchetype::StoryPlanning,
+        &parsed,
+    );
+
+    let field_pairs: Vec<_> = fields
+        .iter()
+        .map(|field| (field.label.as_str(), field.value.as_str()))
+        .collect();
+
+    assert!(!field_pairs.contains(&("Role", "Operations Lead✨")));
+    assert!(!field_pairs.contains(&("Alias", "kohaku🙂")));
+    assert!(field_pairs.contains(&("Outcome", "the crew reaches the station")));
+}
+
+#[test]
+fn loose_note_harvesting_suppresses_label_like_singletons() {
+    let parsed = parse_markdown_document(
+        "History with Yō: Former junior officer on several missions.\n\n\
+         Professional identity\n\n\
+         Dynamic with Prologue crew\n\n\
+         Liella Personality: Bright, earnest, quietly stubborn\n\n\
+         Relationship to Yō\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "notes/crew-summary.txt",
+        DocumentArchetype::LooseNote,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"History"));
+    assert!(!surfaces.contains(&"Professional"));
+    assert!(!surfaces.contains(&"Dynamic"));
+    assert!(!surfaces.contains(&"Bright"));
+    assert!(!surfaces.contains(&"Relationship"));
+    assert!(surfaces.contains(&"Yō"));
+    assert!(surfaces.contains(&"Prologue"));
+}
+
+#[test]
+fn loose_note_harvesting_suppresses_list_item_singleton_noise() {
+    let parsed = parse_markdown_document(
+        "- Calm and collected on the bridge\n\
+         - Known for treating her crew with gentleness\n\
+         - Drives morale by optimism rather than force\n\
+         - Loved by her officers\n\
+         - Moves like someone always ready to react\n\
+         - Often first to detect shipboard anomalies\n\
+         - Yō keeps the bridge steady\n\
+         - Chisato’s athletic injury manager\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "notes/prologue-summary.txt",
+        DocumentArchetype::LooseNote,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"Calm"));
+    assert!(!surfaces.contains(&"Known"));
+    assert!(!surfaces.contains(&"Drives"));
+    assert!(!surfaces.contains(&"Loved"));
+    assert!(!surfaces.contains(&"Moves"));
+    assert!(!surfaces.contains(&"Often"));
+    assert!(surfaces.contains(&"Yō"));
+    assert!(surfaces.contains(&"Chisato"));
+}
+
+#[test]
+fn loose_note_harvesting_suppresses_line_level_descriptor_and_field_labels() {
+    let parsed = parse_markdown_document(
+        "Bridge note\n\n\
+         Childhood friend of Chisato\n\
+         Liella Personality: Bright, earnest, quietly stubborn\n\
+         History with Yō: Former junior officer on several missions\n\
+         Chisato coordinates the bridge team\n\
+         Yō reviews the route projection\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "notes/bridge-note.txt",
+        DocumentArchetype::LooseNote,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"Childhood"));
+    assert!(!surfaces.contains(&"Liella Personality"));
+    assert!(!surfaces.contains(&"History"));
+    assert!(surfaces.contains(&"Chisato"));
+    assert!(surfaces.contains(&"Yō"));
+}
+
+#[test]
+fn loose_note_harvesting_suppresses_generic_bullet_start_singletons() {
+    let parsed = parse_markdown_document(
+        "- Overprepares for disaster\n\
+         - Accidentally comic relief\n\
+         - Frequently mediates between chaos and procedure\n\
+         - Perfect chaos partner for Keke\n\
+         - Requested Prologue assignment specifically to support Yō\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "notes/prologue-bullets.txt",
+        DocumentArchetype::LooseNote,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"Overprepares"));
+    assert!(!surfaces.contains(&"Accidentally"));
+    assert!(!surfaces.contains(&"Frequently"));
+    assert!(!surfaces.contains(&"Perfect"));
+    assert!(surfaces.contains(&"Yō"));
 }
 
 #[test]

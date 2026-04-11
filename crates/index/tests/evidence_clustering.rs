@@ -97,3 +97,39 @@ fn links_definition_evidence_to_matching_term_clusters() {
         link.kind == MentionClusterLinkKind::SectionSummarySeed && link.summary == "section:0"
     }));
 }
+
+#[test]
+fn does_not_link_section_summary_seeds_for_weak_singletons_without_other_grounding() {
+    let parsed = parse_markdown_document(
+        "# Desk Notes\n\nLantern light shivers across the desk.\n\nHome stays quiet beyond the shutters.\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "notes/desk-notes.md",
+        DocumentArchetype::LooseNote,
+        &parsed,
+    );
+    let seeds = harvest_section_summary_seeds(
+        "notes/desk-notes.md",
+        DocumentArchetype::LooseNote,
+        &parsed,
+    );
+
+    let clusters = cluster_document_mentions(
+        "notes/desk-notes.md",
+        DocumentArchetype::LooseNote,
+        &mentions,
+        &[],
+        &[],
+        &seeds,
+    );
+
+    let home_cluster = clusters
+        .iter()
+        .find(|cluster| cluster.display_surface == "Home")
+        .expect("expected Home cluster");
+
+    assert!(!home_cluster.linked_evidence.iter().any(|link| {
+        link.kind == MentionClusterLinkKind::SectionSummarySeed
+    }));
+}

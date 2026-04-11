@@ -259,6 +259,8 @@ fn linked_evidence_for_cluster(
         }
     }
 
+    let has_grounded_reference_link = !links.is_empty();
+
     for seed in summary_seeds {
         let seed_sections = seed
             .contexts
@@ -266,9 +268,18 @@ fn linked_evidence_for_cluster(
             .filter_map(|context| context.section_anchor.clone())
             .collect::<Vec<_>>();
 
-        if seed_sections
+        let overlaps_section = seed_sections
             .iter()
-            .any(|seed_section| section_anchors.contains(seed_section))
+            .any(|seed_section| section_anchors.contains(seed_section));
+        let matches_seed_text =
+            surface_matches_haystack(&seed.text, &member_surfaces, &normalized_surfaces);
+
+        // Summary seeds are broad retrieval helpers, so a cluster only inherits
+        // one when the seed actually mentions it and the cluster is otherwise
+        // strong enough to avoid amplifying weak singleton noise.
+        if overlaps_section
+            && matches_seed_text
+            && cluster_supports_summary_link(group, has_grounded_reference_link)
         {
             links.push(MentionClusterLink {
                 kind: MentionClusterLinkKind::SectionSummarySeed,
@@ -296,6 +307,23 @@ fn surface_matches_haystack(
     }) || normalized_surfaces.iter().any(|surface| {
         !surface.is_empty() && normalized_haystack.contains(surface)
     })
+}
+
+fn cluster_supports_summary_link(
+    group: &MentionClusterGroup,
+    has_grounded_reference_link: bool,
+) -> bool {
+    has_grounded_reference_link
+        || group.member_mentions.iter().any(|mention| {
+            mention.aggregate_features.iter().any(|feature| {
+                matches!(
+                    feature,
+                    MentionFeature::Repeated
+                        | MentionFeature::MultiWord
+                        | MentionFeature::Titled
+                )
+            })
+        })
 }
 
 fn dedupe_links(links: &mut Vec<MentionClusterLink>) {
