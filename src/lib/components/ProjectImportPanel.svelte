@@ -1,9 +1,11 @@
 <script lang="ts">
   import DocumentWorkspace from '$lib/components/DocumentWorkspace.svelte';
   import ModeAwareChatPanel from '$lib/components/ModeAwareChatPanel.svelte';
+  import { buildProjectContextSources } from '$lib/context-sources/classification';
   import { browserDemoDocument } from '$lib/demo/browserDemoDocument';
   import { applyPersistedMappingsToCandidates, toPersistedMappings } from '$lib/project-import/mappings';
   import type { DocumentSelectionTarget } from '$lib/project-import/selection';
+  import type { ContextSource } from '$lib/task/types';
   import { validateImportSelection } from '$lib/project-import/validation';
   import type {
     LoadedDocument,
@@ -43,6 +45,7 @@
   let openedProject: OpenedProject | null = null;
   let loadedDocument: LoadedDocument | null = null;
   let activeSelectionTarget: DocumentSelectionTarget | null = null;
+  let availableContextSources: ContextSource[] = [];
   let selectionState = validateImportSelection(mappings);
 
   function resetMappings(nextCandidates: ProjectImportCandidate[]) {
@@ -185,6 +188,8 @@
 
   // Keep validation derived from the editable mapping state so the UI mirrors the Phase 1 import rules.
   $: selectionState = validateImportSelection(mappings);
+  // Phase 3.4 derives selectable context sources from the opened project without hardcoding folders.
+  $: availableContextSources = openedProject ? buildProjectContextSources(openedProject.documents) : [];
 </script>
 
 <section class="panel">
@@ -303,7 +308,10 @@
         <DocumentWorkspace {loadedDocument} on:targetChange={updateSelectionTarget} />
       {/if}
 
-      <ModeAwareChatPanel selectionTarget={activeSelectionTarget} />
+      <ModeAwareChatPanel
+        selectionTarget={activeSelectionTarget}
+        availableSources={availableContextSources}
+      />
     </div>
   {/if}
 
@@ -311,7 +319,10 @@
     <div class="project-open">
       <p class="message" data-state={documentLoadState}>{documentLoadMessage}</p>
       <DocumentWorkspace {loadedDocument} on:targetChange={updateSelectionTarget} />
-      <ModeAwareChatPanel selectionTarget={activeSelectionTarget} />
+      <ModeAwareChatPanel
+        selectionTarget={activeSelectionTarget}
+        availableSources={availableContextSources}
+      />
     </div>
   {/if}
 </section>

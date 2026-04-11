@@ -1,13 +1,24 @@
 <script lang="ts">
+  import {
+    createKnowledgeRailState,
+    setKnowledgeRailActivePaths,
+    toggleKnowledgeRailPath
+  } from '$lib/context-sources/knowledgeRail';
   import type { DocumentSelectionTarget } from '$lib/project-import/selection';
   import { buildDeterministicTaskRequest } from '$lib/task/requestBuilder';
-  import type { ConversationMode, TaskOutput } from '$lib/task/types';
+  import type { ContextSource, ConversationMode, TaskOutput } from '$lib/task/types';
   import {
     runDeterministicTask,
     type TaskExecutionStatus
   } from '$lib/tauri/taskExecution';
 
-  let { selectionTarget }: { selectionTarget: DocumentSelectionTarget | null } = $props();
+  let {
+    selectionTarget,
+    availableSources = []
+  }: {
+    selectionTarget: DocumentSelectionTarget | null;
+    availableSources?: ContextSource[];
+  } = $props();
 
   const modeOptions: Array<{
     mode: ConversationMode;
@@ -35,8 +46,12 @@
   let execution = $state<TaskExecutionStatus | null>(null);
   let isRunning = $state(false);
   let buildError = $state<string | null>(null);
+  let activeContextPaths = $state<string[]>([]);
 
   let canRun = $derived(Boolean(selectionTarget?.selectedText) && !isRunning);
+  let knowledgeRail = $derived(
+    setKnowledgeRailActivePaths(createKnowledgeRailState(availableSources), activeContextPaths)
+  );
 
   function outputTitle(output: TaskOutput): string {
     switch (output.output_type) {
@@ -49,6 +64,17 @@
     }
   }
 
+  function contextSourceLabel(source: ContextSource): string {
+    switch (source.kind.source_type) {
+      case 'guide':
+        return `${source.kind.source_kind.replaceAll('_', ' ')} guide`;
+      case 'reference':
+        return source.kind.source_kind.replaceAll('_', ' ');
+      case 'note':
+        return 'note';
+    }
+  }
+
   async function runTask() {
     if (!selectionTarget) {
       buildError = 'Select text before running a task.';
@@ -56,7 +82,7 @@
       return;
     }
 
-    const requestResult = buildDeterministicTaskRequest(activeMode, selectionTarget);
+    const requestResult = buildDeterministicTaskRequest(activeMode, selectionTarget, knowledgeRail);
 
     if (!requestResult.ok) {
       buildError = requestResult.message;
@@ -116,7 +142,30 @@
 
   <div class="context-card">
     <p class="label">Selected context sources</p>
-    <p>No guide, reference, or note sources are attached yet. Phase 3 will make this list selectable.</p>
+    {#if knowledgeRail.availableSources.length > 0}
+      <p class="context-note">
+        Project sources stay opt-in at this stage. Toggle only the files you want attached to the task.
+      </p>
+      <div class="context-list">
+        {#each knowledgeRail.availableSources as source (source.path)}
+          <label class="context-source">
+            <input
+              type="checkbox"
+              checked={knowledgeRail.activeContextPaths.includes(source.path)}
+              onchange={() => {
+                activeContextPaths = toggleKnowledgeRailPath(knowledgeRail, source.path).activeContextPaths;
+              }}
+            />
+            <span>
+              <strong>{contextSourceLabel(source)}</strong>
+              <small>{source.path}</small>
+            </span>
+          </label>
+        {/each}
+      </div>
+    {:else}
+      <p>No guide, reference, or note sources are currently available for this project.</p>
+    {/if}
   </div>
 
   {#if buildError}
@@ -280,6 +329,35 @@
   .output-list {
     display: grid;
     gap: 0.75rem;
+  }
+
+  .context-note {
+    margin-bottom: 0.75rem;
+  }
+
+  .context-list {
+    display: grid;
+    gap: 0.65rem;
+  }
+
+  .context-source {
+    display: flex;
+    gap: 0.75rem;
+    align-items: start;
+    padding: 0.75rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+  }
+
+  .context-source span {
+    display: grid;
+    gap: 0.15rem;
+  }
+
+  .context-source small {
+    color: var(--muted);
+    word-break: break-word;
   }
 
   .draft-grid {

@@ -60,4 +60,54 @@ describe('buildDeterministicTaskRequest', () => {
       message: 'Select text before running a task.'
     });
   });
+
+  it('passes available sources and active context paths into the task request', () => {
+    expect(
+      buildDeterministicTaskRequest('analysis', selection(), {
+        availableSources: [
+          {
+            path: 'guides/prose.md',
+            kind: { source_type: 'guide', source_kind: 'prose' },
+            activation_policy: 'pinned',
+            review_state: 'approved'
+          },
+          {
+            path: 'notes/scratch.md',
+            kind: { source_type: 'note' },
+            activation_policy: 'explicit_only',
+            review_state: 'user_authored'
+          }
+        ],
+        activeContextPaths: ['notes/scratch.md']
+      })
+    ).toEqual({
+      ok: true,
+      request: {
+        mode: 'analysis',
+        task_type: 'analyze_selection',
+        target: {
+          document_path: 'chapters/chapter-1.md',
+          selected_text: 'Selected paragraph.',
+          start_char: 10,
+          end_char: 29,
+          anchors: [{ kind: 'span', ordinal: 2 }]
+        },
+        available_sources: [
+          {
+            path: 'guides/prose.md',
+            kind: { source_type: 'guide', source_kind: 'prose' },
+            activation_policy: 'pinned',
+            review_state: 'approved'
+          },
+          {
+            path: 'notes/scratch.md',
+            kind: { source_type: 'note' },
+            activation_policy: 'explicit_only',
+            review_state: 'user_authored'
+          }
+        ],
+        explicitly_selected_source_paths: ['notes/scratch.md']
+      }
+    });
+  });
 });

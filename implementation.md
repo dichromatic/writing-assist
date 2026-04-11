@@ -351,6 +351,7 @@ Transience rules:
   - story summary, world summary, character bible, timeline, terminology, and research documents should be first-class `reference` sources
   - scratch notes and loose ideation should remain `note` sources
   - ambiguous sources should remain `custom` or unclassified rather than guessed aggressively
+  - until source preferences are persisted, discovered project sources should default to `explicit_only` so the knowledge rail remains the explicit prompt control surface
 - Parse Markdown into:
   - headings
   - paragraphs
@@ -388,6 +389,171 @@ Transience rules:
 - Reuse only approved summaries and approved facts in retrieval and consistency tasks.
 - Mark derived memory stale whenever source hashes change.
 
+### Project onboarding scan and questions workflow
+
+When importing an existing manuscript project, the app should offer an optional onboarding scan that helps establish working context before normal editing/chat work begins.
+
+The goal is not to let the model silently build canon. The goal is to surface useful unresolved questions, implicit assumptions, and possible notes that would otherwise only emerge through a long organic discussion.
+
+This workflow should be explicit and review-gated:
+
+- user imports or opens a project
+- app completes deterministic indexing first:
+  - directory mappings
+  - file discovery
+  - Markdown parsing
+  - deterministic entity extraction
+  - existing guide/reference/note classification
+- user can start an `Onboarding Scan` from the project workspace
+- the scan works in bounded chunks rather than sending the full manuscript at once:
+  - chapter or section windows
+  - scene windows where scene breaks exist
+  - focused batches of approved/reference context
+  - rolling summaries from previous chunks, clearly marked as draft scan notes
+- outputs become reviewable onboarding artifacts, not approved memory:
+  - `OnboardingQuestion`: a question the model thinks the user should answer
+  - `OnboardingObservation`: a tentative observation about implied canon, theme, structure, continuity, or style
+  - `ProposedProjectNote`: a suggested note that could later become a user-authored note, reference, guide, or memory candidate
+  - `ContextGap`: a missing or ambiguous piece of information that may need a bible/reference entry
+- every output must include source anchors:
+  - document path
+  - span/section/scene anchors where available
+  - character ranges when available
+  - the scan chunk that produced it
+- before running, show a preflight preview:
+  - files and source categories included
+  - files omitted
+  - expected chunk count
+  - expected provider/model if relevant
+  - estimated cost/time if available
+  - confirmation that no canon or reusable context will be created automatically
+- nothing from the scan enters task context automatically
+- user review is required before outputs become reusable:
+  - answer a question inline
+  - dismiss it
+  - convert it to a note
+  - convert it to a reference/bible TODO
+  - attach it to one or more documents/spans/scenes
+  - mark it as project-wide guidance only if the user confirms it
+
+This should feel like an editor asking good setup questions after reading the draft, not a model inventing project memory. Good examples include:
+
+- "This phrase appears to imply that the Firth is both a place and a vessel; should this be treated as ambiguity, metaphor, or an inconsistency?"
+- "Several scenes mention the same captain by title but not by name; should this become a character note?"
+- "The narration uses logbook framing in chapter 1 but not later; is that an intentional structure?"
+- "This term appears repeatedly but no reference file defines it; should a terminology note be created?"
+
+Backend guardrails:
+
+- onboarding scan tasks should use the same mode-aware task system rather than a separate provider path
+- onboarding scan output contracts should be structured and versioned
+- scan chunks should cite exact source anchors
+- outputs should be pending/reviewable by default
+- scan summaries should be marked as scan artifacts, not approved summaries
+- the scan must be resumable and cancelable
+- provider failure must not corrupt project state, notes, drafts, or existing memory
+- preflight metadata should be persisted with the scan so later review can explain what the model saw
+
+Frontend guardrails:
+
+- present onboarding scan as an optional project setup action
+- show a preflight preview before execution
+- show progress by document/chapter/scene
+- route results to a review queue rather than directly into the knowledge rail
+- support quick actions:
+  - answer
+  - dismiss
+  - convert to note
+  - convert to reference TODO
+  - pin to span/scene
+  - ask follow-up in chat
+- clearly distinguish model-generated scan artifacts from user-authored notes
+
+This likely belongs after the basic memory persistence/review path exists and before or alongside retrieval v1:
+
+- Phase 3.3 gives persistence primitives
+- Phase 3.4 gives context source classification and knowledge rail state
+- Phase 3.5 can add deterministic fact/summary scaffolding
+- Phase 3.x should add onboarding scan artifact contracts and persistence before provider-driven scan execution
+- Phase 5/provider work can enable the actual LLM scan execution once provider setup is stable
+
+#### Experimental whole-project brainstorm mode
+
+The app may also support a deliberately dangerous whole-project scan option, but it should be framed as a brainstorming/ideation workspace rather than a reliable ingestion path.
+
+This mode is intended for cases where the user wants a long-form discussion that can go in many directions after the model has seen as much of the project as the provider context window allows. It can be useful for assisted notetaking, finding questions the user did not know to ask, and creating context seeds for later review.
+
+The UI should be explicit that this is unsafe:
+
+- label it as `Experimental: Whole-Project Brainstorm`
+- warn that long-context drift, missed details, and false inferences are expected failure modes
+- warn that it may be expensive or slow depending on provider/model/context window
+- show which files were included, truncated, omitted, or summarized
+- require explicit user confirmation before running
+- never run it automatically during import
+
+Product placement:
+
+- expose it as an Ideation subroutine, not as default ingestion
+- alternatively expose it after the safer onboarding scan as `Discuss the whole project`
+- treat the result as a `BrainstormSession`, not as project memory
+- do not let the result directly create approved facts, approved summaries, guide sources, or reference sources
+- do not use it as the answer path for exact canon/continuity questions; route those through retrieval-backed, source-bounded tasks
+
+Context handling:
+
+- run a preflight preview before execution:
+  - included files
+  - omitted files
+  - truncated files
+  - summarized files
+  - estimated token use
+  - selected provider/model/context window
+  - expected cost/time if available
+- use the largest safe context package the selected provider/model supports
+- prefer including user-selected guide/reference files and manuscript summaries before raw full-text overflow
+- when the project exceeds the context window, require an explicit strategy:
+  - include selected files only
+  - include summaries plus selected raw chapters
+  - run multiple rolling whole-project discussion turns
+  - stop and ask the user to narrow scope
+- clearly mark any model-visible summary as lossy
+
+Brainstorm session model:
+
+- `BrainstormSession`
+- stable ID
+- created timestamp
+- provider/model/context window
+- source strategy
+- included files
+- omitted files
+- truncated files
+- summarized files
+- transcript
+- extracted proposals
+- review state
+
+Output handling:
+
+- store outputs as brainstorm artifacts or chat messages first
+- allow the user to convert useful pieces into:
+  - user-authored notes
+  - proposed project notes
+  - reference TODOs
+  - onboarding questions
+  - context gaps
+- require normal review before any converted artifact becomes reusable context
+- support `Promote from discussion` actions on selected chat text:
+  - convert to note
+  - convert to question
+  - convert to reference TODO
+  - attach to span/scene/chapter
+  - discard
+  - ask follow-up in chat
+
+This mode should not replace the bounded onboarding scan. It is valuable precisely because it gives the user a broad conversational space, but that same breadth makes it unsuitable for canon extraction or automatic project memory.
+
 ### Retrieval and hallucination controls
 
 - Make all model calls span-bounded and task-shaped.
@@ -411,6 +577,8 @@ Transience rules:
 - Require evidence-first outputs for critique and fact extraction.
 - Run validator tasks for rewrite suggestions before they enter the draft layer when feasible.
 - Allow explicit uncertainty states such as `needs broader context` and `cannot determine`.
+- Prefer onboarding-scan questions over silent long-context inference when project-level intent is unclear.
+- Treat whole-project brainstorm output as ideation material until the user converts and reviews specific notes.
 
 ### Phase 3 retrieval and memory scope
 

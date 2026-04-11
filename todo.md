@@ -818,6 +818,10 @@ Documentation:
 
 ### Phase 3.4: Context source classification and knowledge rail state
 
+Status:
+
+- completed
+
 Deliverables:
 
 - document-level context-source classification helpers for:
@@ -850,6 +854,10 @@ Behavior to test:
 Done when:
 
 - selected guide/reference/note context can be represented in frontend state and included in task request payloads
+
+Documentation:
+
+- `documentation/phase-3.4-context-source-classification-and-knowledge-rail-state.md`
 
 ### Phase 3.5: Fact and summary candidate generation
 
@@ -1067,7 +1075,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 3.4 context source classification and knowledge rail state.
+1. Start Phase 3.5 fact and summary candidate generation.
 2. Keep the new workspace-state model as the frontend target for future UI refactors.
 3. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
 4. Keep context-source review and the knowledge rail in Phase 3 scope.

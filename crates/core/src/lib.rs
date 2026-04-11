@@ -9,9 +9,9 @@ mod projects;
 
 pub use chat::{ChatMessage, ChatMessageAuthor, ChatThread, ChatThreadScope};
 pub use context::{
-    context_source_allowed_by_default, context_source_included_by_default, ContextSource,
-    ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState, GuideKind,
-    ReferenceKind,
+    classify_context_source_kind, context_source_allowed_by_default,
+    context_source_included_by_default, ContextSource, ContextSourceActivationPolicy,
+    ContextSourceKind, ContextSourceReviewState, GuideKind, ReferenceKind,
 };
 pub use conversation::ConversationMode;
 pub use documents::{
