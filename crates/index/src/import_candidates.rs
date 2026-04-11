@@ -6,9 +6,9 @@ use writing_assist_core::{
     ProjectDirectoryRole, ProjectImportCandidate, ProjectImportSuggestionReason,
 };
 
-use crate::project_files::{is_hidden_or_app_directory, is_supported_markdown_file};
+use crate::project_files::{is_hidden_or_app_directory, is_supported_project_text_file};
 
-fn has_direct_markdown_files(directory: &Path) -> io::Result<bool> {
+fn has_direct_supported_text_files(directory: &Path) -> io::Result<bool> {
     if !directory.exists() {
         return Ok(false);
     }
@@ -16,7 +16,7 @@ fn has_direct_markdown_files(directory: &Path) -> io::Result<bool> {
     for entry in fs::read_dir(directory)? {
         let path = entry?.path();
 
-        if path.is_file() && is_supported_markdown_file(&path) {
+        if path.is_file() && is_supported_project_text_file(&path) {
             return Ok(true);
         }
     }
@@ -24,7 +24,7 @@ fn has_direct_markdown_files(directory: &Path) -> io::Result<bool> {
     Ok(false)
 }
 
-fn has_markdown_files(directory: &Path) -> io::Result<bool> {
+fn has_supported_text_files(directory: &Path) -> io::Result<bool> {
     if !directory.exists() {
         return Ok(false);
     }
@@ -38,12 +38,12 @@ fn has_markdown_files(directory: &Path) -> io::Result<bool> {
                 continue;
             }
 
-            if has_markdown_files(&path)? {
+            if has_supported_text_files(&path)? {
                 return Ok(true);
             }
         }
 
-        if path.is_file() && is_supported_markdown_file(&path) {
+        if path.is_file() && is_supported_project_text_file(&path) {
             return Ok(true);
         }
     }
@@ -74,12 +74,12 @@ fn suggested_role_for_directory_name(
 pub fn discover_project_import_candidates(root: &Path) -> io::Result<Vec<ProjectImportCandidate>> {
     let mut candidates = Vec::new();
 
-    if has_direct_markdown_files(root)? {
+    if has_direct_supported_text_files(root)? {
         candidates.push(ProjectImportCandidate {
             path: ".".to_string(),
-            contains_markdown_files: true,
+            contains_supported_text_files: true,
             suggested_role: None,
-            suggestion_reasons: vec![ProjectImportSuggestionReason::ContainsMarkdownFiles],
+            suggestion_reasons: vec![ProjectImportSuggestionReason::ContainsSupportedTextFiles],
         });
     }
 
@@ -95,18 +95,18 @@ pub fn discover_project_import_candidates(root: &Path) -> io::Result<Vec<Project
             continue;
         };
 
-        let contains_markdown_files = has_markdown_files(&path)?;
+        let contains_supported_text_files = has_supported_text_files(&path)?;
         let (suggested_role, mut suggestion_reasons) =
             suggested_role_for_directory_name(directory_name);
 
-        if contains_markdown_files {
-            // Markdown presence is useful import context even when the directory name is not meaningful.
-            suggestion_reasons.push(ProjectImportSuggestionReason::ContainsMarkdownFiles);
+        if contains_supported_text_files {
+            // Supported text-file presence is useful import context even when the directory name is not meaningful.
+            suggestion_reasons.push(ProjectImportSuggestionReason::ContainsSupportedTextFiles);
         }
 
         candidates.push(ProjectImportCandidate {
             path: directory_name.to_string(),
-            contains_markdown_files,
+            contains_supported_text_files,
             suggested_role,
             suggestion_reasons,
         });

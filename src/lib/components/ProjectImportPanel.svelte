@@ -232,9 +232,9 @@
             <div>
               <h3>{candidate.path}</h3>
               <p>
-                {candidate.contains_markdown_files
-                  ? 'Contains Markdown files'
-                  : 'No Markdown files detected'}
+                {candidate.contains_supported_text_files
+                  ? 'Contains supported text files'
+                  : 'No supported text files detected'}
               </p>
             </div>
             <label>

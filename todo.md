@@ -904,6 +904,10 @@ Notes:
 
 ### Phase 3.6: Document archetypes, structured knowledge schemas, and retrieval preparation
 
+Status:
+
+- completed
+
 Deliverables:
 
 - document archetype classification for imported project documents, including:
@@ -912,6 +916,7 @@ Deliverables:
   - taxonomy / glossary / world-rule reference
   - expository world article
   - generic loose note
+- role-aware ingestion support for plain-text `.txt` files in `reference` and `notes` mappings while keeping `primary_manuscript` Markdown-first
 - structured knowledge candidate contracts for deterministic extraction and later LLM output validation, including:
   - `EntityProfileCandidate`
   - `RelationshipCandidate`
@@ -957,6 +962,10 @@ Done when:
 
 - the program has a stable, readable structured-knowledge model that can guide both deterministic extraction and later LLM schema design
 - retrieval planning no longer assumes raw spans or generic fact triples are the only useful units
+
+Documentation:
+
+- `documentation/phase-3.6-document-archetypes-structured-knowledge-and-rag-preparation.md`
 
 ### Phase 3.7: Memory review UI
 
@@ -1147,7 +1156,7 @@ TDD applies:
 
 ## Immediate Next Tasks
 
-1. Start Phase 3.6 document archetypes, structured knowledge schemas, and retrieval preparation.
+1. Start Phase 3.7 memory review UI.
 2. Keep the new workspace-state model as the frontend target for future UI refactors.
 3. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
 4. Keep context-source review and the knowledge rail in Phase 3 scope.

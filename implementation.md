@@ -337,6 +337,8 @@ Transience rules:
 - Discovery uses the most specific enabled mapping when mappings overlap, so a broad `.` mapping can coexist with a more specific `lore/` reference mapping.
 - Broad discovery skips hidden/app directories such as `.git` and `.writing-assist` unless a user explicitly maps one later.
 - Markdown file discovery supports common Markdown extensions case-insensitively: `.md`, `.markdown`, and `.mdown`.
+- Reference and note discovery should also accept plain-text `.txt` files so world notes, planning notes, and bibles are not forced into Markdown when rich editor features are not needed.
+- Primary manuscript discovery should remain Markdown-first so parsing, editor behavior, and accepted-edit flows stay aligned with the canonical authoring format.
 - Treat folder-name heuristics as suggestions only:
   - if `chapters/` exists, suggest `primary_manuscript`
   - if `world_context/` exists, suggest `reference`
@@ -672,6 +674,12 @@ This phase should also define which candidate types are:
 - unsuitable for automatic reuse without additional review
 
 That distinction is necessary before the app lets retrieval or LLM tasks treat planning notes and world reference files as equivalent.
+
+The first implementation slice should include:
+
+- deterministic document-archetype classification from imported project files
+- role-aware plain-text support for reference and note files
+- core structured-knowledge contracts even before the extraction logic for every candidate type exists
 
 #### Persistence and staleness
 

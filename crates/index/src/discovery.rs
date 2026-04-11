@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use writing_assist_core::{DocumentType, ProjectDirectoryMapping, ProjectDirectoryRole};
 
-use crate::project_files::{is_hidden_or_app_directory, is_supported_markdown_file};
+use crate::project_files::{is_hidden_or_app_directory, is_supported_file_for_role};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiscoveredDocument {
@@ -56,20 +56,24 @@ pub fn classify_document_path(
     root: &Path,
     mappings: &[ProjectDirectoryMapping],
 ) -> Option<DocumentType> {
-    if !is_supported_markdown_file(path) {
-        return None;
-    }
-
     // Phase 1 import mappings are the source of truth for document typing.
     mappings
         .iter()
         .filter(|mapping| mapping_matches_path(path, root, mapping))
         .max_by_key(|mapping| mapping_specificity(mapping))
-        .and_then(|mapping| document_type_for_role(&mapping.role))
+        .and_then(|mapping| {
+            if !is_supported_file_for_role(path, &mapping.role) {
+                return None;
+            }
+
+            document_type_for_role(&mapping.role)
+        })
 }
 
-fn collect_markdown_files(
+fn collect_supported_text_files(
     directory: &Path,
+    root: &Path,
+    mappings: &[ProjectDirectoryMapping],
     files: &mut Vec<PathBuf>,
     is_mapped_root: bool,
 ) -> io::Result<()> {
@@ -87,11 +91,11 @@ fn collect_markdown_files(
 
         if path.is_dir() {
             // Recurse now so later span parsing can assume discovery already resolved nested drafts.
-            collect_markdown_files(&path, files, false)?;
+            collect_supported_text_files(&path, root, mappings, files, false)?;
             continue;
         }
 
-        if path.is_file() && is_supported_markdown_file(&path) {
+        if path.is_file() && classify_document_path(&path, root, mappings).is_some() {
             files.push(path);
         }
     }
@@ -112,7 +116,7 @@ pub fn discover_project_documents(
         }
 
         // Discovery only walks directories the user has explicitly mapped during project import.
-        collect_markdown_files(&root.join(&mapping.path), &mut files, true)?;
+        collect_supported_text_files(&root.join(&mapping.path), root, mappings, &mut files, true)?;
     }
 
     // Keep discovery deterministic so UI ordering and tests do not depend on filesystem traversal order.

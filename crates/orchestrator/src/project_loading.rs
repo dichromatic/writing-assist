@@ -133,13 +133,14 @@ mod tests {
         write_file(&project_root.path().join("drafts/chapter 1.md"), "# Chapter 1");
         write_file(&project_root.path().join("drafts/chapter 2.md"), "# Chapter 2");
         write_file(&project_root.path().join("lore/history.md"), "# History");
-        write_file(&project_root.path().join("notes/scratch.txt"), "ignored");
+        write_file(&project_root.path().join("notes/scratch.txt"), "plain text note");
 
         writing_assist_store::save_project_config(
             project_root.path(),
             &[
                 mapping("drafts", ProjectDirectoryRole::PrimaryManuscript),
                 mapping("lore", ProjectDirectoryRole::Reference),
+                mapping("notes", ProjectDirectoryRole::Notes),
             ],
         )
         .await
@@ -149,13 +150,15 @@ mod tests {
             .await
             .expect("open configured project");
 
-        assert_eq!(opened.documents.len(), 3);
+        assert_eq!(opened.documents.len(), 4);
         assert_eq!(opened.documents[0].path, "drafts/chapter 1.md");
         assert_eq!(opened.documents[0].document_type, DocumentType::Manuscript);
         assert_eq!(opened.documents[1].path, "drafts/chapter 2.md");
         assert_eq!(opened.documents[1].document_type, DocumentType::Manuscript);
         assert_eq!(opened.documents[2].path, "lore/history.md");
         assert_eq!(opened.documents[2].document_type, DocumentType::Reference);
+        assert_eq!(opened.documents[3].path, "notes/scratch.txt");
+        assert_eq!(opened.documents[3].document_type, DocumentType::Note);
     }
 
     #[tokio::test]
@@ -195,6 +198,36 @@ mod tests {
         assert_eq!(loaded.parsed.spans.len(), 4);
         assert_eq!(loaded.parsed.sections.len(), 2);
         assert_eq!(loaded.parsed.scenes.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn loads_discovered_plain_text_note_with_parsed_spans() {
+        let project_root = tempdir().expect("project root");
+
+        write_file(
+            &project_root.path().join("notes/briefing.txt"),
+            "Scene goal: establish the crew dynamic.\n\nOutcome: the meeting ends in quiet resolve.\n",
+        );
+
+        writing_assist_store::save_project_config(
+            project_root.path(),
+            &[
+                mapping("drafts", ProjectDirectoryRole::PrimaryManuscript),
+                mapping("notes", ProjectDirectoryRole::Notes),
+            ],
+        )
+        .await
+        .expect("save project config");
+
+        write_file(&project_root.path().join("drafts/chapter 1.md"), "# Chapter 1");
+
+        let loaded = load_configured_project_document(project_root.path(), "notes/briefing.txt")
+            .await
+            .expect("load configured plain text note");
+
+        assert_eq!(loaded.document.path, "notes/briefing.txt");
+        assert_eq!(loaded.document.document_type, DocumentType::Note);
+        assert_eq!(loaded.parsed.spans.len(), 2);
     }
 
     #[tokio::test]

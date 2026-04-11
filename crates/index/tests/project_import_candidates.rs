@@ -74,10 +74,10 @@ fn root_markdown_files_create_a_root_candidate() {
         discover_project_import_candidates(&root).expect("candidate discovery should succeed");
     let root_candidate = candidate_by_path(&candidates, ".");
 
-    assert!(root_candidate.contains_markdown_files);
+    assert!(root_candidate.contains_supported_text_files);
     assert_eq!(
         root_candidate.suggestion_reasons,
-        vec![ProjectImportSuggestionReason::ContainsMarkdownFiles]
+        vec![ProjectImportSuggestionReason::ContainsSupportedTextFiles]
     );
 
     fs::remove_dir_all(root).expect("temp test dir should be removed");
@@ -101,19 +101,21 @@ fn hidden_child_directories_are_not_import_candidates() {
 }
 
 #[test]
-fn detects_markdown_presence_recursively_and_marks_empty_directories() {
+fn detects_supported_text_presence_recursively_and_marks_empty_directories() {
     let root = unique_temp_dir();
 
     fs::create_dir_all(root.join("chapters/part-1")).expect("chapters dir should exist");
+    fs::create_dir_all(root.join("world_context")).expect("world_context dir should exist");
     fs::create_dir_all(root.join("empty")).expect("empty dir should exist");
     write_file(&root.join("chapters/part-1/chapter-1.md"), "# Chapter 1");
-    write_file(&root.join("chapters/part-1/scratch.txt"), "ignored");
+    write_file(&root.join("world_context/history.txt"), "plain text world note");
 
     let candidates =
         discover_project_import_candidates(&root).expect("candidate discovery should succeed");
 
-    assert!(candidate_by_path(&candidates, "chapters").contains_markdown_files);
-    assert!(!candidate_by_path(&candidates, "empty").contains_markdown_files);
+    assert!(candidate_by_path(&candidates, "chapters").contains_supported_text_files);
+    assert!(candidate_by_path(&candidates, "world_context").contains_supported_text_files);
+    assert!(!candidate_by_path(&candidates, "empty").contains_supported_text_files);
 
     fs::remove_dir_all(root).expect("temp test dir should be removed");
 }
@@ -140,7 +142,7 @@ fn suggests_roles_from_conservative_directory_name_heuristics() {
         .contains(&ProjectImportSuggestionReason::DirectoryNamedChapters));
     assert!(chapters
         .suggestion_reasons
-        .contains(&ProjectImportSuggestionReason::ContainsMarkdownFiles));
+        .contains(&ProjectImportSuggestionReason::ContainsSupportedTextFiles));
 
     let world = candidate_by_path(&candidates, "world_context");
     assert_eq!(world.suggested_role, Some(ProjectDirectoryRole::Reference));
@@ -158,7 +160,7 @@ fn suggests_roles_from_conservative_directory_name_heuristics() {
     assert_eq!(misc.suggested_role, None);
     assert_eq!(
         misc.suggestion_reasons,
-        vec![ProjectImportSuggestionReason::ContainsMarkdownFiles]
+        vec![ProjectImportSuggestionReason::ContainsSupportedTextFiles]
     );
 
     fs::remove_dir_all(root).expect("temp test dir should be removed");

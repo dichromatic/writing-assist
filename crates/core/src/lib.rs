@@ -2,6 +2,7 @@ mod chat;
 mod context;
 mod conversation;
 mod documents;
+mod knowledge;
 mod memory;
 mod parsing;
 mod tasks;
@@ -16,6 +17,12 @@ pub use context::{
 pub use conversation::ConversationMode;
 pub use documents::{
     DocumentRecord, DocumentType, LoadedDocument, OpenedProject, ProjectDocumentEntry, SpanRecord,
+};
+pub use knowledge::{
+    structured_knowledge_intended_use, DocumentArchetype, EntityProfileCandidate,
+    RelationshipCandidate, StoryArcCandidate, StructuredKnowledgeCandidateKind,
+    StructuredKnowledgeIntendedUse, TerminologyCandidate, TimelineEventCandidate,
+    WorldRuleCandidate,
 };
 pub use memory::{
     EntityCandidate, MemoryReviewState, MemorySourceReference, MemoryStalenessState,

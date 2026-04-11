@@ -1,4 +1,5 @@
 mod discovery;
+mod document_archetypes;
 mod entity_extraction;
 mod fact_extraction;
 mod import_candidates;
@@ -7,6 +8,7 @@ mod project_files;
 mod summary_generation;
 
 pub use discovery::{classify_document_path, discover_project_documents, DiscoveredDocument};
+pub use document_archetypes::classify_document_archetype;
 pub use entity_extraction::extract_entity_candidates;
 pub use fact_extraction::extract_reviewable_facts;
 pub use import_candidates::discover_project_import_candidates;

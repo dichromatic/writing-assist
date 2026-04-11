@@ -56,10 +56,12 @@ fn classifies_markdown_files_from_configured_directory_mappings() {
 }
 
 #[test]
-fn ignores_unmapped_disabled_or_non_markdown_files() {
+fn ignores_unmapped_disabled_or_role_unsupported_files() {
     let root = PathBuf::from("/tmp/project");
     let mappings = vec![
         mapping("drafts", ProjectDirectoryRole::PrimaryManuscript),
+        mapping("notes", ProjectDirectoryRole::Notes),
+        mapping("lore", ProjectDirectoryRole::Reference),
         ProjectDirectoryMapping {
             path: "archive".to_string(),
             role: ProjectDirectoryRole::Reference,
@@ -71,6 +73,14 @@ fn ignores_unmapped_disabled_or_non_markdown_files() {
     assert_eq!(
         classify_document_path(&root.join("drafts/chapter 1.txt"), &root, &mappings),
         None
+    );
+    assert_eq!(
+        classify_document_path(&root.join("notes/brainstorm.txt"), &root, &mappings),
+        Some(DocumentType::Note)
+    );
+    assert_eq!(
+        classify_document_path(&root.join("lore/history.txt"), &root, &mappings),
+        Some(DocumentType::Reference)
     );
     assert_eq!(
         classify_document_path(&root.join("research/history.md"), &root, &mappings),
@@ -179,8 +189,9 @@ fn discovers_only_markdown_files_from_enabled_mapped_directories() {
     write_file(&root.join("drafts/part-1/chapter 1.md"), "# Chapter 1");
     write_file(&root.join("drafts/part-1/chapter 2.md"), "# Chapter 2");
     write_file(&root.join("lore/history.md"), "# History");
+    write_file(&root.join("lore/cosmology.txt"), "plain text lore");
     write_file(&root.join("notes/brainstorm.md"), "# Brainstorm");
-    write_file(&root.join("notes/scratch.txt"), "ignored");
+    write_file(&root.join("notes/scratch.txt"), "plain text note");
     write_file(&root.join("research/freeform.md"), "ignored");
     write_file(&root.join("archive/old.md"), "ignored");
 
@@ -215,15 +226,19 @@ fn discovers_only_markdown_files_from_enabled_mapped_directories() {
         vec![
             "drafts/part-1/chapter 1.md".to_string(),
             "drafts/part-1/chapter 2.md".to_string(),
+            "lore/cosmology.txt".to_string(),
             "lore/history.md".to_string(),
             "notes/brainstorm.md".to_string(),
+            "notes/scratch.txt".to_string(),
         ]
     );
 
     assert_eq!(documents[0].document_type, DocumentType::Manuscript);
     assert_eq!(documents[1].document_type, DocumentType::Manuscript);
     assert_eq!(documents[2].document_type, DocumentType::Reference);
-    assert_eq!(documents[3].document_type, DocumentType::Note);
+    assert_eq!(documents[3].document_type, DocumentType::Reference);
+    assert_eq!(documents[4].document_type, DocumentType::Note);
+    assert_eq!(documents[5].document_type, DocumentType::Note);
 
     fs::remove_dir_all(root).expect("temp test dir should be removed");
 }

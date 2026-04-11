@@ -13,7 +13,7 @@ function candidate(
 ): ProjectImportCandidate {
   return {
     path,
-    contains_markdown_files: true,
+    contains_supported_text_files: true,
     suggested_role,
     suggestion_reasons: []
   };

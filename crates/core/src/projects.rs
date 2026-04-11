@@ -113,7 +113,7 @@ pub fn validate_project_directory_mappings(
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ProjectImportSuggestionReason {
-    ContainsMarkdownFiles,
+    ContainsSupportedTextFiles,
     DirectoryNamedChapters,
     DirectoryNamedWorldContext,
     DirectoryNamedNotes,
@@ -123,7 +123,7 @@ pub enum ProjectImportSuggestionReason {
 pub struct ProjectImportCandidate {
     // Keep this relative to the selected project root so the import UI can persist the mapping directly.
     pub path: String,
-    pub contains_markdown_files: bool,
+    pub contains_supported_text_files: bool,
     pub suggested_role: Option<ProjectDirectoryRole>,
     pub suggestion_reasons: Vec<ProjectImportSuggestionReason>,
 }

@@ -9,14 +9,14 @@ export const projectDirectoryRoles = [
 export type ProjectDirectoryRole = (typeof projectDirectoryRoles)[number];
 
 export type ProjectImportSuggestionReason =
-  | 'contains_markdown_files'
+  | 'contains_supported_text_files'
   | 'directory_named_chapters'
   | 'directory_named_world_context'
   | 'directory_named_notes';
 
 export type ProjectImportCandidate = {
   path: string;
-  contains_markdown_files: boolean;
+  contains_supported_text_files: boolean;
   suggested_role: ProjectDirectoryRole | null;
   suggestion_reasons: ProjectImportSuggestionReason[];
 };
