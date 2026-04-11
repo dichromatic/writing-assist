@@ -1,4 +1,9 @@
-import type { LoadedDocument, ParsedMarkdownDocument, ParsedSpan } from '$lib/project-import/types';
+import type {
+  LoadedDocument,
+  OpenedProject,
+  ParsedMarkdownDocument,
+  ParsedSpan
+} from '$lib/project-import/types';
 
 const demoMarkdown = `# Browser Demo
 
@@ -126,4 +131,47 @@ export const browserDemoDocument: LoadedDocument = {
   },
   markdown: demoMarkdown,
   parsed
+};
+
+// The browser demo needs a small synthetic project so Phase 3 context-source selection can be
+// exercised without Tauri filesystem access or a persisted import configuration.
+export const browserDemoProject: OpenedProject = {
+  config: {
+    root_path: '/browser-demo',
+    directory_mappings: [
+      {
+        path: 'demo',
+        role: 'primary_manuscript',
+        enabled: true
+      },
+      {
+        path: 'guides',
+        role: 'reference',
+        enabled: true
+      },
+      {
+        path: 'notes',
+        role: 'notes',
+        enabled: true
+      }
+    ]
+  },
+  documents: [
+    {
+      path: 'demo/browser-only.md',
+      document_type: 'manuscript'
+    },
+    {
+      path: 'guides/Prose Guideline.md',
+      document_type: 'reference'
+    },
+    {
+      path: 'guides/World Summary.md',
+      document_type: 'reference'
+    },
+    {
+      path: 'notes/Loose Brainstorm.md',
+      document_type: 'note'
+    }
+  ]
 };

@@ -2,7 +2,7 @@
   import DocumentWorkspace from '$lib/components/DocumentWorkspace.svelte';
   import ModeAwareChatPanel from '$lib/components/ModeAwareChatPanel.svelte';
   import { buildProjectContextSources } from '$lib/context-sources/classification';
-  import { browserDemoDocument } from '$lib/demo/browserDemoDocument';
+  import { browserDemoDocument, browserDemoProject } from '$lib/demo/browserDemoDocument';
   import { applyPersistedMappingsToCandidates, toPersistedMappings } from '$lib/project-import/mappings';
   import type { DocumentSelectionTarget } from '$lib/project-import/selection';
   import type { ContextSource } from '$lib/task/types';
@@ -163,10 +163,14 @@
 
   function loadBrowserDemoDocument() {
     // This is a browser-only smoke test path; it does not validate Tauri filesystem integration.
+    openedProject = browserDemoProject;
     loadedDocument = browserDemoDocument;
     activeSelectionTarget = null;
+    projectState = 'ready';
+    projectMessage = `Loaded browser demo project with ${browserDemoProject.documents.length} synthetic documents.`;
     documentLoadState = 'ready';
-    documentLoadMessage = 'Loaded embedded browser demo document. Tauri filesystem commands were not used.';
+    documentLoadMessage =
+      'Loaded embedded browser demo document with synthetic guide/reference/note sources. Tauri filesystem commands were not used.';
   }
 
   function updateSelectionTarget(event: CustomEvent<DocumentSelectionTarget>) {

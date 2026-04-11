@@ -168,6 +168,14 @@
     {/if}
   </div>
 
+  <div class="debug-card">
+    <p class="label">Debug payload</p>
+    <p class="debug-label">Available source paths</p>
+    <pre>{JSON.stringify(knowledgeRail.availableSources.map((source) => source.path), null, 2)}</pre>
+    <p class="debug-label">Explicitly selected source paths</p>
+    <pre>{JSON.stringify(knowledgeRail.activeContextPaths, null, 2)}</pre>
+  </div>
+
   {#if buildError}
     <p class="message" data-state="error">{buildError}</p>
   {/if}
@@ -290,6 +298,7 @@
 
   .scope-card,
   .context-card,
+  .debug-card,
   .task-output {
     padding: 0.9rem 1rem;
     border: 1px solid var(--panel-border);
@@ -299,6 +308,7 @@
 
   .scope-card p,
   .context-card p,
+  .debug-card p,
   .task-output p,
   .draft-note,
   blockquote {
@@ -357,6 +367,25 @@
 
   .context-source small {
     color: var(--muted);
+    word-break: break-word;
+  }
+
+  .debug-label {
+    color: var(--muted);
+    font-size: 0.82rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  pre {
+    margin: 0.35rem 0 0.85rem;
+    padding: 0.75rem;
+    border: 1px solid var(--panel-border);
+    border-radius: 12px;
+    background: rgba(0, 0, 0, 0.18);
+    color: var(--text);
+    overflow: auto;
+    white-space: pre-wrap;
     word-break: break-word;
   }
 
