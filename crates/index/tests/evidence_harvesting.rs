@@ -149,9 +149,57 @@ fn manuscript_harvesting_suppresses_remaining_repeated_singleton_noise() {
 }
 
 #[test]
+fn manuscript_harvesting_suppresses_common_stopword_singletons_without_project_specific_lists() {
+    let parsed = parse_markdown_document(
+        "“To move now would be reckless.”\n\n\
+         “To go back would be worse.”\n\n\
+         “Or we could wait.”\n\n\
+         “Or we could cut power.”\n\n\
+         “Not if the corridor is collapsing.”\n\n\
+         “Not when the breach is already open.”\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "chapters/chapter-stopwords.md",
+        DocumentArchetype::Manuscript,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"To"));
+    assert!(!surfaces.contains(&"Or"));
+    assert!(!surfaces.contains(&"Not"));
+}
+
+#[test]
+fn manuscript_harvesting_suppresses_discourse_markers_and_bare_titles_without_name_support() {
+    let parsed = parse_markdown_document(
+        "“Hey, are you listening?”\n\n\
+         “Yeah, I heard you.”\n\n\
+         “Captain, the station is in range.”\n\n\
+         “Captain.”\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "chapters/chapter-discourse.md",
+        DocumentArchetype::Manuscript,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"Hey"));
+    assert!(!surfaces.contains(&"Yeah"));
+    assert!(!surfaces.contains(&"Captain"));
+}
+
+#[test]
 fn manuscript_harvesting_suppresses_stutter_artifacts() {
     let parsed =
-        parse_markdown_document("“S-sorry.”\n\n“I-I don’t know.”\n\n“Y-Yoshiko-chan...”\n");
+        parse_markdown_document(
+            "“S-sorry.”\n\n“I-I don’t know.”\n\n“Y-Yoshiko-chan...”\n\n“T-that’s the Ohara’s...”\n\n“A-and everyone else’s families?”\n",
+        );
 
     let mentions = harvest_mention_candidates(
         "chapters/chapter-6.md",
@@ -164,6 +212,8 @@ fn manuscript_harvesting_suppresses_stutter_artifacts() {
     assert!(!surfaces.contains(&"S-sorry"));
     assert!(!surfaces.contains(&"I-I"));
     assert!(!surfaces.contains(&"Y-Yoshiko-chan"));
+    assert!(!surfaces.contains(&"T-that"));
+    assert!(!surfaces.contains(&"A-and"));
 }
 
 #[test]
@@ -388,6 +438,23 @@ fn loose_note_harvesting_suppresses_line_level_descriptor_and_field_labels() {
 }
 
 #[test]
+fn loose_note_harvesting_keeps_non_stopword_singletons_that_are_not_structurally_weak() {
+    let parsed = parse_markdown_document(
+        "# Desk Notes\n\nLantern light shivers across the desk.\n\nHome stays quiet beyond the shutters.\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "notes/desk-notes.md",
+        DocumentArchetype::LooseNote,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(surfaces.contains(&"Home"));
+}
+
+#[test]
 fn loose_note_harvesting_suppresses_generic_bullet_start_singletons() {
     let parsed = parse_markdown_document(
         "- Overprepares for disaster\n\
@@ -434,6 +501,33 @@ fn story_planning_harvesting_promotes_participant_fields_even_when_lowercase() {
 }
 
 #[test]
+fn story_planning_harvesting_suppresses_structurally_weak_labels_stopwords_and_scene_markers() {
+    let parsed = parse_markdown_document(
+        "# Epsilon Eridani: Revised Structure (1a & 1c Only)\n\n\
+         **Purpose:** Introduce the systematic approach.\n\n\
+         - Not just a rescue, but a recovery effort.\n\
+         - [ARRIVAL AT EPSILON ERIDANI]\n\
+         - Yō and Kohaku dock at shipyards.\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "story planning/revised-structure.txt",
+        DocumentArchetype::StoryPlanning,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"Only"));
+    assert!(!surfaces.contains(&"Purpose"));
+    assert!(!surfaces.contains(&"Not"));
+    assert!(!surfaces.contains(&"ARRIVAL AT EPSILON ERIDANI"));
+    assert!(surfaces.contains(&"Epsilon Eridani"));
+    assert!(surfaces.contains(&"Yō"));
+    assert!(surfaces.contains(&"Kohaku"));
+}
+
+#[test]
 fn taxonomy_reference_harvesting_promotes_definition_terms_into_mentions() {
     let parsed = parse_markdown_document(
         "tau field: local resonance envelope\n\nharmonic baseline = local magionic resonance floor\n",
@@ -449,6 +543,52 @@ fn taxonomy_reference_harvesting_promotes_definition_terms_into_mentions() {
 
     assert!(surfaces.contains(&"tau field"));
     assert!(surfaces.contains(&"harmonic baseline"));
+}
+
+#[test]
+fn expository_world_article_harvesting_suppresses_structurally_weak_stopword_singletons() {
+    let parsed = parse_markdown_document(
+        "From the moment the Triumvirate unified, exploration came first.\n\n\
+         Not militaristic.\n\n\
+         Its founding philosophy:\n\n\
+         Triumvirate institutions grew around that ethic.\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "world context/triumvirate-core.txt",
+        DocumentArchetype::ExpositoryWorldArticle,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"From"));
+    assert!(!surfaces.contains(&"Not"));
+    assert!(!surfaces.contains(&"Its"));
+    assert!(surfaces.contains(&"Triumvirate"));
+}
+
+#[test]
+fn expository_world_article_harvesting_suppresses_outline_enumeration_artifacts() {
+    let parsed = parse_markdown_document(
+        "II.\n\n\
+         Phase 1 - The Founding Era (~2180-2300)\n\n\
+         Triumvirate exploration doctrine hardens here.\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "world context/founding-era.txt",
+        DocumentArchetype::ExpositoryWorldArticle,
+        &parsed,
+    );
+
+    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+
+    assert!(!surfaces.contains(&"II"));
+    assert!(!surfaces.contains(&"Phase"));
+    assert!(!surfaces.contains(&"II. Phase 1"));
+    assert!(surfaces.contains(&"Founding Era"));
+    assert!(surfaces.contains(&"Triumvirate"));
 }
 
 #[test]

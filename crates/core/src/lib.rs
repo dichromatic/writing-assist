@@ -6,6 +6,7 @@ mod evidence;
 mod knowledge;
 mod memory;
 mod parsing;
+mod preprocessing;
 mod tasks;
 mod projects;
 
@@ -42,6 +43,10 @@ pub use tasks::{
 pub use parsing::{
     ParagraphParsingMode, ParsedMarkdownDocument, ParsedScene, ParsedSection, ParsedSpan,
     SectionBoundaryKind, SpanType,
+};
+pub use preprocessing::{
+    PreprocessedDocument, PreprocessedQuoteSpan, PreprocessedSentence, PreprocessedSpan,
+    PreprocessedToken, StructuralMarker, StructuralMarkerKind,
 };
 pub use projects::{
     normalize_project_directory_mapping_path, validate_project_directory_mappings, ProjectConfig,

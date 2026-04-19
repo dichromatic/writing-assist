@@ -1,15 +1,19 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::OnceLock;
 
 use uuid::Uuid;
 use writing_assist_core::{
     DefinitionCandidate, DocumentArchetype, EvidenceContext, MemorySourceReference,
-    MentionCandidate, MentionFeature, MentionOccurrence, ParsedMarkdownDocument, ParsedSection,
-    ParsedSpan, SectionSummarySeed, SentenceType, SpanType, StructuredFieldCandidate,
-    TargetAnchor,
+    MentionCandidate, MentionFeature, MentionOccurrence, ParsedMarkdownDocument,
+    PreprocessedDocument, PreprocessedSentence, PreprocessedSpan, PreprocessedToken, ParsedSection,
+    ParsedSpan, SectionSummarySeed, SentenceType, SpanType, StructuredFieldCandidate, TargetAnchor,
 };
+
+use crate::preprocess_parsed_document;
 
 const MAX_MENTION_WORDS: usize = 5;
 const SUMMARY_TEXT_LIMIT: usize = 240;
+static ENGLISH_STOPWORDS: OnceLock<HashSet<String>> = OnceLock::new();
 
 #[derive(Debug, Clone)]
 struct MentionObservation {
@@ -24,7 +28,6 @@ struct MentionObservation {
 struct TokenObservation {
     text: String,
     had_possessive: bool,
-    ends_phrase: bool,
 }
 
 /// Harvest deterministic mention evidence without claiming semantic truth.
@@ -38,6 +41,7 @@ pub fn harvest_mention_candidates(
     parsed: &ParsedMarkdownDocument,
 ) -> Vec<MentionCandidate> {
     let document_path = document_path.as_ref();
+    let preprocessed = preprocess_parsed_document(parsed);
     let mut observations = Vec::<MentionObservation>::new();
     let mut index_by_normalized_surface = HashMap::<String, usize>::new();
 
@@ -46,7 +50,22 @@ pub fn harvest_mention_candidates(
         .iter()
         .filter(|span| matches!(span.span_type, SpanType::Heading | SpanType::Paragraph))
     {
-        for harvested in mention_observations_in_span(document_path, span, parsed, &archetype) {
+        let Some(preprocessed_span) = preprocessed
+            .spans
+            .iter()
+            .find(|preprocessed_span| preprocessed_span.span_ordinal == span.ordinal)
+        else {
+            continue;
+        };
+
+        for harvested in mention_observations_in_span(
+            document_path,
+            span,
+            preprocessed_span,
+            &preprocessed,
+            parsed,
+            &archetype,
+        ) {
             if let Some(existing_index) =
                 index_by_normalized_surface.get(&harvested.normalized_surface).copied()
             {
@@ -226,41 +245,76 @@ pub fn harvest_section_summary_seeds(
 fn mention_observations_in_span(
     document_path: &str,
     span: &ParsedSpan,
+    preprocessed_span: &PreprocessedSpan,
+    preprocessed: &PreprocessedDocument,
     parsed: &ParsedMarkdownDocument,
     archetype: &DocumentArchetype,
 ) -> Vec<MentionObservation> {
     match archetype {
-        DocumentArchetype::Manuscript => {
-            capitalized_mentions_in_span(document_path, span, parsed, archetype)
-        }
+        DocumentArchetype::Manuscript => capitalized_mentions_in_span(
+            document_path,
+            span,
+            preprocessed_span,
+            parsed,
+            archetype,
+        ),
         DocumentArchetype::DossierProfile => {
-            let mut observations =
-                capitalized_mentions_in_span(document_path, span, parsed, archetype);
-            observations.extend(alias_field_mentions_in_span(document_path, span, parsed));
+            let mut observations = capitalized_mentions_in_span(
+                document_path,
+                span,
+                preprocessed_span,
+                parsed,
+                archetype,
+            );
+            observations.extend(alias_field_mentions_in_span(
+                document_path,
+                span,
+                preprocessed_span,
+                parsed,
+            ));
             observations
         }
         DocumentArchetype::TaxonomyReference | DocumentArchetype::ExpositoryWorldArticle => {
-            let mut observations =
-                capitalized_mentions_in_span(document_path, span, parsed, archetype);
+            let mut observations = capitalized_mentions_in_span(
+                document_path,
+                span,
+                preprocessed_span,
+                parsed,
+                archetype,
+            );
             observations.extend(definition_term_mentions_in_span(
                 document_path,
                 span,
+                preprocessed_span,
                 parsed,
             ));
             observations
         }
         DocumentArchetype::StoryPlanning => {
-            let mut observations =
-                capitalized_mentions_in_span(document_path, span, parsed, archetype);
+            let mut observations = capitalized_mentions_in_span(
+                document_path,
+                span,
+                preprocessed_span,
+                parsed,
+                archetype,
+            );
             observations.extend(story_planning_field_mentions_in_span(
                 document_path,
                 span,
+                preprocessed_span,
                 parsed,
             ));
             observations
         }
         DocumentArchetype::LooseNote => {
-            loose_note_mentions_in_span(document_path, span, parsed, archetype)
+            loose_note_mentions_in_span(
+                document_path,
+                span,
+                preprocessed_span,
+                preprocessed,
+                parsed,
+                archetype,
+            )
         }
     }
 }
@@ -268,10 +322,12 @@ fn mention_observations_in_span(
 fn loose_note_mentions_in_span(
     document_path: &str,
     span: &ParsedSpan,
+    preprocessed_span: &PreprocessedSpan,
+    _preprocessed: &PreprocessedDocument,
     parsed: &ParsedMarkdownDocument,
     archetype: &DocumentArchetype,
 ) -> Vec<MentionObservation> {
-    capitalized_mentions_in_span(document_path, span, parsed, archetype)
+    capitalized_mentions_in_span(document_path, span, preprocessed_span, parsed, archetype)
         .into_iter()
         .filter(|observation| !should_reject_loose_note_observation(observation, span))
         .collect()
@@ -280,85 +336,125 @@ fn loose_note_mentions_in_span(
 fn capitalized_mentions_in_span(
     document_path: &str,
     span: &ParsedSpan,
+    preprocessed_span: &PreprocessedSpan,
     parsed: &ParsedMarkdownDocument,
     archetype: &DocumentArchetype,
 ) -> Vec<MentionObservation> {
-    let tokens = span
-        .normalized_text
-        .split_whitespace()
-        .map(clean_entity_token)
-        .filter(|token| !token.text.is_empty())
-        .collect::<Vec<_>>();
     let mut mentions = Vec::new();
-    let mut index = 0;
 
-    while index < tokens.len() {
-        if !is_mention_token(&tokens[index].text) {
-            index += 1;
-            continue;
+    for sentence in &preprocessed_span.sentences {
+        let sentence_tokens = sentence_tokens(preprocessed_span, sentence);
+        let mut index = 0;
+
+        while index < sentence_tokens.len() {
+            let Some(current_word) = cleaned_word_token(sentence_tokens[index]) else {
+                index += 1;
+                continue;
+            };
+
+            if !is_mention_token(&current_word.text) {
+                index += 1;
+                continue;
+            }
+
+            let start_index = index;
+            let mut current_index = index + 1;
+            let mut words = vec![current_word];
+
+            while current_index < sentence_tokens.len() {
+                if sentence_tokens[current_index].normalized == "."
+                    && words
+                        .last()
+                        .map(|word| is_title_prefix(&word.text))
+                        .unwrap_or(false)
+                    && current_index + 1 < sentence_tokens.len()
+                {
+                    if let Some(next_word) = cleaned_word_token(sentence_tokens[current_index + 1]) {
+                        if is_mention_token(&next_word.text) {
+                            words.push(next_word);
+                            current_index += 2;
+                            continue;
+                        }
+                    }
+                }
+
+                let Some(next_word) = cleaned_word_token(sentence_tokens[current_index]) else {
+                    break;
+                };
+
+                if !is_mention_token(&next_word.text) {
+                    break;
+                }
+
+                words.push(next_word);
+                current_index += 1;
+
+                if words.len() >= MAX_MENTION_WORDS {
+                    break;
+                }
+            }
+
+            while words.len() > 1 && is_leading_drop_token(&words[0].text) {
+                words.remove(0);
+            }
+            while words.len() > 1 && is_trailing_drop_token(&words[words.len() - 1].text) {
+                words.pop();
+            }
+
+            if words.is_empty() || words.len() > MAX_MENTION_WORDS {
+                index = start_index + 1;
+                continue;
+            }
+
+            let surface = words
+                .iter()
+                .map(|word| word.text.as_str())
+                .collect::<Vec<_>>()
+                .join(" ");
+            let normalized_surface = normalize_mention_surface(&surface);
+            let word_count = words.len();
+            let titled = words
+                .first()
+                .map(|first| is_title_prefix(&first.text))
+                .unwrap_or(false);
+
+            if normalized_surface.is_empty()
+                || should_reject_harvested_mention(
+                    &surface,
+                    &normalized_surface,
+                    word_count,
+                    titled,
+                    archetype,
+                )
+            {
+                index = start_index + 1;
+                continue;
+            }
+
+            let mut aggregate_features = aggregate_features_for_surface(span, &surface);
+            if words.iter().any(|word| word.had_possessive)
+                && !aggregate_features.contains(&MentionFeature::PossessiveObserved)
+            {
+                aggregate_features.push(MentionFeature::PossessiveObserved);
+            }
+
+            let observation = build_surface_observation(
+                document_path,
+                span,
+                parsed,
+                sentence,
+                &sentence_tokens,
+                surface,
+                aggregate_features,
+            );
+            if should_reject_structural_observation(span, sentence, &observation, archetype) {
+                index = current_index.max(start_index + 1);
+                continue;
+            }
+
+            mentions.push(observation);
+            index = current_index.max(start_index + 1);
         }
-
-        let start_index = index;
-        index += 1;
-
-        while index < tokens.len()
-            && is_mention_token(&tokens[index].text)
-            && !tokens[index - 1].ends_phrase
-        {
-            index += 1;
-        }
-
-        let mut words = tokens[start_index..index].to_vec();
-
-        while words.len() > 1 && is_leading_drop_token(&words[0].text) {
-            words.remove(0);
-        }
-        while words.len() > 1 && is_trailing_drop_token(&words[words.len() - 1].text) {
-            words.pop();
-        }
-
-        if words.is_empty() || words.len() > MAX_MENTION_WORDS {
-            continue;
-        }
-
-        let surface = words
-            .iter()
-            .map(|word| word.text.as_str())
-            .collect::<Vec<_>>()
-            .join(" ");
-        let normalized_surface = normalize_mention_surface(&surface);
-        let word_count = words.len();
-        let titled = words
-            .first()
-            .map(|first| is_title_prefix(&first.text))
-            .unwrap_or(false);
-
-        if normalized_surface.is_empty()
-            || should_reject_harvested_mention(
-                &surface,
-                &normalized_surface,
-                word_count,
-                titled,
-                archetype,
-            )
-        {
-            continue;
-        }
-
-        let mut aggregate_features = aggregate_features_for_surface(span, &surface);
-        if words.iter().any(|word| word.had_possessive)
-            && !aggregate_features.contains(&MentionFeature::PossessiveObserved)
-        {
-            aggregate_features.push(MentionFeature::PossessiveObserved);
-        }
-
-        mentions.push(build_surface_observation(
-            document_path,
-            span,
-            parsed,
-            surface,
-            aggregate_features,
-        ));
     }
 
     mentions
@@ -367,6 +463,7 @@ fn capitalized_mentions_in_span(
 fn alias_field_mentions_in_span(
     document_path: &str,
     span: &ParsedSpan,
+    preprocessed_span: &PreprocessedSpan,
     parsed: &ParsedMarkdownDocument,
 ) -> Vec<MentionObservation> {
     let mut mentions = Vec::new();
@@ -384,10 +481,13 @@ fn alias_field_mentions_in_span(
             continue;
         }
 
+        let (sentence, sentence_tokens) = supporting_sentence_for_surface(preprocessed_span, &value);
         mentions.push(build_surface_observation(
             document_path,
             span,
             parsed,
+            sentence,
+            &sentence_tokens,
             value.clone(),
             aggregate_features_for_surface(span, &value),
         ));
@@ -399,6 +499,7 @@ fn alias_field_mentions_in_span(
 fn definition_term_mentions_in_span(
     document_path: &str,
     span: &ParsedSpan,
+    preprocessed_span: &PreprocessedSpan,
     parsed: &ParsedMarkdownDocument,
 ) -> Vec<MentionObservation> {
     let mut mentions = Vec::new();
@@ -416,10 +517,13 @@ fn definition_term_mentions_in_span(
             continue;
         }
 
+        let (sentence, sentence_tokens) = supporting_sentence_for_surface(preprocessed_span, &term);
         mentions.push(build_surface_observation(
             document_path,
             span,
             parsed,
+            sentence,
+            &sentence_tokens,
             term.clone(),
             aggregate_features_for_surface(span, &term),
         ));
@@ -431,6 +535,7 @@ fn definition_term_mentions_in_span(
 fn story_planning_field_mentions_in_span(
     document_path: &str,
     span: &ParsedSpan,
+    preprocessed_span: &PreprocessedSpan,
     parsed: &ParsedMarkdownDocument,
 ) -> Vec<MentionObservation> {
     let mut mentions = Vec::new();
@@ -449,10 +554,14 @@ fn story_planning_field_mentions_in_span(
                 continue;
             }
 
+            let (sentence, sentence_tokens) =
+                supporting_sentence_for_surface(preprocessed_span, &surface);
             mentions.push(build_surface_observation(
                 document_path,
                 span,
                 parsed,
+                sentence,
+                &sentence_tokens,
                 surface.clone(),
                 aggregate_features_for_surface(span, &surface),
             ));
@@ -478,6 +587,8 @@ fn build_context(span: &ParsedSpan, parsed: &ParsedMarkdownDocument) -> Evidence
 fn build_occurrence(
     span: &ParsedSpan,
     parsed: &ParsedMarkdownDocument,
+    sentence: &PreprocessedSentence,
+    sentence_tokens: &[&PreprocessedToken],
     surface: &str,
 ) -> MentionOccurrence {
     let section = parsed.sections.iter().find(|section| {
@@ -488,9 +599,9 @@ fn build_occurrence(
         span_anchor: TargetAnchor::span(span.ordinal),
         section_anchor: section.map(|section| TargetAnchor::section(section.ordinal)),
         heading: section.and_then(section_heading),
-        snippet: build_occurrence_snippet(&span.normalized_text, surface),
-        sentence_type: classify_sentence_type(span),
-        cooccurring_mentions: cooccurring_mentions_in_span(span, surface),
+        snippet: build_occurrence_snippet(&sentence.normalized_text, surface),
+        sentence_type: sentence.sentence_type.clone(),
+        cooccurring_mentions: cooccurring_mentions_in_sentence(sentence_tokens, surface),
     }
 }
 
@@ -498,6 +609,8 @@ fn build_surface_observation(
     document_path: &str,
     span: &ParsedSpan,
     parsed: &ParsedMarkdownDocument,
+    sentence: &PreprocessedSentence,
+    sentence_tokens: &[&PreprocessedToken],
     surface: String,
     aggregate_features: Vec<MentionFeature>,
 ) -> MentionObservation {
@@ -509,7 +622,7 @@ fn build_surface_observation(
             span.start_char,
             span.end_char,
         ),
-        occurrences: vec![build_occurrence(span, parsed, &surface)],
+        occurrences: vec![build_occurrence(span, parsed, sentence, sentence_tokens, &surface)],
         surface,
         aggregate_features,
     }
@@ -546,24 +659,6 @@ fn section_heading(section: &ParsedSection) -> Option<String> {
 }
 
 fn clean_entity_token(token: &str) -> TokenObservation {
-    let token_for_phrase_break = token.trim_end_matches(|character: char| {
-        matches!(character, '“' | '”' | '‘' | '’' | '"' | '\'')
-    });
-    let abbreviation_without_punctuation = token_for_phrase_break
-        .trim_matches(|character: char| {
-            character.is_ascii_punctuation()
-                || matches!(character, '“' | '”' | '‘' | '’' | '—' | '–' | '…')
-        });
-    let period_ends_phrase = token_for_phrase_break.ends_with('.')
-        && !is_title_prefix(abbreviation_without_punctuation);
-    let ends_phrase = token_for_phrase_break.ends_with(',')
-        || token_for_phrase_break.ends_with(';')
-        || token_for_phrase_break.ends_with(':')
-        || period_ends_phrase
-        || token_for_phrase_break.ends_with('!')
-        || token_for_phrase_break.ends_with('?')
-        || token_for_phrase_break.ends_with('—')
-        || token_for_phrase_break.ends_with('–');
     let cleaned = token.trim_matches(|character: char| {
         character.is_ascii_punctuation()
             || matches!(character, '“' | '”' | '‘' | '’' | '—' | '–' | '…')
@@ -579,55 +674,7 @@ fn clean_entity_token(token: &str) -> TokenObservation {
     TokenObservation {
         text: text.to_string(),
         had_possessive,
-        ends_phrase,
     }
-}
-
-fn classify_sentence_type(span: &ParsedSpan) -> SentenceType {
-    let trimmed = span.text.trim_start();
-
-    if span.span_type == SpanType::Heading {
-        return SentenceType::Heading;
-    }
-
-    if trimmed.starts_with('>') {
-        return SentenceType::BlockQuote;
-    }
-
-    if trimmed.starts_with("- ")
-        || trimmed.starts_with("* ")
-        || trimmed.starts_with("+ ")
-        || starts_with_numbered_list_item(trimmed)
-    {
-        return SentenceType::ListItem;
-    }
-
-    if trimmed.starts_with('"')
-        || trimmed.starts_with('“')
-        || trimmed.starts_with('‘')
-        || trimmed.starts_with('\'')
-        || trimmed.starts_with('—')
-    {
-        return SentenceType::Dialogue;
-    }
-
-    SentenceType::Narrative
-}
-
-fn starts_with_numbered_list_item(text: &str) -> bool {
-    let mut characters = text.chars();
-    let mut saw_digit = false;
-
-    while let Some(character) = characters.next() {
-        if character.is_ascii_digit() {
-            saw_digit = true;
-            continue;
-        }
-
-        return saw_digit && character == '.';
-    }
-
-    false
 }
 
 fn is_mention_token(token: &str) -> bool {
@@ -651,109 +698,69 @@ fn is_leading_drop_token(token: &str) -> bool {
 }
 
 fn is_trailing_drop_token(token: &str) -> bool {
-    is_noise_singleton(token)
+    is_common_stopword(token) || is_non_stopword_noise_singleton(token)
 }
 
-fn is_noise_singleton(token: &str) -> bool {
+fn is_noise_singleton_for_archetype(token: &str, archetype: &DocumentArchetype) -> bool {
+    is_non_stopword_noise_singleton(token)
+        || matches!(archetype, DocumentArchetype::Manuscript) && is_common_stopword(token)
+}
+
+fn is_common_stopword(token: &str) -> bool {
+    english_stopwords().contains(&normalize_noise_token(token))
+}
+
+fn english_stopwords() -> &'static HashSet<String> {
+    ENGLISH_STOPWORDS.get_or_init(|| {
+        stop_words::get(stop_words::LANGUAGE::English)
+            .into_iter()
+            .map(normalize_noise_token)
+            .collect()
+    })
+}
+
+fn normalize_noise_token(token: impl AsRef<str>) -> String {
+    token.as_ref()
+        .trim()
+        .replace(['’', '‘'], "'")
+        .to_lowercase()
+}
+
+fn is_non_stopword_noise_singleton(token: &str) -> bool {
+    // Keep this supplemental set small and language-general. The main singleton
+    // filter should come from standard stopwords plus structural support rules,
+    // not project-specific words copied from corpus logs.
     matches!(
-        token,
-        "The"
-            | "A"
-            | "An"
-            | "I"
-            | "We"
-            | "It"
-            | "He"
-            | "She"
-            | "They"
-            | "You"
-            | "My"
-            | "Your"
-            | "Our"
-            | "Their"
-            | "His"
-            | "Her"
-            | "This"
-            | "That"
-            | "These"
-            | "Those"
-            | "There"
-            | "Here"
-            | "Hey"
-            | "Oh"
-            | "Ah"
-            | "Yes"
-            | "No"
-            | "Nah"
-            | "Please"
-            | "And"
-            | "But"
-            | "So"
-            | "Though"
-            | "When"
-            | "While"
-            | "After"
-            | "Before"
-            | "Wait"
-            | "If"
-            | "Since"
-            | "Then"
-            | "Today"
-            | "Opening"
-            | "Another"
-            | "Even"
-            | "Just"
-            | "Like"
-            | "Each"
-            | "Some"
-            | "Any"
-            | "Are"
-            | "Is"
-            | "As"
-            | "At"
-            | "On"
-            | "In"
-            | "Of"
-            | "For"
-            | "From"
-            | "With"
-            | "Without"
-            | "Through"
-            | "Because"
-            | "Would"
-            | "Could"
-            | "Should"
-            | "Did"
-            | "Has"
-            | "Had"
-            | "What"
-            | "Let"
-            | "Welcome"
-            | "Good"
-            | "Real"
-            | "Anything"
-            | "Something"
-            | "Everyone"
-            | "Nothing"
-            | "I’m"
-            | "I'll"
-            | "I’ll"
-            | "It’s"
-            | "It's"
-            | "We’re"
-            | "We're"
-            | "We’ve"
-            | "We've"
-            | "That’s"
-            | "That's"
-            | "You’re"
-            | "You're"
-            | "Don’t"
-            | "Don't"
-            | "I’ve"
-            | "I've"
-            | "I-I"
+        normalize_noise_token(token).as_str(),
+        "wait"
+            | "hey"
+            | "yeah"
+            | "i'm"
+            | "i'll"
+            | "it's"
+            | "we're"
+            | "we've"
+            | "that's"
+            | "you're"
+            | "don't"
+            | "i've"
+            | "i-i"
     )
+}
+
+fn is_stutter_fragment(token: &str) -> bool {
+    let mut characters = token.chars();
+    let Some(first) = characters.next() else {
+        return false;
+    };
+    let Some(second) = characters.next() else {
+        return false;
+    };
+    let Some(third) = characters.next() else {
+        return false;
+    };
+
+    first.is_uppercase() && second == '-' && third.is_alphabetic()
 }
 
 fn contains_emoji_characters(text: &str) -> bool {
@@ -786,7 +793,7 @@ fn mention_survives_aggregation(
     if observation
         .normalized_surface
         .split_whitespace()
-        .all(is_noise_singleton)
+        .all(|token| is_noise_singleton_for_archetype(token, archetype))
     {
         return false;
     }
@@ -815,6 +822,7 @@ fn mention_survives_aggregation(
                             | MentionFeature::PossessiveObserved
                     )
                 })
+                && is_loose_note_list_item_singleton(&observation.surface)
                 && observation.occurrences.iter().all(|occurrence| {
                     occurrence
                         .snippet
@@ -842,7 +850,7 @@ fn should_reject_harvested_mention(
         return true;
     }
 
-    if word_count == 1 && is_noise_singleton(surface) {
+    if word_count == 1 && is_noise_singleton_for_archetype(surface, archetype) {
         return true;
     }
 
@@ -850,12 +858,23 @@ fn should_reject_harvested_mention(
         return true;
     }
 
-    if normalized_surface.split_whitespace().all(is_noise_singleton) {
+    if normalized_surface
+        .split_whitespace()
+        .all(|token| is_noise_singleton_for_archetype(token, archetype))
+    {
         return true;
     }
 
     match archetype {
         DocumentArchetype::Manuscript => {
+            if is_stutter_fragment(surface) {
+                return true;
+            }
+
+            if word_count == 1 && titled {
+                return true;
+            }
+
             if word_count > 1
                 && surface
                     .split_whitespace()
@@ -866,10 +885,87 @@ fn should_reject_harvested_mention(
                 return true;
             }
 
-            !(word_count > 1 || titled || !is_noise_singleton(surface))
+            !(word_count > 1 || titled || !is_noise_singleton_for_archetype(surface, archetype))
         }
         _ => false,
     }
+}
+
+fn should_reject_structural_observation(
+    span: &ParsedSpan,
+    sentence: &PreprocessedSentence,
+    observation: &MentionObservation,
+    archetype: &DocumentArchetype,
+) -> bool {
+    let word_count = observation.surface.split_whitespace().count();
+    let has_strong_signal = observation.aggregate_features.iter().any(|feature| {
+        matches!(
+            feature,
+            MentionFeature::MultiWord
+                | MentionFeature::Titled
+                | MentionFeature::PossessiveObserved
+        )
+    });
+
+    if word_count == 1
+        && !matches!(
+            archetype,
+            DocumentArchetype::LooseNote | DocumentArchetype::DossierProfile
+        )
+        && is_common_stopword(&observation.surface)
+    {
+        return true;
+    }
+
+    match archetype {
+        DocumentArchetype::StoryPlanning => {
+            if sentence_is_bracketed_scene_marker(&sentence.normalized_text) {
+                return true;
+            }
+
+            if word_count == 1
+                && (sentence_is_colon_terminated_label(&sentence.normalized_text)
+                    || span_has_structured_field_label(span, &observation.normalized_surface))
+            {
+                return true;
+            }
+
+            if word_count == 1
+                && sentence.sentence_type == SentenceType::Heading
+                && !has_strong_signal
+            {
+                return true;
+            }
+
+            if is_shouty_marker_surface(&observation.surface)
+                && matches!(
+                    sentence.sentence_type,
+                    SentenceType::Heading | SentenceType::ListItem
+                )
+            {
+                return true;
+            }
+        }
+        DocumentArchetype::TaxonomyReference | DocumentArchetype::ExpositoryWorldArticle => {
+            if word_count == 1 && sentence_is_colon_terminated_label(&sentence.normalized_text) {
+                return true;
+            }
+
+            if sentence_has_outline_enumeration(&sentence.normalized_text)
+                && (word_count == 1
+                    || surface_has_roman_enumeration_prefix(&observation.surface))
+            {
+                return true;
+            }
+
+            if word_count == 1 && is_roman_numeral_token(&observation.surface) {
+                return true;
+            }
+        }
+        _ => {}
+    }
+
+    false
 }
 
 fn should_reject_loose_note_observation(
@@ -1008,6 +1104,73 @@ fn is_loose_note_list_item_singleton(surface: &str) -> bool {
     )
 }
 
+fn span_has_structured_field_label(span: &ParsedSpan, normalized_surface: &str) -> bool {
+    span.text.lines().any(|line| {
+        parse_structured_field_line(line)
+            .map(|(label, _)| normalize_mention_surface(&label) == normalized_surface)
+            .unwrap_or(false)
+    })
+}
+
+fn sentence_is_colon_terminated_label(sentence_text: &str) -> bool {
+    let trimmed = sentence_text.trim();
+    trimmed.ends_with(':') || trimmed.ends_with("):") || trimmed.ends_with("**:")
+}
+
+fn sentence_is_bracketed_scene_marker(sentence_text: &str) -> bool {
+    let trimmed = sentence_text.trim();
+    trimmed.starts_with('[') && trimmed.ends_with(']')
+}
+
+fn is_shouty_marker_surface(surface: &str) -> bool {
+    let mut saw_alpha = false;
+    for character in surface.chars().filter(|character| character.is_alphabetic()) {
+        saw_alpha = true;
+        if !character.is_uppercase() {
+            return false;
+        }
+    }
+
+    saw_alpha
+}
+
+fn sentence_has_outline_enumeration(sentence_text: &str) -> bool {
+    let trimmed = sentence_text.trim();
+    let mut parts = trimmed.split_whitespace();
+    let Some(first) = parts.next() else {
+        return false;
+    };
+    let second = parts.next();
+    let third = parts.next();
+
+    if is_roman_numeral_token(first.trim_end_matches('.')) {
+        return true;
+    }
+
+    second
+        .zip(third)
+        .map(|(second, third)| {
+            second.chars().all(|character| character.is_ascii_digit()) && third == "-"
+        })
+        .unwrap_or(false)
+}
+
+fn surface_has_roman_enumeration_prefix(surface: &str) -> bool {
+    let mut parts = surface.split_whitespace();
+    let Some(first) = parts.next() else {
+        return false;
+    };
+
+    is_roman_numeral_token(first.trim_end_matches('.'))
+}
+
+fn is_roman_numeral_token(token: &str) -> bool {
+    !token.is_empty()
+        && token
+            .chars()
+            .all(|character| matches!(character, 'I' | 'V' | 'X' | 'L' | 'C' | 'D' | 'M'))
+}
+
 fn first_cleaned_token(text: &str) -> Option<String> {
     text.split_whitespace()
         .map(clean_entity_token)
@@ -1039,18 +1202,20 @@ fn build_occurrence_snippet(text: &str, surface: &str) -> String {
         .to_string()
 }
 
-fn cooccurring_mentions_in_span(span: &ParsedSpan, surface: &str) -> Vec<String> {
-    let tokens = span
-        .normalized_text
-        .split_whitespace()
-        .map(clean_entity_token)
-        .filter(|token| !token.text.is_empty())
-        .collect::<Vec<_>>();
+fn cooccurring_mentions_in_sentence(
+    sentence_tokens: &[&PreprocessedToken],
+    surface: &str,
+) -> Vec<String> {
     let mut mentions = Vec::new();
     let mut index = 0;
 
-    while index < tokens.len() {
-        if !is_mention_token(&tokens[index].text) {
+    while index < sentence_tokens.len() {
+        let Some(current_word) = cleaned_word_token(sentence_tokens[index]) else {
+            index += 1;
+            continue;
+        };
+
+        if !is_mention_token(&current_word.text) {
             index += 1;
             continue;
         }
@@ -1058,20 +1223,33 @@ fn cooccurring_mentions_in_span(span: &ParsedSpan, surface: &str) -> Vec<String>
         let start_index = index;
         index += 1;
 
-        while index < tokens.len()
-            && is_mention_token(&tokens[index].text)
-            && !tokens[index - 1].ends_phrase
-        {
+        let mut words = vec![current_word];
+
+        while index < sentence_tokens.len() {
+            let Some(next_word) = cleaned_word_token(sentence_tokens[index]) else {
+                break;
+            };
+
+            if !is_mention_token(&next_word.text) {
+                break;
+            }
+
+            words.push(next_word);
             index += 1;
         }
 
-        let words = tokens[start_index..index]
+        let mention = words
             .iter()
             .map(|token| token.text.as_str())
-            .collect::<Vec<_>>();
-        let mention = words.join(" ");
+            .collect::<Vec<_>>()
+            .join(" ");
 
-        if mention.is_empty() || mention == surface || mentions.contains(&mention) {
+        if mention.is_empty()
+            || mention == surface
+            || mentions.contains(&mention)
+            || is_stutter_fragment(&mention)
+        {
+            index = start_index + 1;
             continue;
         }
 
@@ -1080,6 +1258,69 @@ fn cooccurring_mentions_in_span(span: &ParsedSpan, surface: &str) -> Vec<String>
 
     mentions.truncate(4);
     mentions
+}
+
+fn sentence_tokens<'a>(
+    preprocessed_span: &'a PreprocessedSpan,
+    sentence: &PreprocessedSentence,
+) -> Vec<&'a PreprocessedToken> {
+    preprocessed_span
+        .tokens
+        .iter()
+        .filter(|token| token.start_char >= sentence.start_char && token.end_char <= sentence.end_char)
+        .collect()
+}
+
+fn supporting_sentence_for_surface<'a>(
+    preprocessed_span: &'a PreprocessedSpan,
+    surface: &str,
+) -> (&'a PreprocessedSentence, Vec<&'a PreprocessedToken>) {
+    let normalized_surface = normalize_text(surface);
+
+    if let Some(sentence) = preprocessed_span
+        .sentences
+        .iter()
+        .find(|sentence| sentence.normalized_text.contains(&normalized_surface))
+    {
+        let sentence_tokens = sentence_tokens(preprocessed_span, sentence);
+        return (sentence, sentence_tokens);
+    }
+
+    let sentence = preprocessed_span
+        .sentences
+        .first()
+        .expect("preprocessed spans should retain at least one sentence");
+    let sentence_tokens = sentence_tokens(preprocessed_span, sentence);
+    (sentence, sentence_tokens)
+}
+
+fn cleaned_word_token(token: &PreprocessedToken) -> Option<TokenObservation> {
+    if token
+        .surface
+        .chars()
+        .all(|character| character.is_whitespace() || !character.is_alphanumeric())
+    {
+        return None;
+    }
+
+    let (text, had_possessive) = if let Some(stripped) = token.normalized.strip_suffix("'s") {
+        (stripped, true)
+    } else {
+        (token.normalized.as_str(), false)
+    };
+
+    if text.is_empty() {
+        return None;
+    }
+
+    Some(TokenObservation {
+        text: text.to_string(),
+        had_possessive,
+    })
+}
+
+fn normalize_text(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn is_title_prefix(token: &str) -> bool {
@@ -1220,7 +1461,9 @@ fn parse_definition_line(line: &str) -> Option<(String, String)> {
 
 fn normalize_field_part(text: &str) -> String {
     text.trim()
-        .trim_matches(|character: char| matches!(character, ':' | '-' | '—'))
+        .trim_matches(|character: char| {
+            matches!(character, ':' | '-' | '—' | '*' | '_' | '`')
+        })
         .trim()
         .trim_end_matches('.')
         .trim()

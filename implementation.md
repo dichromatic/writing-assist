@@ -595,6 +595,7 @@ Execution order:
 - add deterministic fact/summary candidate scaffolding
 - add document archetype classification and structured knowledge contracts
 - refactor deterministic extraction toward evidence harvesting and packaging
+- add shallow NLP preprocessing and archetype-specific rule pipelines before retrieval depends on evidence quality
 - add retrieval v1 and context inspector over exact text, evidence units, and approved memory where available
 - defer provider-backed semantic consolidation and memory review UI until provider integration is stable
 
@@ -629,7 +630,7 @@ The deterministic layer should focus on high-recall evidence harvesting, not sem
 
 It should be responsible for:
 
-- removing obvious noise
+- removing obvious universal noise
 - preserving exact source anchors
 - packaging local context around a candidate
 - surfacing repeated or structurally meaningful patterns
@@ -654,6 +655,24 @@ The deterministic extraction layer should move toward evidence-oriented candidat
 - `SectionSummarySeed`
 - `SpanNeighborhood`
 
+The next quality step should not be a generic pretrained NER layer.
+
+Instead, the deterministic layer should adopt standard shallow NLP primitives that
+improve evidence quality without pretending to solve fiction semantics:
+
+- Unicode normalization and stable tokenizer/versioning
+- sentence segmentation
+- quote-span detection
+- heading/list/scene-break tagging
+- compiled lexicon matching, with multi-pattern matching such as `aho-corasick`
+  as the expected baseline and room for later `fst`-style optimization if the
+  induced lexicon grows large enough to justify it
+- common-language stopword filtering for universal function-word noise
+- token-pattern rules for titles, appositions, possessives, and acronym/definition shapes
+
+These should be treated as deterministic preprocessing and filtering, not as
+semantic truth.
+
 Those evidence records can later be promoted into richer memory or structured-knowledge records after an LLM-assisted review step validates them.
 
 Fact and summary candidate generation should start as scaffolding:
@@ -666,6 +685,91 @@ Fact and summary candidate generation should start as scaffolding:
 - no provider-generated summaries until the review and persistence path is stable
 
 The current entity/fact/summary scaffolding should be treated as an initial spike, not the final knowledge model. The broader deterministic extraction layer should become document-archetype aware and evidence-oriented so later retrieval and LLM tasks work from structure that actually matches writing projects.
+
+#### Shallow NLP hardening before retrieval
+
+The current evidence layer is inspectable, but the manuscript log and semantic-pass
+lab both show that mention quality is still too noisy for downstream retrieval and
+provider-backed consolidation to consume directly.
+
+Before retrieval and semantic consolidation harden, the deterministic layer should
+add a shallow NLP preprocessing stage with stable, testable behavior:
+
+- normalized punctuation handling for quotes, dashes, apostrophes, and ellipses
+- stable sentence boundaries and token boundaries with preserved offsets
+- explicit quote spans for dialogue-heavy manuscripts
+- explicit heading/list/scene-break spans for notes and reference files
+- a bootstrapped project lexicon compiled into deterministic matchers, using
+  `aho-corasick`-style multi-pattern lookup as the default implementation
+  strategy and leaving `fst` as a later scale optimization if needed
+- archetype-specific token-pattern rules instead of one shared mention heuristic
+- structural suppression rules based on position and support, not corpus-specific singleton deny-lists
+
+This stage should improve:
+
+- manuscript dialogue noise suppression
+- title/honorific handling
+- acronym-expansion handling in references
+- outline-heading suppression in planning notes
+- stable offset handling for later retrieval windows and source anchors
+
+The deterministic layer should avoid hardcoding singleton-noise words copied
+from current logs or example documents.
+
+Instead, it should rely on:
+
+- standard stopword sets for universal function-word filtering
+- structural weakness rules:
+  - sentence-initial singleton with no support
+  - bullet-start singleton in loose notes
+  - field-label position before `:`
+  - heading-only singleton with no body support
+  - one-off dialogue singleton with no title, repetition, or lexicon support
+- support signals:
+  - repetition
+  - title/honorific patterns
+  - possessive patterns
+  - heading/body co-occurrence
+  - field/definition linkage
+  - later provisional-lexicon support
+
+This keeps indexing seedless while avoiding a chicken-and-egg dependency on
+user-provided vocabularies or hand-maintained project-specific noise lists.
+
+The project lexicon should not require user-seeded vocabulary to start.
+
+Instead, it should bootstrap from zero over bounded deterministic passes:
+
+- Pass 0: harvest raw candidates from repeated surfaces, titles, headings, definitions, fields, and quote-adjacent patterns
+- Pass 1: build provisional lexicon entries with source provenance, occurrence counts, archetype distribution, and rule provenance
+- Pass 2: rerun archetype-specific harvesters using that provisional lexicon to improve matching, suppression, and alias handling
+- Pass N: stop when no meaningful new candidates appear or a maximum pass count is reached
+
+This lexicon is extraction infrastructure, not canon memory.
+
+That means:
+
+- it may be noisy
+- it must remain source-linked
+- it must be versioned by extraction pass
+- it must not become reusable task context automatically
+
+User-authored lexicons can still exist later, but they should be optional
+enrichment, not required initialization.
+
+The lexicon loop should complement, not replace, stopword and structural
+filtering:
+
+- stopwords handle universal language noise
+- structural rules handle archetype-specific weak positions
+- provisional lexicon passes raise support for candidates without requiring user setup
+
+It should not attempt:
+
+- generic statistical NER over fiction prose
+- full dependency parsing
+- deep syntactic role extraction
+- final alias resolution or canon judgment
 
 #### Document archetypes and structured knowledge
 
@@ -782,6 +886,14 @@ Retrieval tests should verify:
 - archetype-aware structured hits outrank generic raw text when they are the more precise unit
 - context inspector shows the exact selected context for a task
 
+Retrieval should depend on the hardened evidence layer, not the raw mention layer.
+
+In practice this means:
+
+- raw mention occurrences remain internal/debug evidence
+- retrieval should prefer clustered evidence, definitions, structured fields, summary seeds, and approved memory
+- later provider-backed semantic consolidation should consume a smaller promoted bundle, not every raw mention cluster
+
 #### Context inspector and anchors
 
 The context inspector should show:
@@ -838,6 +950,7 @@ Thread/editor anchors remain session-local until durable span IDs or revalidated
   - add deterministic fact and summary candidate scaffolding as an initial extraction spike
   - add document archetype classification and structured knowledge schemas
   - refactor deterministic extraction toward evidence harvesting and packaging
+  - add shallow NLP preprocessing and archetype-specific deterministic rule pipelines
   - prepare archetype-aware retrieval/RAG inputs before semantic consolidation and review UI implementation
   - add retrieval v1 and context inspector
   - keep vector retrieval optional behind an abstraction
@@ -852,9 +965,33 @@ Thread/editor anchors remain session-local until durable span IDs or revalidated
   - API-key provider setup
   - experimental subscription-auth bridge adapter
   - provider selection/settings UX
-  - provider-backed semantic consolidation and schema validation for harvested evidence
+  - provider-backed semantic consolidation and schema validation for promoted evidence bundles
   - memory review UI and approval workflow for semantically consolidated candidates
   - logging and recovery for auth/provider failures
+
+### Semantic consolidation constraints
+
+The semantic-pass lab shows that provider-backed consolidation should not be
+implemented as one generic pass over all document types.
+
+The production semantic-consolidation path should be split by archetype and task:
+
+- manuscript entity/alias consolidation
+- reference terminology and world-rule consolidation
+- planning-note participant/goal/relationship consolidation
+
+Across all of them, the production path should require:
+
+- compact promoted evidence bundles rather than raw mentions
+- schema validation on every provider response
+- rejection IDs that map back to real evidence IDs
+- no promotion of unknown abbreviations or weak one-off surfaces into reusable memory
+- explicit open-question and review-only buckets for underspecified candidates
+
+The lab also shows that long planning/reference prompts need bounded prompt views
+and parsers tolerant of fenced JSON or provider formatting noise. Those lessons
+should be carried forward into the real provider path, but reimplemented cleanly
+outside the lab branch.
 
 ## Test Plan
 

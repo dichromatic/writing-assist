@@ -8,6 +8,7 @@ mod import_candidates;
 mod markdown_parser;
 mod project_files;
 mod summary_generation;
+mod text_preprocessing;
 
 pub use discovery::{classify_document_path, discover_project_documents, DiscoveredDocument};
 pub use document_archetypes::classify_document_archetype;
@@ -23,3 +24,4 @@ pub use markdown_parser::{
     parse_markdown_document, parse_markdown_document_with_options, supported_span_types,
 };
 pub use summary_generation::generate_reviewable_summaries;
+pub use text_preprocessing::preprocess_parsed_document;

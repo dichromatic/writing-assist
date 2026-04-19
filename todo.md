@@ -994,9 +994,9 @@ Deliverables:
   - taxonomy/reference notes favor definition-like lines and terminology blocks
   - expository world articles favor bounded extractive summary seeds and explicit repeated terms
 - deterministic junk suppression for obvious prose noise:
-  - pronouns
+  - universal stopwords and function words
   - contractions
-  - sentence-opener stopwords
+  - structurally weak singleton positions
   - malformed title-case fragments
 - source-linking rules so every evidence record preserves:
   - document path
@@ -1021,6 +1021,7 @@ TDD applies:
 Behavior to test:
 
 - obvious prose noise is suppressed without collapsing useful repeated mentions
+- noise suppression does not depend on project-specific singleton word lists copied from current logs
 - harvested evidence preserves local context and source anchors deterministically
 - dossier/planning/taxonomy/article archetypes emit different evidence shapes from the same parser output
 - manuscript harvesting stays high-recall but avoids trivial garbage such as `I`, `We`, `It`, and mixed dialogue fragments
@@ -1033,6 +1034,134 @@ Done when:
 Documentation:
 
 - `documentation/phase-3.7-deterministic-evidence-harvesting-and-packaging.md`
+
+Follow-up hardening before Phase 3.8 depends on the current branch findings and
+should be treated as required prep, not optional polish:
+
+#### Phase 3.7a: Shallow NLP preprocessing and segmentation
+
+Deliverables:
+
+- stable Unicode normalization for quotes, dashes, apostrophes, and ellipses
+- tokenizer/version metadata for deterministic offsets
+- explicit sentence boundaries
+- explicit quote spans
+- explicit heading/list/scene-break spans
+
+Out of scope:
+
+- full syntactic parsing
+- pretrained NER
+- dependency parsing
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- token offsets stay stable across normalized punctuation
+- sentence segmentation avoids collapsing dialogue and headings into the same unit
+- quote spans are recoverable from manuscript files
+- heading/list/scene-break tagging works for planning and reference files
+
+Done when:
+
+- the evidence layer has a stable structural preprocessing step that later harvesters can rely on
+
+Documentation:
+
+- `documentation/phase-3.7a-shallow-nlp-preprocessing-and-segmentation.md`
+
+#### Phase 3.7b: Bootstrapped project lexicon and deterministic rule matchers
+
+Deliverables:
+
+- seedless bootstrapped lexicon induction over bounded deterministic passes
+- provisional lexicon entry model for:
+  - characters
+  - places
+  - factions
+  - artifacts
+  - terminology
+  - unresolved/unknown candidates
+- provenance captured for each provisional lexicon entry:
+  - source anchors
+  - occurrence counts
+  - archetypes seen in
+  - rule sources that produced it
+- deterministic lexicon matching over normalized text, using `aho-corasick` as
+  the baseline multi-pattern matcher and leaving `fst` as a later optimization
+  if lexicon size requires it
+- standard stopword integration for universal singleton/function-word filtering
+- pass orchestration that allows re-harvesting with the provisional lexicon until convergence or max-pass cutoff
+- archetype-specific token-pattern rules for:
+  - titles/honorifics
+  - possessives
+  - appositions/epithets
+  - acronym/definition shapes
+  - planning-field participants/goals/outcomes
+- structural suppression rules for weak evidence positions such as:
+  - sentence-initial unsupported singletons
+  - loose-note bullet-start unsupported singletons
+  - field-label positions
+  - heading-only unsupported singletons
+- optional user-authored lexicons as later enrichment, not a requirement for initial extraction
+
+Out of scope:
+
+- cross-document identity resolution
+- LLM-driven alias merging
+- treating provisional lexicon entries as approved canon memory
+- corpus-specific deny-lists derived from current example logs as a long-term extraction strategy
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- a project with no user-provided vocabulary can still bootstrap provisional lexicon entries from its corpus
+- later passes improve harvest quality using provisional lexicon entries from earlier passes
+- common stopwords are filtered without needing user setup or project-specific word lists
+- structurally weak singleton positions are demoted or rejected without relying on example-specific hardcoding
+- titled names survive without promoting bare titles alone
+- reference acronym-expansion patterns promote explicit terms and keep unknown abbreviations in review-only buckets
+- planning headings and field labels stop leaking into generic mention clusters
+
+Done when:
+
+- the current mention layer is replaced or materially improved by stopword-backed, structurally filtered harvesting plus a seedless provisional lexicon loop
+
+#### Phase 3.7c: Evidence promotion boundary for retrieval and semantic input
+
+Deliverables:
+
+- deterministic promotion rules from raw evidence into smaller, stronger semantic-input bundles
+- explicit distinction between:
+  - raw mention evidence
+  - clustered evidence
+  - promoted semantic candidates
+- traceable suppression/review reasons where useful
+
+Out of scope:
+
+- provider calls
+- final reusable-memory approval
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- retrieval does not depend on raw noisy mention surfaces
+- semantic input bundles exclude obvious weak surfaces and unresolved abbreviations
+- promoted records remain source-linked
+
+Done when:
+
+- both retrieval and later semantic consolidation can consume compact evidence bundles instead of raw harvested noise
 
 ### Phase 3.8: Retrieval v1 and context inspector
 
@@ -1187,7 +1316,7 @@ TDD applies:
 
 Deliverables:
 
-- provider-backed semantic filter pipeline that consumes deterministic evidence records
+- provider-backed semantic filter pipeline that consumes promoted evidence bundles instead of raw harvested mentions
 - schema-validated promotion from evidence into typed candidates such as:
   - `EntityProfileCandidate`
   - `RelationshipCandidate`
@@ -1198,6 +1327,14 @@ Deliverables:
   - semantically reviewed memory candidates where still appropriate
 - explicit rejection path for borderline or noisy harvested evidence
 - alias-resolution policy that remains reviewable and source-linked
+- archetype-specific provider tasks for:
+  - manuscript entity/alias consolidation
+  - reference terminology/world-rule consolidation
+  - planning-note participant/goal/relationship consolidation
+- provider-output validation that rejects:
+  - unknown evidence IDs
+  - malformed rejection payloads
+  - weak abbreviations promoted as reusable entities without explicit expansion
 
 Out of scope:
 
@@ -1214,6 +1351,9 @@ Behavior to test:
 - promoted candidates preserve source anchors from harvested evidence
 - semantically rejected evidence does not enter reusable memory
 - alias merges remain inspectable and reversible
+- rejected evidence IDs map back to actual evidence IDs from the request bundle
+- reference tasks do not promote undefined abbreviations into `proposed_entities`
+- manuscript tasks prefer review/open-question buckets over weak one-off entity promotion
 
 Done when:
 
@@ -1256,7 +1396,9 @@ Done when:
 
 ## Immediate Next Tasks
 
-1. Start Phase 3.8 retrieval v1 and context inspector.
-2. Keep the new workspace-state model as the frontend target for future UI refactors.
-3. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
-4. Keep context-source review and the knowledge rail in Phase 3 scope.
+1. Complete Phase 3.7b bootstrapped project lexicon and deterministic rule matchers.
+2. Complete Phase 3.7c evidence promotion boundary for retrieval and semantic input.
+3. Then start Phase 3.8 retrieval v1 and context inspector.
+4. Keep the new workspace-state model as the frontend target for future UI refactors.
+5. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
+6. Keep context-source review and the knowledge rail in Phase 3 scope.
