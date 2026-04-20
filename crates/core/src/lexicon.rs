@@ -34,6 +34,7 @@ pub enum LexiconBootstrapRule {
     TitledMention,
     AliasField,
     ParticipantField,
+    RoleField,
     DefinitionTerm,
     LinkedStructuredField,
     LinkedDefinition,

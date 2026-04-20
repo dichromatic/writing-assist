@@ -21,11 +21,16 @@ pub fn induce_bootstrapped_lexicon_entries(
 
     mention_clusters
         .iter()
-        .map(|cluster| {
-            let evidence = evidence_for_cluster(cluster, structured_fields, definitions);
-            let rule_sources = rule_sources_for_cluster(cluster, structured_fields, definitions);
+        .filter_map(|cluster| {
+            let support = cluster_support(cluster, structured_fields, definitions);
+            if !cluster_survives_bootstrap(cluster, &support) {
+                return None;
+            }
 
-            BootstrappedLexiconEntry {
+            let evidence = evidence_for_cluster(cluster, structured_fields, definitions);
+            let rule_sources = rule_sources_for_cluster(cluster, &support);
+
+            Some(BootstrappedLexiconEntry {
                 id: stable_hash_id(
                     document_path,
                     "bootstrapped_lexicon_entry",
@@ -34,47 +39,83 @@ pub fn induce_bootstrapped_lexicon_entries(
                 ),
                 canonical_surface: cluster.display_surface.clone(),
                 normalized_surface: cluster.normalized_surface.clone(),
-                kind: entry_kind_for_cluster(cluster, structured_fields, definitions),
+                kind: entry_kind_for_cluster(cluster, &support),
                 source: cluster.source.clone(),
                 occurrence_count: cluster.occurrences.len(),
                 archetypes_seen: vec![cluster.archetype.clone()],
                 rule_sources,
                 evidence,
-            }
+            })
         })
         .collect()
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ClusterSupport {
+    definition: bool,
+    alias_field: bool,
+    participant_field: bool,
+    role_field: bool,
+    linked_structured_field: bool,
+}
+
+fn cluster_survives_bootstrap(cluster: &MentionCluster, support: &ClusterSupport) -> bool {
+    match cluster.archetype {
+        DocumentArchetype::Manuscript => true,
+        DocumentArchetype::TaxonomyReference | DocumentArchetype::ExpositoryWorldArticle => {
+            // Reference-oriented documents should bootstrap reusable terms from
+            // explicit definitions first, not descriptive heading fragments.
+            support.definition
+        }
+        DocumentArchetype::StoryPlanning
+        | DocumentArchetype::DossierProfile
+        | DocumentArchetype::LooseNote => {
+            // Planning-oriented documents stay field-led in 3.7c so tone and
+            // editorial vocabulary do not become reusable lexicon entries.
+            support.alias_field
+                || support.participant_field
+                || support.role_field
+                || (cluster
+                    .aggregate_features
+                    .contains(&MentionFeature::Titled)
+                    && cluster.occurrences.len() > 1)
+        }
+    }
+}
+
 fn entry_kind_for_cluster(
     cluster: &MentionCluster,
-    structured_fields: &[StructuredFieldCandidate],
-    definitions: &[DefinitionCandidate],
+    support: &ClusterSupport,
 ) -> BootstrappedLexiconEntryKind {
-    if has_definition_support(cluster, definitions) {
-        return BootstrappedLexiconEntryKind::Terminology;
-    }
-
-    if cluster
-        .aggregate_features
-        .contains(&MentionFeature::Titled)
-        || has_alias_field_support(cluster, structured_fields)
-        || has_participant_field_support(cluster, structured_fields)
-    {
-        return BootstrappedLexiconEntryKind::Character;
-    }
-
     match cluster.archetype {
         DocumentArchetype::TaxonomyReference | DocumentArchetype::ExpositoryWorldArticle => {
             BootstrappedLexiconEntryKind::Terminology
         }
-        _ => BootstrappedLexiconEntryKind::Unresolved,
+        DocumentArchetype::StoryPlanning
+        | DocumentArchetype::DossierProfile
+        | DocumentArchetype::LooseNote => {
+            if support.alias_field || support.participant_field || support.role_field {
+                BootstrappedLexiconEntryKind::Character
+            } else {
+                BootstrappedLexiconEntryKind::Unresolved
+            }
+        }
+        DocumentArchetype::Manuscript => {
+            if cluster
+                .aggregate_features
+                .contains(&MentionFeature::Titled)
+            {
+                BootstrappedLexiconEntryKind::Character
+            } else {
+                BootstrappedLexiconEntryKind::Unresolved
+            }
+        }
     }
 }
 
 fn rule_sources_for_cluster(
     cluster: &MentionCluster,
-    structured_fields: &[StructuredFieldCandidate],
-    definitions: &[DefinitionCandidate],
+    support: &ClusterSupport,
 ) -> Vec<LexiconBootstrapRule> {
     let mut rules = Vec::new();
 
@@ -87,16 +128,19 @@ fn rule_sources_for_cluster(
     {
         rules.push(LexiconBootstrapRule::TitledMention);
     }
-    if has_alias_field_support(cluster, structured_fields) {
+    if support.alias_field {
         rules.push(LexiconBootstrapRule::AliasField);
     }
-    if has_participant_field_support(cluster, structured_fields) {
+    if support.participant_field {
         rules.push(LexiconBootstrapRule::ParticipantField);
     }
-    if has_linked_structured_field(cluster) {
+    if support.role_field {
+        rules.push(LexiconBootstrapRule::RoleField);
+    }
+    if support.linked_structured_field {
         rules.push(LexiconBootstrapRule::LinkedStructuredField);
     }
-    if has_definition_support(cluster, definitions) {
+    if support.definition {
         rules.push(LexiconBootstrapRule::DefinitionTerm);
         rules.push(LexiconBootstrapRule::LinkedDefinition);
     }
@@ -145,6 +189,20 @@ fn evidence_for_cluster(
     evidence
 }
 
+fn cluster_support(
+    cluster: &MentionCluster,
+    structured_fields: &[StructuredFieldCandidate],
+    definitions: &[DefinitionCandidate],
+) -> ClusterSupport {
+    ClusterSupport {
+        definition: has_definition_support(cluster, definitions),
+        alias_field: has_alias_field_support(cluster, structured_fields),
+        participant_field: has_participant_field_support(cluster, structured_fields),
+        role_field: has_role_field_support(cluster, structured_fields),
+        linked_structured_field: has_linked_structured_field(cluster),
+    }
+}
+
 fn has_alias_field_support(
     cluster: &MentionCluster,
     structured_fields: &[StructuredFieldCandidate],
@@ -181,6 +239,22 @@ fn has_participant_field_support(
                     | "crew"
                     | "speaker"
                     | "speakers"
+            )
+    })
+}
+
+fn has_role_field_support(
+    cluster: &MentionCluster,
+    structured_fields: &[StructuredFieldCandidate],
+) -> bool {
+    structured_fields.iter().any(|field| {
+        cluster
+            .linked_evidence
+            .iter()
+            .any(|link| link.evidence_id == field.id)
+            && matches!(
+                field.label.to_ascii_lowercase().as_str(),
+                "role" | "roles" | "title" | "titles" | "position"
             )
     })
 }

@@ -1134,8 +1134,6 @@ Behavior to test:
 - common stopwords are filtered without needing user setup or project-specific word lists
 - structurally weak singleton positions are demoted or rejected without relying on example-specific hardcoding
 - titled names survive without promoting bare titles alone
-- reference acronym-expansion patterns promote explicit terms and keep unknown abbreviations in review-only buckets
-- planning headings and field labels stop leaking into generic mention clusters
 
 Done when:
 
@@ -1145,7 +1143,61 @@ Documentation:
 
 - `documentation/phase-3.7b-bootstrapped-project-lexicon-and-deterministic-rule-matchers.md`
 
-#### Phase 3.7c: Evidence promotion boundary for retrieval and semantic input
+#### Phase 3.7c: Archetype-specific lexicon induction and reuse
+
+Deliverables:
+
+- a shared lexicon-bootstrap framework with archetype-family-specific entry
+  induction strategies for:
+  - manuscript
+  - reference/taxonomy/world article
+  - planning/dossier/loose-note
+- archetype-family-specific exact-phrase reuse policy:
+  - manuscript: enabled and mention-led
+  - reference/taxonomy: enabled but definition/term-led
+  - planning/dossier/loose-note: limited or field-grounded, not generic
+    mention-first reuse
+- manuscript bootstrapping that improves recurring prose mentions without
+  requiring manual vocabulary seeding
+- reference/taxonomy bootstrapping that prefers definitions and explicit terms
+  over descriptive heading fragments
+- planning/dossier bootstrapping that prefers participant/alias/role fields
+  over prose-approach or tone vocabulary
+
+Out of scope:
+
+- project-level cross-document identity resolution
+- LLM-driven alias merging
+- treating bootstrapped lexicon entries as approved canon memory
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- manuscript bootstrapping improves recurring prose mentions without requiring
+  manual vocabulary seeding
+- reference/taxonomy bootstrapping prefers definitions and explicit terms over
+  descriptive heading fragments
+- planning/dossier bootstrapping prefers participant/alias/role fields over
+  prose-approach or tone vocabulary
+- reference acronym-expansion patterns promote explicit terms and keep unknown
+  abbreviations in review-only buckets
+- planning headings and field labels stop leaking into generic mention clusters
+- the lexicon bootstrap path no longer assumes one main mention-first
+  induction strategy for manuscripts, planning notes, and reference documents
+
+Done when:
+
+- lexicon induction and exact-phrase reuse are split by archetype family while
+  keeping the surrounding deterministic infrastructure shared
+
+Documentation:
+
+- `documentation/phase-3.7b-bootstrapped-project-lexicon-and-deterministic-rule-matchers.md`
+
+#### Phase 3.7d: Evidence promotion boundary for retrieval and semantic input
 
 Deliverables:
 
@@ -1409,8 +1461,9 @@ Done when:
 ## Immediate Next Tasks
 
 1. Complete Phase 3.7b bootstrapped project lexicon and deterministic rule matchers.
-2. Complete Phase 3.7c evidence promotion boundary for retrieval and semantic input.
-3. Then start Phase 3.8 retrieval v1 and context inspector.
-4. Keep the new workspace-state model as the frontend target for future UI refactors.
-5. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
-6. Keep context-source review and the knowledge rail in Phase 3 scope.
+2. Complete Phase 3.7c archetype-specific lexicon induction and reuse.
+3. Complete Phase 3.7d evidence promotion boundary for retrieval and semantic input.
+4. Then start Phase 3.8 retrieval v1 and context inspector.
+5. Keep the new workspace-state model as the frontend target for future UI refactors.
+6. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
+7. Keep context-source review and the knowledge rail in Phase 3 scope.

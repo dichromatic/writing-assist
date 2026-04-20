@@ -757,6 +757,77 @@ That means:
 User-authored lexicons can still exist later, but they should be optional
 enrichment, not required initialization.
 
+The current smoke tests show that one shared lexicon-induction path is not the
+right long-term structure.
+
+The shared framework should remain:
+
+- preprocessing
+- mention/field/definition harvesting
+- clustering
+- deterministic matcher compilation
+- bounded pass orchestration
+
+But lexicon entry induction and exact-phrase reuse should split by
+document-archetype family:
+
+- manuscript
+- reference/taxonomy/world article
+- planning/dossier/loose-note
+
+Those families have different useful signals and different failure modes.
+
+#### Archetype-specific lexicon strategy
+
+`Manuscript` should stay mention-led.
+
+Useful signals:
+
+- repeated names and title phrases
+- possessives
+- base-name and titled-name clustering
+- exact-phrase recovery over prose
+- anchor spread across scenes/sections
+
+The lexicon loop is already useful here because it improves recall and
+stabilizes recurring surfaces.
+
+`Reference`, `taxonomy`, and `expository world article` documents should be
+definition-led and terminology-led.
+
+Useful signals:
+
+- definition candidates
+- glossary-like headings
+- acronym and expansion patterns
+- repeated exact technical terms
+- stable heading/body reuse
+
+These documents should be stricter about descriptive singletons and heading
+fragments so words like `Strong`, `Rare`, or `Highly` do not become reusable
+lexicon entries.
+
+`StoryPlanning`, `DossierProfile`, and `LooseNote` documents should not rely on
+the same mention-first induction path as manuscripts.
+
+They should be field-led and block-structure-led.
+
+Useful signals:
+
+- alias fields
+- participant/character/target/crew/speaker fields
+- role fields
+- scene/section headers
+- repeated named participants after field grounding
+
+These documents should avoid bootstrapping from prose-approach words, tone
+words, and editorial/planning descriptors.
+
+In practice, that means the next phase slice after the shared 3.7b lexicon
+infrastructure should not be only threshold tuning. It should split entry
+induction and exact-phrase reuse policy by archetype family while keeping the
+surrounding deterministic infrastructure shared.
+
 The lexicon loop should complement, not replace, stopword and structural
 filtering:
 

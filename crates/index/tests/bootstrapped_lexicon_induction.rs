@@ -122,6 +122,103 @@ fn bootstraps_terminology_entries_from_definition_grounded_reference_evidence() 
 }
 
 #[test]
+fn reference_bootstrapping_prefers_definition_grounded_terms_over_descriptive_fragments() {
+    let parsed = parse_markdown_document(
+        "# Harmonics\n\nSlipspace boundary: transition band between stable layers\n\nStrong gradients gather near the boundary.\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "world context/harmonics.md",
+        DocumentArchetype::TaxonomyReference,
+        &parsed,
+    );
+    let definitions = harvest_definition_candidates(
+        "world context/harmonics.md",
+        DocumentArchetype::TaxonomyReference,
+        &parsed,
+    );
+    let seeds = harvest_section_summary_seeds(
+        "world context/harmonics.md",
+        DocumentArchetype::TaxonomyReference,
+        &parsed,
+    );
+    let clusters = cluster_document_mentions(
+        "world context/harmonics.md",
+        DocumentArchetype::TaxonomyReference,
+        &mentions,
+        &[],
+        &definitions,
+        &seeds,
+    );
+
+    let entries = induce_bootstrapped_lexicon_entries(
+        "world context/harmonics.md",
+        &clusters,
+        &[],
+        &definitions,
+    );
+
+    assert!(entries
+        .iter()
+        .any(|entry| entry.canonical_surface == "Slipspace boundary"
+            && entry.kind == BootstrappedLexiconEntryKind::Terminology));
+    assert!(!entries
+        .iter()
+        .any(|entry| entry.canonical_surface == "Strong"));
+}
+
+#[test]
+fn planning_bootstrapping_prefers_field_grounded_entries_over_tone_vocabulary() {
+    let parsed = parse_markdown_document(
+        "# Briefing\n\nParticipants: Mara, Yori\nTone: Warm\nApproach: Precise\n\nMara briefs Yori before launch.\n",
+    );
+
+    let mentions = harvest_mention_candidates(
+        "story planning/briefing.md",
+        DocumentArchetype::StoryPlanning,
+        &parsed,
+    );
+    let fields = harvest_structured_field_candidates(
+        "story planning/briefing.md",
+        DocumentArchetype::StoryPlanning,
+        &parsed,
+    );
+    let seeds = harvest_section_summary_seeds(
+        "story planning/briefing.md",
+        DocumentArchetype::StoryPlanning,
+        &parsed,
+    );
+    let clusters = cluster_document_mentions(
+        "story planning/briefing.md",
+        DocumentArchetype::StoryPlanning,
+        &mentions,
+        &fields,
+        &[],
+        &seeds,
+    );
+
+    let entries = induce_bootstrapped_lexicon_entries(
+        "story planning/briefing.md",
+        &clusters,
+        &fields,
+        &[],
+    );
+
+    assert!(entries
+        .iter()
+        .any(|entry| entry.canonical_surface == "Mara"
+            && entry.kind == BootstrappedLexiconEntryKind::Character));
+    assert!(entries
+        .iter()
+        .any(|entry| entry.canonical_surface == "Yori"
+            && entry.kind == BootstrappedLexiconEntryKind::Character));
+    assert!(!entries.iter().any(|entry| entry.canonical_surface == "Warm"));
+    assert!(!entries
+        .iter()
+        .any(|entry| entry.canonical_surface == "Precise"));
+}
+
+#[test]
 fn lexicon_matcher_recovers_lowercase_multiword_mentions_in_a_second_pass() {
     let lexicon_source = parse_markdown_document(
         "# Radiant Firth\n\nRole: Scout vessel\n\nRadiant Firth clears the harbor mouth.\n",
@@ -219,4 +316,53 @@ fn lexicon_matcher_prefers_longest_overlapping_surface() {
 
     assert!(surfaces.contains(&"radiant firth"));
     assert!(!surfaces.contains(&"firth"));
+}
+
+#[test]
+fn planning_exact_phrase_reuse_stays_field_grounded_instead_of_reusing_tone_words() {
+    let source = parse_markdown_document(
+        "# Briefing\n\nParticipants: Mara\nTone: Warm\n\nMara reviews the route.\n",
+    );
+
+    let source_mentions = harvest_mention_candidates(
+        "story planning/briefing.md",
+        DocumentArchetype::StoryPlanning,
+        &source,
+    );
+    let source_fields = harvest_structured_field_candidates(
+        "story planning/briefing.md",
+        DocumentArchetype::StoryPlanning,
+        &source,
+    );
+    let source_clusters = cluster_document_mentions(
+        "story planning/briefing.md",
+        DocumentArchetype::StoryPlanning,
+        &source_mentions,
+        &source_fields,
+        &[],
+        &[],
+    );
+    let entries = induce_bootstrapped_lexicon_entries(
+        "story planning/briefing.md",
+        &source_clusters,
+        &source_fields,
+        &[],
+    );
+    let matcher = compile_exact_phrase_lexicon_matcher(&entries);
+
+    let target = parse_markdown_document("Later, mara waits while the warm corridor stays quiet.\n");
+    let second_pass = harvest_exact_phrase_lexicon_mentions(
+        "story planning/briefing-followup.md",
+        DocumentArchetype::StoryPlanning,
+        &target,
+        &matcher,
+    );
+
+    let surfaces: Vec<_> = second_pass
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
+
+    assert!(surfaces.contains(&"mara"));
+    assert!(!surfaces.contains(&"warm"));
 }
