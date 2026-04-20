@@ -741,8 +741,8 @@ The project lexicon should not require user-seeded vocabulary to start.
 Instead, it should bootstrap from zero over bounded deterministic passes:
 
 - Pass 0: harvest raw candidates from repeated surfaces, titles, headings, definitions, fields, and quote-adjacent patterns
-- Pass 1: build provisional lexicon entries with source provenance, occurrence counts, archetype distribution, and rule provenance
-- Pass 2: rerun archetype-specific harvesters using that provisional lexicon to improve matching, suppression, and alias handling
+- Pass 1: build bootstrapped lexicon entries with source provenance, occurrence counts, archetype distribution, and rule provenance
+- Pass 2: rerun archetype-specific harvesters using that bootstrapped lexicon to improve matching, suppression, and alias handling
 - Pass N: stop when no meaningful new candidates appear or a maximum pass count is reached
 
 This lexicon is extraction infrastructure, not canon memory.
@@ -762,7 +762,7 @@ filtering:
 
 - stopwords handle universal language noise
 - structural rules handle archetype-specific weak positions
-- provisional lexicon passes raise support for candidates without requiring user setup
+- bootstrapped lexicon passes raise support for candidates without requiring user setup
 
 It should not attempt:
 

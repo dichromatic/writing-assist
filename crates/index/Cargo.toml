@@ -6,5 +6,6 @@ license.workspace = true
 
 [dependencies]
 writing-assist-core = { path = "../core" }
+aho-corasick = "1.1"
 stop-words = "0.10"
 uuid.workspace = true

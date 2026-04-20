@@ -5751,6 +5751,7 @@ dependencies = [
 name = "writing-assist-index"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "stop-words",
  "uuid",
  "writing-assist-core",

@@ -1040,6 +1040,10 @@ should be treated as required prep, not optional polish:
 
 #### Phase 3.7a: Shallow NLP preprocessing and segmentation
 
+Status:
+
+- complete
+
 Deliverables:
 
 - stable Unicode normalization for quotes, dashes, apostrophes, and ellipses
@@ -1075,17 +1079,21 @@ Documentation:
 
 #### Phase 3.7b: Bootstrapped project lexicon and deterministic rule matchers
 
+Status:
+
+- active
+
 Deliverables:
 
 - seedless bootstrapped lexicon induction over bounded deterministic passes
-- provisional lexicon entry model for:
+- bootstrapped lexicon entry model for:
   - characters
   - places
   - factions
   - artifacts
   - terminology
   - unresolved/unknown candidates
-- provenance captured for each provisional lexicon entry:
+- provenance captured for each bootstrapped lexicon entry:
   - source anchors
   - occurrence counts
   - archetypes seen in
@@ -1094,7 +1102,7 @@ Deliverables:
   the baseline multi-pattern matcher and leaving `fst` as a later optimization
   if lexicon size requires it
 - standard stopword integration for universal singleton/function-word filtering
-- pass orchestration that allows re-harvesting with the provisional lexicon until convergence or max-pass cutoff
+- pass orchestration that allows re-harvesting with the bootstrapped lexicon until convergence or max-pass cutoff
 - archetype-specific token-pattern rules for:
   - titles/honorifics
   - possessives
@@ -1112,7 +1120,7 @@ Out of scope:
 
 - cross-document identity resolution
 - LLM-driven alias merging
-- treating provisional lexicon entries as approved canon memory
+- treating bootstrapped lexicon entries as approved canon memory
 - corpus-specific deny-lists derived from current example logs as a long-term extraction strategy
 
 TDD applies:
@@ -1121,8 +1129,8 @@ TDD applies:
 
 Behavior to test:
 
-- a project with no user-provided vocabulary can still bootstrap provisional lexicon entries from its corpus
-- later passes improve harvest quality using provisional lexicon entries from earlier passes
+- a project with no user-provided vocabulary can still bootstrap lexicon entries from its corpus
+- later passes improve harvest quality using earlier bootstrapped lexicon entries
 - common stopwords are filtered without needing user setup or project-specific word lists
 - structurally weak singleton positions are demoted or rejected without relying on example-specific hardcoding
 - titled names survive without promoting bare titles alone
@@ -1131,7 +1139,11 @@ Behavior to test:
 
 Done when:
 
-- the current mention layer is replaced or materially improved by stopword-backed, structurally filtered harvesting plus a seedless provisional lexicon loop
+- the current mention layer is replaced or materially improved by stopword-backed, structurally filtered harvesting plus a seedless bootstrapped lexicon loop
+
+Documentation:
+
+- `documentation/phase-3.7b-bootstrapped-project-lexicon-and-deterministic-rule-matchers.md`
 
 #### Phase 3.7c: Evidence promotion boundary for retrieval and semantic input
 

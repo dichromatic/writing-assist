@@ -4,6 +4,7 @@ mod conversation;
 mod documents;
 mod evidence;
 mod knowledge;
+mod lexicon;
 mod memory;
 mod parsing;
 mod preprocessing;
@@ -30,6 +31,10 @@ pub use knowledge::{
     RelationshipCandidate, StoryArcCandidate, StructuredKnowledgeCandidateKind,
     StructuredKnowledgeIntendedUse, TerminologyCandidate, TimelineEventCandidate,
     WorldRuleCandidate,
+};
+pub use lexicon::{
+    BootstrappedLexiconEntry, BootstrappedLexiconEntryKind, LexiconSupportRecord,
+    LexiconSupportRecordKind, LexiconBootstrapRule,
 };
 pub use memory::{
     EntityCandidate, MemoryReviewState, MemorySourceReference, MemoryStalenessState,

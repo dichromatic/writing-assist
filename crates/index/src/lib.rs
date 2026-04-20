@@ -7,6 +7,9 @@ mod fact_extraction;
 mod import_candidates;
 mod markdown_parser;
 mod project_files;
+mod bootstrapped_lexicon;
+mod document_lexicon_bootstrap;
+mod exact_phrase_lexicon_matcher;
 mod summary_generation;
 mod text_preprocessing;
 
@@ -22,6 +25,15 @@ pub use fact_extraction::extract_reviewable_facts;
 pub use import_candidates::discover_project_import_candidates;
 pub use markdown_parser::{
     parse_markdown_document, parse_markdown_document_with_options, supported_span_types,
+};
+pub use bootstrapped_lexicon::induce_bootstrapped_lexicon_entries;
+pub use document_lexicon_bootstrap::{
+    iterate_document_lexicon_bootstrap, DocumentLexiconBootstrapPass,
+    IteratedDocumentLexiconBootstrap,
+};
+pub use exact_phrase_lexicon_matcher::{
+    compile_exact_phrase_lexicon_matcher, harvest_exact_phrase_lexicon_mentions,
+    CompiledExactPhraseLexiconMatcher,
 };
 pub use summary_generation::generate_reviewable_summaries;
 pub use text_preprocessing::preprocess_parsed_document;
