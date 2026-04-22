@@ -2,9 +2,9 @@ use std::collections::HashMap;
 
 use aho_corasick::{AhoCorasick, AhoCorasickBuilder, MatchKind};
 use writing_assist_core::{
-    DocumentArchetype, MentionCandidate, MentionFeature, MentionOccurrence,
-    MemorySourceReference, ParsedMarkdownDocument, PreprocessedSentence, BootstrappedLexiconEntry,
-    SpanType, TargetAnchor,
+    BootstrappedLexiconEntry, DocumentArchetype, MemorySourceReference, MentionCandidate,
+    MentionFeature, MentionOccurrence, ParsedMarkdownDocument, PreprocessedSentence, SpanType,
+    TargetAnchor,
 };
 
 use crate::preprocess_parsed_document;
@@ -61,10 +61,17 @@ pub fn compile_exact_phrase_lexicon_matcher(
 
     let automaton = AhoCorasickBuilder::new()
         .match_kind(MatchKind::LeftmostLongest)
-        .build(patterns.iter().map(|pattern| pattern.normalized_pattern.as_str()))
+        .build(
+            patterns
+                .iter()
+                .map(|pattern| pattern.normalized_pattern.as_str()),
+        )
         .expect("valid bootstrapped lexicon patterns");
 
-    CompiledExactPhraseLexiconMatcher { automaton, patterns }
+    CompiledExactPhraseLexiconMatcher {
+        automaton,
+        patterns,
+    }
 }
 
 pub fn harvest_exact_phrase_lexicon_mentions(
@@ -98,8 +105,12 @@ pub fn harvest_exact_phrase_lexicon_mentions(
             }
 
             let pattern = &matcher.patterns[matched.pattern().as_usize()];
-            let matched_surface = slice_by_byte_range(&lowercase_haystack, matched.start(), matched.end());
-            let sentence = supporting_sentence(preprocessed_span.sentences.as_slice(), &pattern.normalized_pattern);
+            let matched_surface =
+                slice_by_byte_range(&lowercase_haystack, matched.start(), matched.end());
+            let sentence = supporting_sentence(
+                preprocessed_span.sentences.as_slice(),
+                &pattern.normalized_pattern,
+            );
             let occurrence = build_occurrence(span, parsed, sentence, &matched_surface);
             let normalized_surface = matched_surface.clone();
             let source = MemorySourceReference::new(
@@ -155,7 +166,12 @@ fn supporting_sentence<'a>(
 ) -> &'a PreprocessedSentence {
     sentences
         .iter()
-        .find(|sentence| sentence.normalized_text.to_lowercase().contains(normalized_pattern))
+        .find(|sentence| {
+            sentence
+                .normalized_text
+                .to_lowercase()
+                .contains(normalized_pattern)
+        })
         .unwrap_or_else(|| {
             sentences
                 .first()
@@ -169,9 +185,10 @@ fn build_occurrence(
     sentence: &PreprocessedSentence,
     _surface: &str,
 ) -> MentionOccurrence {
-    let section = parsed.sections.iter().find(|section| {
-        span.start_char >= section.start_char && span.end_char <= section.end_char
-    });
+    let section = parsed
+        .sections
+        .iter()
+        .find(|section| span.start_char >= section.start_char && span.end_char <= section.end_char);
 
     MentionOccurrence {
         span_anchor: TargetAnchor::span(span.ordinal),
@@ -196,7 +213,10 @@ fn aggregate_features_for_surface(
         features.push(MentionFeature::MultiWord);
     }
 
-    let canonical_first = canonical_surface.split_whitespace().next().unwrap_or_default();
+    let canonical_first = canonical_surface
+        .split_whitespace()
+        .next()
+        .unwrap_or_default();
     if matches!(
         canonical_first,
         "Captain"
@@ -225,8 +245,12 @@ fn is_word_bounded_match(text: &str, start: usize, end: usize) -> bool {
     let previous = text[..start].chars().next_back();
     let next = text[end..].chars().next();
 
-    previous.map(|character| !character.is_alphanumeric()).unwrap_or(true)
-        && next.map(|character| !character.is_alphanumeric()).unwrap_or(true)
+    previous
+        .map(|character| !character.is_alphanumeric())
+        .unwrap_or(true)
+        && next
+            .map(|character| !character.is_alphanumeric())
+            .unwrap_or(true)
 }
 
 fn slice_by_byte_range(text: &str, start: usize, end: usize) -> String {

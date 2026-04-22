@@ -8,42 +8,37 @@ mod lexicon;
 mod memory;
 mod parsing;
 mod preprocessing;
-mod tasks;
 mod projects;
+mod promoted_evidence;
+mod tasks;
 
 pub use chat::{ChatMessage, ChatMessageAuthor, ChatThread, ChatThreadScope};
 pub use context::{
-    classify_context_source_kind, context_source_allowed_by_default,
-    context_source_included_by_default, ContextSource, ContextSourceActivationPolicy,
-    ContextSourceKind, ContextSourceReviewState, GuideKind, ReferenceKind,
+    ContextSource, ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState,
+    GuideKind, ReferenceKind, classify_context_source_kind, context_source_allowed_by_default,
+    context_source_included_by_default,
 };
 pub use conversation::ConversationMode;
 pub use documents::{
     DocumentRecord, DocumentType, LoadedDocument, OpenedProject, ProjectDocumentEntry, SpanRecord,
 };
 pub use evidence::{
-    DefinitionCandidate, EvidenceContext, MentionCandidate, MentionCluster,
-    MentionClusterLink, MentionClusterLinkKind, MentionFeature, MentionOccurrence,
-    SectionSummarySeed, SentenceType, StructuredFieldCandidate,
+    DefinitionCandidate, EvidenceContext, MentionCandidate, MentionCluster, MentionClusterLink,
+    MentionClusterLinkKind, MentionFeature, MentionOccurrence, SectionSummarySeed, SentenceType,
+    StructuredFieldCandidate,
 };
 pub use knowledge::{
-    structured_knowledge_intended_use, DocumentArchetype, EntityProfileCandidate,
-    RelationshipCandidate, StoryArcCandidate, StructuredKnowledgeCandidateKind,
-    StructuredKnowledgeIntendedUse, TerminologyCandidate, TimelineEventCandidate,
-    WorldRuleCandidate,
+    DocumentArchetype, EntityProfileCandidate, RelationshipCandidate, StoryArcCandidate,
+    StructuredKnowledgeCandidateKind, StructuredKnowledgeIntendedUse, TerminologyCandidate,
+    TimelineEventCandidate, WorldRuleCandidate, structured_knowledge_intended_use,
 };
 pub use lexicon::{
-    BootstrappedLexiconEntry, BootstrappedLexiconEntryKind, LexiconSupportRecord,
-    LexiconSupportRecordKind, LexiconBootstrapRule,
+    BootstrappedLexiconEntry, BootstrappedLexiconEntryKind, LexiconBootstrapRule,
+    LexiconSupportRecord, LexiconSupportRecordKind,
 };
 pub use memory::{
     EntityCandidate, MemoryReviewState, MemorySourceReference, MemoryStalenessState,
     ReviewableFact, ReviewableSummary,
-};
-pub use tasks::{
-    AnalysisComment, ContextBundle, DraftChange, IdeaCard, TaskContractError, TaskOutput,
-    TaskRequest, TaskResult, TaskType, SelectionTarget, TargetAnchor, TargetAnchorKind,
-    TASK_CONTRACT_SCHEMA_VERSION,
 };
 pub use parsing::{
     ParagraphParsingMode, ParsedMarkdownDocument, ParsedScene, ParsedSection, ParsedSpan,
@@ -54,7 +49,16 @@ pub use preprocessing::{
     PreprocessedToken, StructuralMarker, StructuralMarkerKind,
 };
 pub use projects::{
-    normalize_project_directory_mapping_path, validate_project_directory_mappings, ProjectConfig,
-    ProjectConfigValidationError, ProjectDirectoryMapping, ProjectDirectoryRole,
+    ProjectConfig, ProjectConfigValidationError, ProjectDirectoryMapping, ProjectDirectoryRole,
     ProjectImportCandidate, ProjectImportSuggestionReason,
+    normalize_project_directory_mapping_path, validate_project_directory_mappings,
+};
+pub use promoted_evidence::{
+    EvidenceSuppressionReason, PromotedEvidenceBundle, PromotedEvidenceCandidate,
+    PromotedEvidenceKind, PromotionReason, SuppressedEvidenceCandidate,
+};
+pub use tasks::{
+    AnalysisComment, ContextBundle, DraftChange, IdeaCard, SelectionTarget,
+    TASK_CONTRACT_SCHEMA_VERSION, TargetAnchor, TargetAnchorKind, TaskContractError, TaskOutput,
+    TaskRequest, TaskResult, TaskType,
 };

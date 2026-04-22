@@ -1,15 +1,16 @@
 use std::collections::{HashMap, HashSet};
 
 use writing_assist_core::{
-    DefinitionCandidate, DocumentArchetype, MentionCandidate, MentionCluster, MentionFeature,
-    ParsedMarkdownDocument, BootstrappedLexiconEntry, SectionSummarySeed, StructuredFieldCandidate,
-    TargetAnchor,
+    BootstrappedLexiconEntry, DefinitionCandidate, DocumentArchetype, MentionCandidate,
+    MentionCluster, MentionFeature, ParsedMarkdownDocument, SectionSummarySeed,
+    StructuredFieldCandidate, TargetAnchor,
 };
 
 use crate::{
     cluster_document_mentions, compile_exact_phrase_lexicon_matcher, harvest_definition_candidates,
-    harvest_exact_phrase_lexicon_mentions, harvest_mention_candidates, harvest_section_summary_seeds,
-    harvest_structured_field_candidates, induce_bootstrapped_lexicon_entries,
+    harvest_exact_phrase_lexicon_mentions, harvest_mention_candidates,
+    harvest_section_summary_seeds, harvest_structured_field_candidates,
+    induce_bootstrapped_lexicon_entries,
 };
 
 #[derive(Debug, Clone)]
@@ -70,12 +71,8 @@ pub fn iterate_document_lexicon_bootstrap(
             &definitions,
             &section_summary_seeds,
         );
-        let entries = induce_bootstrapped_lexicon_entries(
-            document_path,
-            &clusters,
-            &fields,
-            &definitions,
-        );
+        let entries =
+            induce_bootstrapped_lexicon_entries(document_path, &clusters, &fields, &definitions);
         let matcher = compile_exact_phrase_lexicon_matcher(&entries);
         let exact_phrase_mentions = harvest_exact_phrase_lexicon_mentions(
             document_path,
@@ -147,7 +144,10 @@ fn merge_mention_candidates(
             let existing = &mut merged[existing_index];
             changed |= merge_anchors(&mut existing.source.anchors, &candidate.source.anchors);
             changed |= merge_occurrences(existing, candidate);
-            changed |= merge_features(&mut existing.aggregate_features, &candidate.aggregate_features);
+            changed |= merge_features(
+                &mut existing.aggregate_features,
+                &candidate.aggregate_features,
+            );
         } else {
             index_by_normalized_surface.insert(candidate.normalized_surface.clone(), merged.len());
             merged.push(candidate.clone());

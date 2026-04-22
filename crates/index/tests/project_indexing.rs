@@ -126,9 +126,11 @@ fn root_mapping_discovers_root_level_markdown_files() {
         relative_paths,
         vec!["chapter 1.md".to_string(), "chapter 2.markdown".to_string()]
     );
-    assert!(documents
-        .iter()
-        .all(|document| document.document_type == DocumentType::Manuscript));
+    assert!(
+        documents
+            .iter()
+            .all(|document| document.document_type == DocumentType::Manuscript)
+    );
 
     fs::remove_dir_all(root).expect("temp test dir should be removed");
 }

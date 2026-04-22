@@ -1,8 +1,8 @@
 use uuid::Uuid;
 use writing_assist_core::{
-    DocumentArchetype, EvidenceContext, MentionCandidate, MentionCluster,
-    MentionClusterLink, MentionClusterLinkKind, MentionFeature, MentionOccurrence,
-    MemorySourceReference, SentenceType, StructuredFieldCandidate, TargetAnchor,
+    DocumentArchetype, EvidenceContext, MemorySourceReference, MentionCandidate, MentionCluster,
+    MentionClusterLink, MentionClusterLinkKind, MentionFeature, MentionOccurrence, SentenceType,
+    StructuredFieldCandidate, TargetAnchor,
 };
 
 #[test]
@@ -42,7 +42,10 @@ fn evidence_candidates_preserve_source_links_and_contexts() {
 
     let serialized = serde_json::to_value(&mention).expect("serialize mention");
 
-    assert_eq!(serialized["source"]["document_path"], "chapters/chapter-1.md");
+    assert_eq!(
+        serialized["source"]["document_path"],
+        "chapters/chapter-1.md"
+    );
     assert_eq!(serialized["occurrences"][0]["heading"], "Arrival");
     assert_eq!(serialized["occurrences"][0]["sentence_type"], "narrative");
     assert_eq!(serialized["aggregate_features"][0], "repeated");

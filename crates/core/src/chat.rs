@@ -170,8 +170,11 @@ mod tests {
         );
 
         let first_id = thread.add_message(ChatMessageAuthor::User, "What is weak here?", 1000);
-        let second_id =
-            thread.add_message(ChatMessageAuthor::Assistant, "The transition is abrupt.", 1500);
+        let second_id = thread.add_message(
+            ChatMessageAuthor::Assistant,
+            "The transition is abrupt.",
+            1500,
+        );
 
         assert_ne!(first_id, Uuid::nil());
         assert_ne!(second_id, Uuid::nil());

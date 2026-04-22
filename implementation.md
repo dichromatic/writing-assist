@@ -1022,6 +1022,8 @@ Thread/editor anchors remain session-local until durable span IDs or revalidated
   - add document archetype classification and structured knowledge schemas
   - refactor deterministic extraction toward evidence harvesting and packaging
   - add shallow NLP preprocessing and archetype-specific deterministic rule pipelines
+  - add a promoted-evidence boundary so retrieval and semantic consolidation do
+    not consume raw mention clusters directly
   - prepare archetype-aware retrieval/RAG inputs before semantic consolidation and review UI implementation
   - add retrieval v1 and context inspector
   - keep vector retrieval optional behind an abstraction

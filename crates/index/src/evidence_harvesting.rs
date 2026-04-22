@@ -4,9 +4,9 @@ use std::sync::OnceLock;
 use uuid::Uuid;
 use writing_assist_core::{
     DefinitionCandidate, DocumentArchetype, EvidenceContext, MemorySourceReference,
-    MentionCandidate, MentionFeature, MentionOccurrence, ParsedMarkdownDocument,
-    PreprocessedDocument, PreprocessedSentence, PreprocessedSpan, PreprocessedToken, ParsedSection,
-    ParsedSpan, SectionSummarySeed, SentenceType, SpanType, StructuredFieldCandidate, TargetAnchor,
+    MentionCandidate, MentionFeature, MentionOccurrence, ParsedMarkdownDocument, ParsedSection,
+    ParsedSpan, PreprocessedDocument, PreprocessedSentence, PreprocessedSpan, PreprocessedToken,
+    SectionSummarySeed, SentenceType, SpanType, StructuredFieldCandidate, TargetAnchor,
 };
 
 use crate::preprocess_parsed_document;
@@ -66,8 +66,9 @@ pub fn harvest_mention_candidates(
             parsed,
             &archetype,
         ) {
-            if let Some(existing_index) =
-                index_by_normalized_surface.get(&harvested.normalized_surface).copied()
+            if let Some(existing_index) = index_by_normalized_surface
+                .get(&harvested.normalized_surface)
+                .copied()
             {
                 let existing = &mut observations[existing_index];
                 merge_anchors(&mut existing.source.anchors, &harvested.source.anchors);
@@ -251,13 +252,9 @@ fn mention_observations_in_span(
     archetype: &DocumentArchetype,
 ) -> Vec<MentionObservation> {
     match archetype {
-        DocumentArchetype::Manuscript => capitalized_mentions_in_span(
-            document_path,
-            span,
-            preprocessed_span,
-            parsed,
-            archetype,
-        ),
+        DocumentArchetype::Manuscript => {
+            capitalized_mentions_in_span(document_path, span, preprocessed_span, parsed, archetype)
+        }
         DocumentArchetype::DossierProfile => {
             let mut observations = capitalized_mentions_in_span(
                 document_path,
@@ -306,16 +303,14 @@ fn mention_observations_in_span(
             ));
             observations
         }
-        DocumentArchetype::LooseNote => {
-            loose_note_mentions_in_span(
-                document_path,
-                span,
-                preprocessed_span,
-                preprocessed,
-                parsed,
-                archetype,
-            )
-        }
+        DocumentArchetype::LooseNote => loose_note_mentions_in_span(
+            document_path,
+            span,
+            preprocessed_span,
+            preprocessed,
+            parsed,
+            archetype,
+        ),
     }
 }
 
@@ -369,7 +364,8 @@ fn capitalized_mentions_in_span(
                         .unwrap_or(false)
                     && current_index + 1 < sentence_tokens.len()
                 {
-                    if let Some(next_word) = cleaned_word_token(sentence_tokens[current_index + 1]) {
+                    if let Some(next_word) = cleaned_word_token(sentence_tokens[current_index + 1])
+                    {
                         if is_mention_token(&next_word.text) {
                             words.push(next_word);
                             current_index += 2;
@@ -473,7 +469,8 @@ fn alias_field_mentions_in_span(
             continue;
         };
 
-        if !is_alias_like_label(&label) || !value.chars().any(|character| character.is_alphabetic()) {
+        if !is_alias_like_label(&label) || !value.chars().any(|character| character.is_alphabetic())
+        {
             continue;
         }
 
@@ -481,7 +478,8 @@ fn alias_field_mentions_in_span(
             continue;
         }
 
-        let (sentence, sentence_tokens) = supporting_sentence_for_surface(preprocessed_span, &value);
+        let (sentence, sentence_tokens) =
+            supporting_sentence_for_surface(preprocessed_span, &value);
         mentions.push(build_surface_observation(
             document_path,
             span,
@@ -572,9 +570,10 @@ fn story_planning_field_mentions_in_span(
 }
 
 fn build_context(span: &ParsedSpan, parsed: &ParsedMarkdownDocument) -> EvidenceContext {
-    let section = parsed.sections.iter().find(|section| {
-        span.start_char >= section.start_char && span.end_char <= section.end_char
-    });
+    let section = parsed
+        .sections
+        .iter()
+        .find(|section| span.start_char >= section.start_char && span.end_char <= section.end_char);
 
     EvidenceContext {
         span_anchor: TargetAnchor::span(span.ordinal),
@@ -591,9 +590,10 @@ fn build_occurrence(
     sentence_tokens: &[&PreprocessedToken],
     surface: &str,
 ) -> MentionOccurrence {
-    let section = parsed.sections.iter().find(|section| {
-        span.start_char >= section.start_char && span.end_char <= section.end_char
-    });
+    let section = parsed
+        .sections
+        .iter()
+        .find(|section| span.start_char >= section.start_char && span.end_char <= section.end_char);
 
     MentionOccurrence {
         span_anchor: TargetAnchor::span(span.ordinal),
@@ -622,7 +622,13 @@ fn build_surface_observation(
             span.start_char,
             span.end_char,
         ),
-        occurrences: vec![build_occurrence(span, parsed, sentence, sentence_tokens, &surface)],
+        occurrences: vec![build_occurrence(
+            span,
+            parsed,
+            sentence,
+            sentence_tokens,
+            &surface,
+        )],
         surface,
         aggregate_features,
     }
@@ -682,18 +688,34 @@ fn is_mention_token(token: &str) -> bool {
         return false;
     };
 
-    first_character.is_uppercase()
-        && token
-            .chars()
-            .any(|character| character.is_alphabetic())
+    first_character.is_uppercase() && token.chars().any(|character| character.is_alphabetic())
 }
 
 fn is_leading_drop_token(token: &str) -> bool {
     matches!(
         token,
-        "The" | "A" | "An" | "Hey" | "Oh" | "Ah" | "Well" | "Yes" | "No" | "Please"
-            | "But" | "And" | "So" | "Though" | "When" | "While" | "After" | "Before"
-            | "As" | "How" | "Since" | "Wait"
+        "The"
+            | "A"
+            | "An"
+            | "Hey"
+            | "Oh"
+            | "Ah"
+            | "Well"
+            | "Yes"
+            | "No"
+            | "Please"
+            | "But"
+            | "And"
+            | "So"
+            | "Though"
+            | "When"
+            | "While"
+            | "After"
+            | "Before"
+            | "As"
+            | "How"
+            | "Since"
+            | "Wait"
     )
 }
 
@@ -720,7 +742,8 @@ fn english_stopwords() -> &'static HashSet<String> {
 }
 
 fn normalize_noise_token(token: impl AsRef<str>) -> String {
-    token.as_ref()
+    token
+        .as_ref()
         .trim()
         .replace(['’', '‘'], "'")
         .to_lowercase()
@@ -801,12 +824,9 @@ fn mention_survives_aggregation(
     match archetype {
         DocumentArchetype::Manuscript => {
             observation.occurrences.len() > 1
-                || observation
-                    .aggregate_features
-                    .iter()
-                    .any(|feature| {
-                        matches!(feature, MentionFeature::MultiWord | MentionFeature::Titled)
-                    })
+                || observation.aggregate_features.iter().any(|feature| {
+                    matches!(feature, MentionFeature::MultiWord | MentionFeature::Titled)
+                })
         }
         DocumentArchetype::LooseNote => {
             if observation.surface.split_whitespace().count() == 1
@@ -901,9 +921,7 @@ fn should_reject_structural_observation(
     let has_strong_signal = observation.aggregate_features.iter().any(|feature| {
         matches!(
             feature,
-            MentionFeature::MultiWord
-                | MentionFeature::Titled
-                | MentionFeature::PossessiveObserved
+            MentionFeature::MultiWord | MentionFeature::Titled | MentionFeature::PossessiveObserved
         )
     });
 
@@ -952,8 +970,7 @@ fn should_reject_structural_observation(
             }
 
             if sentence_has_outline_enumeration(&sentence.normalized_text)
-                && (word_count == 1
-                    || surface_has_roman_enumeration_prefix(&observation.surface))
+                && (word_count == 1 || surface_has_roman_enumeration_prefix(&observation.surface))
             {
                 return true;
             }
@@ -976,11 +993,7 @@ fn should_reject_loose_note_observation(
     let lower_surface = observation.surface.to_lowercase();
 
     for line in span.text.lines() {
-        let normalized_line = line
-            .trim()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
+        let normalized_line = line.trim().split_whitespace().collect::<Vec<_>>().join(" ");
         let lower_line = normalized_line.to_lowercase();
 
         if surface_word_count == 1
@@ -1045,25 +1058,23 @@ fn follows_loose_note_label_pattern(remaining_text: &str) -> bool {
 }
 
 fn is_loose_note_generic_field_label(label: &str) -> bool {
-    label
-        .split_whitespace()
-        .any(|word| {
-            matches!(
-                word.to_ascii_lowercase().as_str(),
-                "role"
-                    | "history"
-                    | "relationship"
-                    | "dynamic"
-                    | "identity"
-                    | "personality"
-                    | "purpose"
-                    | "tone"
-                    | "outcome"
-                    | "opening"
-                    | "closing"
-                    | "summary"
-            )
-        })
+    label.split_whitespace().any(|word| {
+        matches!(
+            word.to_ascii_lowercase().as_str(),
+            "role"
+                | "history"
+                | "relationship"
+                | "dynamic"
+                | "identity"
+                | "personality"
+                | "purpose"
+                | "tone"
+                | "outcome"
+                | "opening"
+                | "closing"
+                | "summary"
+        )
+    })
 }
 
 fn is_loose_note_list_item_singleton(surface: &str) -> bool {
@@ -1124,7 +1135,10 @@ fn sentence_is_bracketed_scene_marker(sentence_text: &str) -> bool {
 
 fn is_shouty_marker_surface(surface: &str) -> bool {
     let mut saw_alpha = false;
-    for character in surface.chars().filter(|character| character.is_alphabetic()) {
+    for character in surface
+        .chars()
+        .filter(|character| character.is_alphabetic())
+    {
         saw_alpha = true;
         if !character.is_uppercase() {
             return false;
@@ -1267,7 +1281,9 @@ fn sentence_tokens<'a>(
     preprocessed_span
         .tokens
         .iter()
-        .filter(|token| token.start_char >= sentence.start_char && token.end_char <= sentence.end_char)
+        .filter(|token| {
+            token.start_char >= sentence.start_char && token.end_char <= sentence.end_char
+        })
         .collect()
 }
 
@@ -1413,7 +1429,8 @@ fn is_story_planning_participant_label(label: &str) -> bool {
 }
 
 fn split_story_planning_mentions(value: &str) -> Vec<String> {
-    value.split(',')
+    value
+        .split(',')
         .map(str::trim)
         .filter(|part| !part.is_empty())
         .filter(|part| part.chars().any(|character| character.is_alphabetic()))
@@ -1461,9 +1478,7 @@ fn parse_definition_line(line: &str) -> Option<(String, String)> {
 
 fn normalize_field_part(text: &str) -> String {
     text.trim()
-        .trim_matches(|character: char| {
-            matches!(character, ':' | '-' | '—' | '*' | '_' | '`')
-        })
+        .trim_matches(|character: char| matches!(character, ':' | '-' | '—' | '*' | '_' | '`'))
         .trim()
         .trim_end_matches('.')
         .trim()

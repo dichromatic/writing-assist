@@ -1,7 +1,7 @@
 use writing_assist_core::{
     ParsedMarkdownDocument, ParsedSpan, PreprocessedDocument, PreprocessedQuoteSpan,
-    PreprocessedSentence, PreprocessedSpan, PreprocessedToken, SectionBoundaryKind,
-    SentenceType, SpanType, StructuralMarker, StructuralMarkerKind,
+    PreprocessedSentence, PreprocessedSpan, PreprocessedToken, SectionBoundaryKind, SentenceType,
+    SpanType, StructuralMarker, StructuralMarkerKind,
 };
 
 const TOKENIZER_VERSION: &str = "deterministic_v1";
@@ -90,7 +90,10 @@ fn classify_span_kind(span: &ParsedSpan) -> SpanKind {
     }
 }
 
-fn structural_markers_for_span(span: &ParsedSpan, structural_kind: SpanKind) -> Vec<StructuralMarker> {
+fn structural_markers_for_span(
+    span: &ParsedSpan,
+    structural_kind: SpanKind,
+) -> Vec<StructuralMarker> {
     match structural_kind {
         SpanKind::Heading => vec![StructuralMarker {
             kind: StructuralMarkerKind::Heading,
@@ -233,7 +236,11 @@ fn segment_paragraph_sentences(span: &ParsedSpan) -> Vec<PreprocessedSentence> {
                 sentences.len(),
                 sentence_start,
                 sentence_end,
-                classify_sentence_type_from_text(&slice_chars(&characters, sentence_start, sentence_end)),
+                classify_sentence_type_from_text(&slice_chars(
+                    &characters,
+                    sentence_start,
+                    sentence_end,
+                )),
             ));
 
             sentence_start = sentence_end;
@@ -253,7 +260,11 @@ fn segment_paragraph_sentences(span: &ParsedSpan) -> Vec<PreprocessedSentence> {
             sentences.len(),
             sentence_start,
             characters.len(),
-            classify_sentence_type_from_text(&slice_chars(&characters, sentence_start, characters.len())),
+            classify_sentence_type_from_text(&slice_chars(
+                &characters,
+                sentence_start,
+                characters.len(),
+            )),
         ));
     }
 
@@ -348,11 +359,17 @@ fn is_sentence_terminal(characters: &[char], index: usize) -> bool {
 }
 
 fn is_sentence_closer(character: char) -> bool {
-    matches!(character, '"' | '“' | '”' | '\'' | '‘' | '’' | ')' | ']' | '}')
+    matches!(
+        character,
+        '"' | '“' | '”' | '\'' | '‘' | '’' | ')' | ']' | '}'
+    )
 }
 
 fn is_list_item_line(line: &str) -> bool {
-    line.starts_with("- ") || line.starts_with("* ") || line.starts_with("+ ") || starts_with_numbered_list_item(line)
+    line.starts_with("- ")
+        || line.starts_with("* ")
+        || line.starts_with("+ ")
+        || starts_with_numbered_list_item(line)
 }
 
 fn starts_with_numbered_list_item(text: &str) -> bool {

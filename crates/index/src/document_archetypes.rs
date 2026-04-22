@@ -156,8 +156,9 @@ impl<'a> ArchetypeFeatures<'a> {
     }
 
     fn matches_story_planning(&self) -> bool {
-        let score = self.has_any_path_token(&["plan", "planning", "outline", "arc", "arcs", "beat", "beats"])
-            as usize
+        let score = self.has_any_path_token(&[
+            "plan", "planning", "outline", "arc", "arcs", "beat", "beats",
+        ]) as usize
             * 2
             + usize::from(self.planning_label_count >= 2) * 3
             + usize::from(self.bullet_line_count >= 2)
@@ -206,7 +207,6 @@ impl<'a> ArchetypeFeatures<'a> {
                 .any(|token| token.eq_ignore_ascii_case(candidate))
         })
     }
-
 }
 
 fn starts_with_number_or_roman_heading(line: &str) -> bool {
@@ -325,8 +325,14 @@ fn is_heading_like_line(line: &&str) -> bool {
     }
 
     let word_count = trimmed.split_whitespace().count();
-    let uppercase_letters = trimmed.chars().filter(|character| character.is_uppercase()).count();
-    let alphabetic_letters = trimmed.chars().filter(|character| character.is_alphabetic()).count();
+    let uppercase_letters = trimmed
+        .chars()
+        .filter(|character| character.is_uppercase())
+        .count();
+    let alphabetic_letters = trimmed
+        .chars()
+        .filter(|character| character.is_alphabetic())
+        .count();
 
     alphabetic_letters > 0
         && word_count <= 12

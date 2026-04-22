@@ -31,7 +31,9 @@ fn is_safe_project_relative_path(path: &Path) -> bool {
             .all(|component| matches!(component, Component::Normal(_)))
 }
 
-pub async fn open_configured_project(project_root: &Path) -> Result<OpenedProject, OpenProjectError> {
+pub async fn open_configured_project(
+    project_root: &Path,
+) -> Result<OpenedProject, OpenProjectError> {
     let Some(config) = writing_assist_store::load_project_config(project_root).await? else {
         return Err(OpenProjectError::NotConfigured);
     };
@@ -108,7 +110,7 @@ mod tests {
     use tempfile::tempdir;
     use writing_assist_core::{DocumentType, ProjectDirectoryMapping, ProjectDirectoryRole};
 
-    use super::{load_configured_project_document, open_configured_project, OpenProjectError};
+    use super::{OpenProjectError, load_configured_project_document, open_configured_project};
 
     fn mapping(path: &str, role: ProjectDirectoryRole) -> ProjectDirectoryMapping {
         ProjectDirectoryMapping {
@@ -130,10 +132,19 @@ mod tests {
     async fn opens_project_from_saved_configuration_and_discovers_documents() {
         let project_root = tempdir().expect("project root");
 
-        write_file(&project_root.path().join("drafts/chapter 1.md"), "# Chapter 1");
-        write_file(&project_root.path().join("drafts/chapter 2.md"), "# Chapter 2");
+        write_file(
+            &project_root.path().join("drafts/chapter 1.md"),
+            "# Chapter 1",
+        );
+        write_file(
+            &project_root.path().join("drafts/chapter 2.md"),
+            "# Chapter 2",
+        );
         write_file(&project_root.path().join("lore/history.md"), "# History");
-        write_file(&project_root.path().join("notes/scratch.txt"), "plain text note");
+        write_file(
+            &project_root.path().join("notes/scratch.txt"),
+            "plain text note",
+        );
 
         writing_assist_store::save_project_config(
             project_root.path(),
@@ -194,7 +205,10 @@ mod tests {
 
         assert_eq!(loaded.document.path, "drafts/chapter 1.md");
         assert_eq!(loaded.document.document_type, DocumentType::Manuscript);
-        assert_eq!(loaded.markdown, "# Chapter 1\n\nFirst paragraph.\n\n---\n\nSecond paragraph.");
+        assert_eq!(
+            loaded.markdown,
+            "# Chapter 1\n\nFirst paragraph.\n\n---\n\nSecond paragraph."
+        );
         assert_eq!(loaded.parsed.spans.len(), 4);
         assert_eq!(loaded.parsed.sections.len(), 2);
         assert_eq!(loaded.parsed.scenes.len(), 2);
@@ -219,7 +233,10 @@ mod tests {
         .await
         .expect("save project config");
 
-        write_file(&project_root.path().join("drafts/chapter 1.md"), "# Chapter 1");
+        write_file(
+            &project_root.path().join("drafts/chapter 1.md"),
+            "# Chapter 1",
+        );
 
         let loaded = load_configured_project_document(project_root.path(), "notes/briefing.txt")
             .await
@@ -234,7 +251,10 @@ mod tests {
     async fn refuses_to_load_unmapped_documents() {
         let project_root = tempdir().expect("project root");
 
-        write_file(&project_root.path().join("drafts/chapter 1.md"), "# Chapter 1");
+        write_file(
+            &project_root.path().join("drafts/chapter 1.md"),
+            "# Chapter 1",
+        );
         write_file(&project_root.path().join("private/notes.md"), "# Hidden");
 
         writing_assist_store::save_project_config(
@@ -248,14 +268,19 @@ mod tests {
             .await
             .expect_err("unmapped document should not load");
 
-        assert!(matches!(error, OpenProjectError::DocumentNotDiscovered(path) if path == "private/notes.md"));
+        assert!(
+            matches!(error, OpenProjectError::DocumentNotDiscovered(path) if path == "private/notes.md")
+        );
     }
 
     #[tokio::test]
     async fn refuses_to_load_paths_that_escape_the_project_root() {
         let project_root = tempdir().expect("project root");
 
-        write_file(&project_root.path().join("drafts/chapter 1.md"), "# Chapter 1");
+        write_file(
+            &project_root.path().join("drafts/chapter 1.md"),
+            "# Chapter 1",
+        );
 
         writing_assist_store::save_project_config(
             project_root.path(),
@@ -268,6 +293,8 @@ mod tests {
             .await
             .expect_err("path traversal should not load");
 
-        assert!(matches!(error, OpenProjectError::InvalidDocumentPath(path) if path == "../outside.md"));
+        assert!(
+            matches!(error, OpenProjectError::InvalidDocumentPath(path) if path == "../outside.md")
+        );
     }
 }

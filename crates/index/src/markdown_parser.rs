@@ -27,7 +27,10 @@ fn is_heading_line(line: &str) -> bool {
         return false;
     }
 
-    let heading_markers = trimmed.chars().take_while(|character| *character == '#').count();
+    let heading_markers = trimmed
+        .chars()
+        .take_while(|character| *character == '#')
+        .count();
 
     heading_markers > 0 && trimmed.chars().nth(heading_markers) == Some(' ')
 }
@@ -39,7 +42,10 @@ fn is_scene_break_line(line: &str) -> bool {
         return false;
     }
 
-    let marker: String = trimmed.chars().filter(|character| !character.is_whitespace()).collect();
+    let marker: String = trimmed
+        .chars()
+        .filter(|character| !character.is_whitespace())
+        .collect();
 
     if marker.len() < 3 {
         return false;
@@ -76,7 +82,10 @@ fn starts_like_new_paragraph(line: &str) -> bool {
     looks_like_paragraph_body
         && (first_character.is_uppercase()
             || first_character.is_numeric()
-            || matches!(first_character, '"' | '\'' | '(' | '[' | '{' | '“' | '‘' | '—'))
+            || matches!(
+                first_character,
+                '"' | '\'' | '(' | '[' | '{' | '“' | '‘' | '—'
+            ))
 }
 
 fn collect_source_lines(markdown: &str) -> Vec<SourceLine<'_>> {

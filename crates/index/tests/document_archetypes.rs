@@ -21,11 +21,17 @@ fn classify_fixture(path: &str, document_type: DocumentType) -> DocumentArchetyp
 #[test]
 fn classifies_profile_and_planning_fixtures_by_structure() {
     assert_eq!(
-        classify_fixture("story planning/estuary crew summaries.txt", DocumentType::Reference),
+        classify_fixture(
+            "story planning/estuary crew summaries.txt",
+            DocumentType::Reference
+        ),
         DocumentArchetype::DossierProfile
     );
     assert_eq!(
-        classify_fixture("story planning/prologue crew summaries.txt", DocumentType::Reference),
+        classify_fixture(
+            "story planning/prologue crew summaries.txt",
+            DocumentType::Reference
+        ),
         DocumentArchetype::DossierProfile
     );
     assert_eq!(

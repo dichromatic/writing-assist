@@ -1081,11 +1081,12 @@ Documentation:
 
 Status:
 
-- active
+- complete
 
 Deliverables:
 
-- seedless bootstrapped lexicon induction over bounded deterministic passes
+- seedless bootstrapped lexicon induction over bounded deterministic document
+  passes
 - bootstrapped lexicon entry model for:
   - characters
   - places
@@ -1102,7 +1103,8 @@ Deliverables:
   the baseline multi-pattern matcher and leaving `fst` as a later optimization
   if lexicon size requires it
 - standard stopword integration for universal singleton/function-word filtering
-- pass orchestration that allows re-harvesting with the bootstrapped lexicon until convergence or max-pass cutoff
+- document-level pass orchestration that allows re-harvesting with the
+  bootstrapped lexicon until convergence or max-pass cutoff
 - archetype-specific token-pattern rules for:
   - titles/honorifics
   - possessives
@@ -1116,9 +1118,24 @@ Deliverables:
   - heading-only unsupported singletons
 - optional user-authored lexicons as later enrichment, not a requirement for initial extraction
 
+Completed:
+
+- bootstrapped lexicon contracts in `crates/core/src/lexicon.rs`
+- document-local induction in `crates/index/src/bootstrapped_lexicon.rs`
+- exact phrase matching with `aho-corasick` in
+  `crates/index/src/exact_phrase_lexicon_matcher.rs`
+- bounded document-level convergence in
+  `crates/index/src/document_lexicon_bootstrap.rs`
+- parser-log smoke-test output for:
+  - bootstrapped entries
+  - exact phrase matches
+  - document bootstrap pass metrics
+  - pass-1 versus converged deltas
+
 Out of scope:
 
 - cross-document identity resolution
+- project-level cross-document lexicon merge and reranking
 - LLM-driven alias merging
 - treating bootstrapped lexicon entries as approved canon memory
 - corpus-specific deny-lists derived from current example logs as a long-term extraction strategy
@@ -1137,13 +1154,19 @@ Behavior to test:
 
 Done when:
 
-- the current mention layer is replaced or materially improved by stopword-backed, structurally filtered harvesting plus a seedless bootstrapped lexicon loop
+- the current mention layer is materially improved by stopword-backed,
+  structurally filtered harvesting plus a seedless document-level bootstrapped
+  lexicon loop
 
 Documentation:
 
 - `documentation/phase-3.7b-bootstrapped-project-lexicon-and-deterministic-rule-matchers.md`
 
 #### Phase 3.7c: Archetype-specific lexicon induction and reuse
+
+Status:
+
+- complete
 
 Deliverables:
 
@@ -1163,6 +1186,25 @@ Deliverables:
   over descriptive heading fragments
 - planning/dossier bootstrapping that prefers participant/alias/role fields
   over prose-approach or tone vocabulary
+
+Completed:
+
+- manuscript induction remains mention-led
+- reference/taxonomy/world-article induction is definition-led
+- planning/dossier/loose-note induction is field-led
+- planning-family exact phrase reuse is constrained by field-grounded entry
+  eligibility instead of generic mention-first entries
+- `RoleField` provenance records role/title/position field support explicitly
+- tests cover:
+  - reference descriptive-fragment rejection
+  - planning tone/editorial vocabulary rejection
+  - planning exact-phrase reuse avoiding discarded tone words
+
+Deferred follow-up:
+
+- richer block-led grounding for large planning files that do not use explicit
+  participant/alias/role fields
+- narrower reference definition parsing for weak definition-backed fragments
 
 Out of scope:
 
@@ -1195,23 +1237,49 @@ Done when:
 
 Documentation:
 
-- `documentation/phase-3.7b-bootstrapped-project-lexicon-and-deterministic-rule-matchers.md`
+- `documentation/phase-3.7c-archetype-specific-lexicon-induction-and-reuse.md`
 
 #### Phase 3.7d: Evidence promotion boundary for retrieval and semantic input
 
+Status:
+
+- complete
+
 Deliverables:
 
-- deterministic promotion rules from raw evidence into smaller, stronger semantic-input bundles
+- deterministic promotion rules from raw evidence into smaller, stronger
+  retrieval and semantic-input bundles
 - explicit distinction between:
   - raw mention evidence
   - clustered evidence
   - promoted semantic candidates
 - traceable suppression/review reasons where useful
+- compact promoted evidence bundles for:
+  - strong mention/entity-like candidates
+  - definition-backed terminology candidates
+  - field-backed participants, aliases, and roles
+  - unresolved or review-only evidence that should remain visible but not
+    dominate retrieval or LLM prompts
+
+Completed:
+
+- promoted evidence contracts in `crates/core/src/promoted_evidence.rs`
+- deterministic promotion rules in `crates/index/src/evidence_promotion.rs`
+- relationship-shaped field evidence is retained in `review_only` instead of
+  becoming final relationship records
+- weak singleton clusters and unresolved abbreviations are suppressed with
+  source-linked reason records
+- parser-log smoke-test output now includes promoted, review-only, and
+  suppressed evidence sections
 
 Out of scope:
 
 - provider calls
 - final reusable-memory approval
+- deterministic relationship extraction
+- deterministic causality, timeline, world-rule, or planning-intent inference
+- cross-document semantic identity merging
+- canon-versus-planning interpretation
 
 TDD applies:
 
@@ -1222,10 +1290,17 @@ Behavior to test:
 - retrieval does not depend on raw noisy mention surfaces
 - semantic input bundles exclude obvious weak surfaces and unresolved abbreviations
 - promoted records remain source-linked
+- relationship-shaped evidence can be retained as source-linked evidence, but
+  is not promoted as a final relationship record in Phase 3
 
 Done when:
 
-- both retrieval and later semantic consolidation can consume compact evidence bundles instead of raw harvested noise
+- both retrieval and later provider-backed semantic consolidation can consume
+  compact evidence bundles instead of raw harvested noise
+
+Documentation:
+
+- `documentation/phase-3.7d-evidence-promotion-boundary-for-retrieval-and-semantic-input.md`
 
 ### Phase 3.8: Retrieval v1 and context inspector
 
@@ -1460,10 +1535,8 @@ Done when:
 
 ## Immediate Next Tasks
 
-1. Complete Phase 3.7b bootstrapped project lexicon and deterministic rule matchers.
-2. Complete Phase 3.7c archetype-specific lexicon induction and reuse.
-3. Complete Phase 3.7d evidence promotion boundary for retrieval and semantic input.
-4. Then start Phase 3.8 retrieval v1 and context inspector.
-5. Keep the new workspace-state model as the frontend target for future UI refactors.
-6. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
-7. Keep context-source review and the knowledge rail in Phase 3 scope.
+1. Start Phase 3.8 retrieval v1 and context inspector.
+2. Feed retrieval from promoted evidence bundles, structured deterministic candidates, and approved memory rather than raw mention clusters.
+3. Keep the new workspace-state model as the frontend target for future UI refactors.
+4. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
+5. Keep context-source review and the knowledge rail in Phase 3 scope.

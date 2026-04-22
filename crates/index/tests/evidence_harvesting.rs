@@ -1,6 +1,4 @@
-use writing_assist_core::{
-    DocumentArchetype, MentionFeature, SentenceType, TargetAnchor,
-};
+use writing_assist_core::{DocumentArchetype, MentionFeature, SentenceType, TargetAnchor};
 use writing_assist_index::{
     harvest_definition_candidates, harvest_mention_candidates, harvest_section_summary_seeds,
     harvest_structured_field_candidates, parse_markdown_document,
@@ -18,7 +16,10 @@ fn harvests_manuscript_mentions_with_context_and_noise_suppression() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(surfaces.contains(&"Kohaku"));
     assert!(surfaces.contains(&"Captain Mara"));
@@ -32,7 +33,11 @@ fn harvests_manuscript_mentions_with_context_and_noise_suppression() {
         .expect("expected normalized possessive mention");
     assert_eq!(kohaku.occurrences.len(), 2);
     assert_eq!(kohaku.source.document_path, "chapters/chapter-1.md");
-    assert!(kohaku.aggregate_features.contains(&MentionFeature::PossessiveObserved));
+    assert!(
+        kohaku
+            .aggregate_features
+            .contains(&MentionFeature::PossessiveObserved)
+    );
     assert_eq!(
         kohaku.occurrences[0].section_anchor,
         Some(TargetAnchor::section(0))
@@ -40,9 +45,11 @@ fn harvests_manuscript_mentions_with_context_and_noise_suppression() {
     assert_eq!(kohaku.occurrences[0].heading.as_deref(), Some("Arrival"));
     assert_eq!(kohaku.occurrences[0].sentence_type, SentenceType::Narrative);
     assert!(kohaku.occurrences[0].snippet.contains("Kohaku"));
-    assert!(kohaku.occurrences[0]
-        .cooccurring_mentions
-        .contains(&"Captain Mara".to_string()));
+    assert!(
+        kohaku.occurrences[0]
+            .cooccurring_mentions
+            .contains(&"Captain Mara".to_string())
+    );
 }
 
 #[test]
@@ -63,8 +70,14 @@ fn labels_dialogue_occurrences_so_the_semantic_layer_can_treat_them_differently(
         .expect("expected titled mention");
 
     assert_eq!(captain_mara.occurrences.len(), 2);
-    assert_eq!(captain_mara.occurrences[0].sentence_type, SentenceType::Dialogue);
-    assert_eq!(captain_mara.occurrences[1].sentence_type, SentenceType::Narrative);
+    assert_eq!(
+        captain_mara.occurrences[0].sentence_type,
+        SentenceType::Dialogue
+    );
+    assert_eq!(
+        captain_mara.occurrences[1].sentence_type,
+        SentenceType::Narrative
+    );
 }
 
 #[test]
@@ -79,7 +92,10 @@ fn manuscript_harvesting_does_not_carry_mentions_across_dialogue_punctuation() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"Kohaku Get"));
     assert!(!surfaces.contains(&"Pathetic Grotesque How"));
@@ -87,9 +103,8 @@ fn manuscript_harvesting_does_not_carry_mentions_across_dialogue_punctuation() {
 
 #[test]
 fn manuscript_harvesting_keeps_abbreviated_titles_with_following_name() {
-    let parsed = parse_markdown_document(
-        "“I understand, Mrs. Yō.”\n\nDr. Earlean reviewed the chart.\n",
-    );
+    let parsed =
+        parse_markdown_document("“I understand, Mrs. Yō.”\n\nDr. Earlean reviewed the chart.\n");
 
     let mentions = harvest_mention_candidates(
         "chapters/chapter-4.md",
@@ -97,7 +112,10 @@ fn manuscript_harvesting_keeps_abbreviated_titles_with_following_name() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(surfaces.contains(&"Mrs Yō"));
     assert!(surfaces.contains(&"Dr Earlean"));
@@ -117,7 +135,10 @@ fn manuscript_harvesting_suppresses_repeated_dialogue_artifact_singletons() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"What"));
     assert!(!surfaces.contains(&"Let"));
@@ -141,7 +162,10 @@ fn manuscript_harvesting_suppresses_remaining_repeated_singleton_noise() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"Wait"));
     assert!(!surfaces.contains(&"Since"));
@@ -165,7 +189,10 @@ fn manuscript_harvesting_suppresses_common_stopword_singletons_without_project_s
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"To"));
     assert!(!surfaces.contains(&"Or"));
@@ -187,7 +214,10 @@ fn manuscript_harvesting_suppresses_discourse_markers_and_bare_titles_without_na
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"Hey"));
     assert!(!surfaces.contains(&"Yeah"));
@@ -196,10 +226,9 @@ fn manuscript_harvesting_suppresses_discourse_markers_and_bare_titles_without_na
 
 #[test]
 fn manuscript_harvesting_suppresses_stutter_artifacts() {
-    let parsed =
-        parse_markdown_document(
-            "“S-sorry.”\n\n“I-I don’t know.”\n\n“Y-Yoshiko-chan...”\n\n“T-that’s the Ohara’s...”\n\n“A-and everyone else’s families?”\n",
-        );
+    let parsed = parse_markdown_document(
+        "“S-sorry.”\n\n“I-I don’t know.”\n\n“Y-Yoshiko-chan...”\n\n“T-that’s the Ohara’s...”\n\n“A-and everyone else’s families?”\n",
+    );
 
     let mentions = harvest_mention_candidates(
         "chapters/chapter-6.md",
@@ -207,7 +236,10 @@ fn manuscript_harvesting_suppresses_stutter_artifacts() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"S-sorry"));
     assert!(!surfaces.contains(&"I-I"));
@@ -221,9 +253,8 @@ fn harvesting_suppresses_emoji_bearing_surfaces() {
     let manuscript = parse_markdown_document(
         "Kohaku🙂 reached the docking arm.\n\nCaptain Mara✨ checked the chart.\n",
     );
-    let story_planning = parse_markdown_document(
-        "participants: yō, kohaku🙂, dia\n\nfocus: yoshiko✨\n",
-    );
+    let story_planning =
+        parse_markdown_document("participants: yō, kohaku🙂, dia\n\nfocus: yoshiko✨\n");
     let taxonomy = parse_markdown_document(
         "tau🙂 field: local resonance envelope\n\nharmonic baseline: steady floor\n",
     );
@@ -278,7 +309,10 @@ fn manuscript_harvesting_does_not_merge_quote_end_mentions_with_following_speake
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"Kohaku Yō"));
     assert!(!surfaces.contains(&"Mrs Yō Kohaku"));
@@ -301,7 +335,10 @@ fn manuscript_harvesting_drops_leading_discourse_words_from_multiword_fragments(
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"As Yō"));
     assert!(!surfaces.contains(&"How Yoshiko"));
@@ -369,7 +406,10 @@ fn loose_note_harvesting_suppresses_label_like_singletons() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"History"));
     assert!(!surfaces.contains(&"Professional"));
@@ -399,7 +439,10 @@ fn loose_note_harvesting_suppresses_list_item_singleton_noise() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"Calm"));
     assert!(!surfaces.contains(&"Known"));
@@ -428,7 +471,10 @@ fn loose_note_harvesting_suppresses_line_level_descriptor_and_field_labels() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"Childhood"));
     assert!(!surfaces.contains(&"Liella Personality"));
@@ -443,13 +489,13 @@ fn loose_note_harvesting_keeps_non_stopword_singletons_that_are_not_structurally
         "# Desk Notes\n\nLantern light shivers across the desk.\n\nHome stays quiet beyond the shutters.\n",
     );
 
-    let mentions = harvest_mention_candidates(
-        "notes/desk-notes.md",
-        DocumentArchetype::LooseNote,
-        &parsed,
-    );
+    let mentions =
+        harvest_mention_candidates("notes/desk-notes.md", DocumentArchetype::LooseNote, &parsed);
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(surfaces.contains(&"Home"));
 }
@@ -470,7 +516,10 @@ fn loose_note_harvesting_suppresses_generic_bullet_start_singletons() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"Overprepares"));
     assert!(!surfaces.contains(&"Accidentally"));
@@ -491,7 +540,10 @@ fn story_planning_harvesting_promotes_participant_fields_even_when_lowercase() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(surfaces.contains(&"yō"));
     assert!(surfaces.contains(&"kohaku"));
@@ -516,7 +568,10 @@ fn story_planning_harvesting_suppresses_structurally_weak_labels_stopwords_and_s
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"Only"));
     assert!(!surfaces.contains(&"Purpose"));
@@ -539,7 +594,10 @@ fn taxonomy_reference_harvesting_promotes_definition_terms_into_mentions() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(surfaces.contains(&"tau field"));
     assert!(surfaces.contains(&"harmonic baseline"));
@@ -560,7 +618,10 @@ fn expository_world_article_harvesting_suppresses_structurally_weak_stopword_sin
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"From"));
     assert!(!surfaces.contains(&"Not"));
@@ -582,7 +643,10 @@ fn expository_world_article_harvesting_suppresses_outline_enumeration_artifacts(
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(!surfaces.contains(&"II"));
     assert!(!surfaces.contains(&"Phase"));
@@ -601,7 +665,10 @@ fn dossier_profile_harvesting_promotes_alias_fields_even_when_lowercase() {
         &parsed,
     );
 
-    let surfaces: Vec<_> = mentions.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = mentions
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(surfaces.contains(&"Captain Mara"));
     assert!(surfaces.contains(&"mara"));
@@ -622,10 +689,15 @@ fn harvests_definition_candidates_for_taxonomy_references() {
 
     assert_eq!(definitions.len(), 2);
     assert_eq!(definitions[0].term, "Slipspace");
-    assert!(definitions[0]
-        .definition
-        .contains("superluminal transit through negative-polarity curvature"));
-    assert_eq!(definitions[0].source.document_path, "world context/terms.txt");
+    assert!(
+        definitions[0]
+            .definition
+            .contains("superluminal transit through negative-polarity curvature")
+    );
+    assert_eq!(
+        definitions[0].source.document_path,
+        "world context/terms.txt"
+    );
 }
 
 #[test]
@@ -643,6 +715,10 @@ fn harvests_section_summary_seeds_with_heading_context() {
     assert_eq!(seeds.len(), 2);
     assert_eq!(seeds[0].scope, "section:0");
     assert_eq!(seeds[0].contexts[0].heading.as_deref(), Some("Arrival"));
-    assert!(seeds[0].text.contains("Captain Mara reaches the harbor before dawn."));
+    assert!(
+        seeds[0]
+            .text
+            .contains("Captain Mara reaches the harbor before dawn.")
+    );
     assert_eq!(seeds[1].contexts[0].heading.as_deref(), Some("Departure"));
 }

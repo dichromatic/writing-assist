@@ -1,6 +1,4 @@
-use writing_assist_core::{
-    DocumentType, MemoryReviewState, MemoryStalenessState, TargetAnchor,
-};
+use writing_assist_core::{DocumentType, MemoryReviewState, MemoryStalenessState, TargetAnchor};
 use writing_assist_index::{
     extract_reviewable_facts, generate_reviewable_summaries, parse_markdown_document,
 };
@@ -54,14 +52,24 @@ fn generates_pending_document_and_section_summaries_with_section_anchors() {
         .find(|summary| summary.scope == "document")
         .expect("expected document summary");
     assert_eq!(document_summary.review_state, MemoryReviewState::Pending);
-    assert_eq!(document_summary.staleness_state, MemoryStalenessState::Current);
-    assert_eq!(document_summary.source.document_path, "chapters/chapter-1.md");
+    assert_eq!(
+        document_summary.staleness_state,
+        MemoryStalenessState::Current
+    );
+    assert_eq!(
+        document_summary.source.document_path,
+        "chapters/chapter-1.md"
+    );
     assert_eq!(
         document_summary.source.anchors,
         vec![TargetAnchor::section(0), TargetAnchor::section(1)]
     );
     assert!(document_summary.text.contains("Arrival"));
-    assert!(document_summary.text.contains("Captain Mara reaches the harbor before dawn."));
+    assert!(
+        document_summary
+            .text
+            .contains("Captain Mara reaches the harbor before dawn.")
+    );
 
     let first_section_summary = summaries
         .iter()

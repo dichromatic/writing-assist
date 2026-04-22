@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::{context_source_included_by_default, ContextSource, ConversationMode};
+use crate::{ContextSource, ConversationMode, context_source_included_by_default};
 
 pub const TASK_CONTRACT_SCHEMA_VERSION: u16 = 1;
 
@@ -147,8 +147,10 @@ impl ContextBundle {
         sources: Vec<ContextSource>,
         explicitly_selected_paths: &[String],
     ) -> Self {
-        let explicit_paths: HashSet<_> =
-            explicitly_selected_paths.iter().map(String::as_str).collect();
+        let explicit_paths: HashSet<_> = explicitly_selected_paths
+            .iter()
+            .map(String::as_str)
+            .collect();
         let mut included_sources = Vec::new();
         let mut excluded_sources = Vec::new();
 
@@ -285,10 +287,7 @@ pub struct TaskResult {
 }
 
 impl TaskResult {
-    pub fn new(
-        request: &TaskRequest,
-        outputs: Vec<TaskOutput>,
-    ) -> Result<Self, TaskContractError> {
+    pub fn new(request: &TaskRequest, outputs: Vec<TaskOutput>) -> Result<Self, TaskContractError> {
         validate_outputs_for_mode(request, &outputs)?;
 
         Ok(Self {
@@ -335,14 +334,14 @@ mod tests {
     use uuid::Uuid;
 
     use crate::{
-        ContextSource, ContextSourceActivationPolicy, ContextSourceKind,
-        ContextSourceReviewState, ConversationMode, GuideKind, ReferenceKind,
+        ContextSource, ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState,
+        ConversationMode, GuideKind, ReferenceKind,
     };
 
     use super::{
-        AnalysisComment, ContextBundle, DraftChange, IdeaCard, TaskContractError, TaskOutput,
-        TaskRequest, TaskResult, TaskType, SelectionTarget, TargetAnchor,
-        TASK_CONTRACT_SCHEMA_VERSION,
+        AnalysisComment, ContextBundle, DraftChange, IdeaCard, SelectionTarget,
+        TASK_CONTRACT_SCHEMA_VERSION, TargetAnchor, TaskContractError, TaskOutput, TaskRequest,
+        TaskResult, TaskType,
     };
 
     fn selection_target() -> SelectionTarget {
@@ -469,10 +468,7 @@ mod tests {
         );
         let draft_change = DraftChange::new(selection_target(), "old", "new");
 
-        let result = TaskResult::new(
-            &request,
-            vec![TaskOutput::DraftChange(draft_change)],
-        );
+        let result = TaskResult::new(&request, vec![TaskOutput::DraftChange(draft_change)]);
 
         assert_eq!(
             result,
@@ -490,7 +486,11 @@ mod tests {
             selection_target(),
             ContextBundle::empty(),
         );
-        let draft_change = DraftChange::new(selection_target(), "Selected paragraph.", "Rewritten paragraph.");
+        let draft_change = DraftChange::new(
+            selection_target(),
+            "Selected paragraph.",
+            "Rewritten paragraph.",
+        );
 
         let result = TaskResult::new(
             &request,
@@ -521,7 +521,11 @@ mod tests {
 
         let result = TaskResult::new(
             &request,
-            vec![TaskOutput::DraftChange(DraftChange::new(outside_target, "old", "new"))],
+            vec![TaskOutput::DraftChange(DraftChange::new(
+                outside_target,
+                "old",
+                "new",
+            ))],
         );
 
         assert_eq!(result, Err(TaskContractError::DraftChangeOutsideTarget));
@@ -538,13 +542,20 @@ mod tests {
 
         let idea_result = TaskResult::new(
             &request,
-            vec![TaskOutput::IdeaCard(IdeaCard::new("Option A", "Try a quieter reversal."))],
+            vec![TaskOutput::IdeaCard(IdeaCard::new(
+                "Option A",
+                "Try a quieter reversal.",
+            ))],
         );
         assert!(idea_result.is_ok());
 
         let draft_result = TaskResult::new(
             &request,
-            vec![TaskOutput::DraftChange(DraftChange::new(selection_target(), "old", "new"))],
+            vec![TaskOutput::DraftChange(DraftChange::new(
+                selection_target(),
+                "old",
+                "new",
+            ))],
         );
         assert_eq!(
             draft_result,

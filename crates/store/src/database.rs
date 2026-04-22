@@ -1,8 +1,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use thiserror::Error;
 use writing_assist_core::ProjectConfigValidationError;
 
@@ -81,7 +81,10 @@ pub enum StoreError {
     #[error("stored memory staleness state is invalid: {0}")]
     InvalidStoredMemoryStalenessState(String),
     #[error("memory record was not found: kind={kind:?}, id={id}")]
-    MemoryRecordNotFound { kind: StoredMemoryKind, id: uuid::Uuid },
+    MemoryRecordNotFound {
+        kind: StoredMemoryKind,
+        id: uuid::Uuid,
+    },
 }
 
 pub fn storage_backend() -> &'static str {

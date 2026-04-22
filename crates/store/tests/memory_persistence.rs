@@ -4,10 +4,9 @@ use writing_assist_core::{
     ReviewableFact, ReviewableSummary, TargetAnchor,
 };
 use writing_assist_store::{
-    list_entity_candidates, list_reviewable_facts, list_reviewable_summaries,
-    mark_memory_stale_for_document, save_entity_candidates, save_reviewable_facts,
-    save_reviewable_summaries, update_memory_review_state, MemoryRecordFilter,
-    StoredMemoryKind,
+    MemoryRecordFilter, StoredMemoryKind, list_entity_candidates, list_reviewable_facts,
+    list_reviewable_summaries, mark_memory_stale_for_document, save_entity_candidates,
+    save_reviewable_facts, save_reviewable_summaries, update_memory_review_state,
 };
 
 fn source(document_path: &str) -> MemorySourceReference {
@@ -210,10 +209,9 @@ async fn fact_and_summary_review_states_persist_through_reusable_queries() {
         list_reviewable_summaries(project_root.path(), MemoryRecordFilter::Reusable)
             .await
             .expect("list reusable summaries");
-    let stale_summaries =
-        list_reviewable_summaries(project_root.path(), MemoryRecordFilter::Stale)
-            .await
-            .expect("list stale summaries");
+    let stale_summaries = list_reviewable_summaries(project_root.path(), MemoryRecordFilter::Stale)
+        .await
+        .expect("list stale summaries");
 
     assert_eq!(
         reusable_facts
@@ -223,12 +221,15 @@ async fn fact_and_summary_review_states_persist_through_reusable_queries() {
         vec!["Radiant Firth"]
     );
     assert!(reusable_summaries.is_empty());
-    assert_eq!(stale_summaries, vec![{
-        let mut stale_summary = summary;
-        stale_summary.review_state = MemoryReviewState::Approved;
-        stale_summary.staleness_state = MemoryStalenessState::Stale;
-        stale_summary
-    }]);
+    assert_eq!(
+        stale_summaries,
+        vec![{
+            let mut stale_summary = summary;
+            stale_summary.review_state = MemoryReviewState::Approved;
+            stale_summary.staleness_state = MemoryStalenessState::Stale;
+            stale_summary
+        }]
+    );
 }
 
 #[tokio::test]

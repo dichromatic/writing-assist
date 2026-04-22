@@ -15,29 +15,30 @@ pub fn extract_entity_candidates(
     document_path: impl AsRef<str>,
     parsed: &writing_assist_core::ParsedMarkdownDocument,
 ) -> Vec<EntityCandidate> {
-    harvest_mention_candidates(document_path.as_ref(), DocumentArchetype::Manuscript, parsed)
-        .into_iter()
-        .filter(|candidate| {
-            candidate.occurrences.len() > 1
-                || candidate
-                    .aggregate_features
-                    .iter()
-                    .any(|feature| {
-                        matches!(
-                            feature,
-                            writing_assist_core::MentionFeature::MultiWord
-                                | writing_assist_core::MentionFeature::Titled
-                        )
-                    })
-        })
-        .map(|candidate| {
-            EntityCandidate::new(
-                candidate.id,
-                candidate.surface,
-                candidate.source,
-                MemoryReviewState::Pending,
-                MemoryStalenessState::Current,
-            )
-        })
-        .collect()
+    harvest_mention_candidates(
+        document_path.as_ref(),
+        DocumentArchetype::Manuscript,
+        parsed,
+    )
+    .into_iter()
+    .filter(|candidate| {
+        candidate.occurrences.len() > 1
+            || candidate.aggregate_features.iter().any(|feature| {
+                matches!(
+                    feature,
+                    writing_assist_core::MentionFeature::MultiWord
+                        | writing_assist_core::MentionFeature::Titled
+                )
+            })
+    })
+    .map(|candidate| {
+        EntityCandidate::new(
+            candidate.id,
+            candidate.surface,
+            candidate.source,
+            MemoryReviewState::Pending,
+            MemoryStalenessState::Current,
+        )
+    })
+    .collect()
 }

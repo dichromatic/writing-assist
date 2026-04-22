@@ -21,12 +21,11 @@ pub fn select_task_context(request: TaskContextSelectionRequest) -> ContextBundl
 #[cfg(test)]
 mod tests {
     use writing_assist_core::{
-        ContextSource, ContextSourceActivationPolicy, ContextSourceKind,
-        ContextSourceReviewState, ConversationMode, GuideKind, ReferenceKind, SelectionTarget,
-        TargetAnchor,
+        ContextSource, ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState,
+        ConversationMode, GuideKind, ReferenceKind, SelectionTarget, TargetAnchor,
     };
 
-    use super::{select_task_context, TaskContextSelectionRequest};
+    use super::{TaskContextSelectionRequest, select_task_context};
 
     fn selection_target() -> SelectionTarget {
         SelectionTarget::new(

@@ -20,7 +20,10 @@ pub(crate) fn is_supported_file_for_role(path: &Path, role: &ProjectDirectoryRol
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|extension| {
-                matches!(extension.to_ascii_lowercase().as_str(), "md" | "markdown" | "mdown")
+                matches!(
+                    extension.to_ascii_lowercase().as_str(),
+                    "md" | "markdown" | "mdown"
+                )
             })
             .unwrap_or(false),
         ProjectDirectoryRole::Reference | ProjectDirectoryRole::Notes => {

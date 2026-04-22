@@ -131,8 +131,8 @@ pub struct ProjectImportCandidate {
 #[cfg(test)]
 mod tests {
     use super::{
-        validate_project_directory_mappings, ProjectConfigValidationError, ProjectDirectoryMapping,
-        ProjectDirectoryRole, ProjectImportSuggestionReason,
+        ProjectConfigValidationError, ProjectDirectoryMapping, ProjectDirectoryRole,
+        ProjectImportSuggestionReason, validate_project_directory_mappings,
     };
 
     #[test]
@@ -146,10 +146,9 @@ mod tests {
 
     #[test]
     fn serializes_import_suggestion_reasons_as_snake_case() {
-        let serialized = serde_json::to_string(
-            &ProjectImportSuggestionReason::DirectoryNamedWorldContext,
-        )
-        .expect("serialize");
+        let serialized =
+            serde_json::to_string(&ProjectImportSuggestionReason::DirectoryNamedWorldContext)
+                .expect("serialize");
 
         assert_eq!(serialized, "\"directory_named_world_context\"");
     }

@@ -1,8 +1,8 @@
 use uuid::Uuid;
 use writing_assist_core::{
-    DocumentArchetype, MemorySourceReference, BootstrappedLexiconEntry,
-    BootstrappedLexiconEntryKind, LexiconSupportRecord,
-    LexiconSupportRecordKind, LexiconBootstrapRule, TargetAnchor,
+    BootstrappedLexiconEntry, BootstrappedLexiconEntryKind, DocumentArchetype,
+    LexiconBootstrapRule, LexiconSupportRecord, LexiconSupportRecordKind, MemorySourceReference,
+    TargetAnchor,
 };
 
 #[test]

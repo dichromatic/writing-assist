@@ -3,7 +3,7 @@ use writing_assist_core::{
     TaskContractError, TaskOutput, TaskRequest, TaskResult, TaskType,
 };
 
-use crate::{select_task_context, TaskContextSelectionRequest};
+use crate::{TaskContextSelectionRequest, select_task_context};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DeterministicTaskRunRequest {
@@ -53,12 +53,12 @@ pub fn run_deterministic_task(
 #[cfg(test)]
 mod tests {
     use writing_assist_core::{
-        ContextSource, ContextSourceActivationPolicy, ContextSourceKind,
-        ContextSourceReviewState, ConversationMode, GuideKind, ReferenceKind, SelectionTarget,
-        TargetAnchor, TaskOutput, TaskType,
+        ContextSource, ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState,
+        ConversationMode, GuideKind, ReferenceKind, SelectionTarget, TargetAnchor, TaskOutput,
+        TaskType,
     };
 
-    use super::{run_deterministic_task, DeterministicTaskRunRequest};
+    use super::{DeterministicTaskRunRequest, run_deterministic_task};
 
     fn selection_target() -> SelectionTarget {
         SelectionTarget::new(
@@ -104,10 +104,7 @@ mod tests {
 
         assert_eq!(result.mode, ConversationMode::Analysis);
         assert_eq!(result.outputs.len(), 1);
-        assert!(matches!(
-            result.outputs[0],
-            TaskOutput::AnalysisComment(_)
-        ));
+        assert!(matches!(result.outputs[0], TaskOutput::AnalysisComment(_)));
     }
 
     #[test]

@@ -1,8 +1,8 @@
 use uuid::Uuid;
 use writing_assist_core::{
     DefinitionCandidate, DocumentArchetype, MemorySourceReference, MentionCandidate,
-    MentionCluster, MentionClusterLink, MentionClusterLinkKind, MentionFeature,
-    MentionOccurrence, SectionSummarySeed, StructuredFieldCandidate, TargetAnchor,
+    MentionCluster, MentionClusterLink, MentionClusterLinkKind, MentionFeature, MentionOccurrence,
+    SectionSummarySeed, StructuredFieldCandidate, TargetAnchor,
 };
 
 /// Group same-document mention evidence into deterministic local clusters.
@@ -43,14 +43,16 @@ pub fn cluster_document_mentions(
 
     groups
         .into_iter()
-        .map(|group| build_cluster(
-            document_path,
-            archetype.clone(),
-            &group,
-            structured_fields,
-            definitions,
-            summary_seeds,
-        ))
+        .map(|group| {
+            build_cluster(
+                document_path,
+                archetype.clone(),
+                &group,
+                structured_fields,
+                definitions,
+                summary_seeds,
+            )
+        })
         .collect()
 }
 
@@ -71,19 +73,24 @@ fn build_cluster(
     let display_surface = choose_display_surface(&group.member_mentions);
     let normalized_surface = cluster_key_for_surface(&display_surface);
     let source = combined_source(document_path, &group.member_mentions);
-    let member_mention_ids = group.member_mentions.iter().map(|mention| mention.id).collect();
+    let member_mention_ids = group
+        .member_mentions
+        .iter()
+        .map(|mention| mention.id)
+        .collect();
     let member_surfaces = unique_member_surfaces(&group.member_mentions);
     let occurrences = combined_occurrences(&group.member_mentions);
     let aggregate_features = combined_features(&group.member_mentions, occurrences.len());
-    let linked_evidence = linked_evidence_for_cluster(
-        group,
-        structured_fields,
-        definitions,
-        summary_seeds,
-    );
+    let linked_evidence =
+        linked_evidence_for_cluster(group, structured_fields, definitions, summary_seeds);
 
     MentionCluster {
-        id: stable_hash_id(document_path, "mention_cluster", &normalized_surface, &display_surface),
+        id: stable_hash_id(
+            document_path,
+            "mention_cluster",
+            &normalized_surface,
+            &display_surface,
+        ),
         display_surface,
         normalized_surface,
         source,
@@ -101,7 +108,11 @@ fn should_merge_into_group(
     cluster_key: &str,
     mention: &MentionCandidate,
 ) -> bool {
-    if group.cluster_keys.iter().any(|existing| existing == cluster_key) {
+    if group
+        .cluster_keys
+        .iter()
+        .any(|existing| existing == cluster_key)
+    {
         return true;
     }
 
@@ -110,8 +121,7 @@ fn should_merge_into_group(
         let candidate_titleless = titleless_surface(mention.surface.as_str());
 
         !existing_titleless.is_empty() && existing_titleless == candidate_titleless
-            || !candidate_titleless.is_empty()
-                && candidate_titleless == existing.normalized_surface
+            || !candidate_titleless.is_empty() && candidate_titleless == existing.normalized_surface
             || !existing_titleless.is_empty() && existing_titleless == mention.normalized_surface
     })
 }
@@ -121,9 +131,7 @@ fn choose_display_surface(mentions: &[MentionCandidate]) -> String {
         .iter()
         .max_by_key(|mention| {
             (
-                mention
-                    .aggregate_features
-                    .contains(&MentionFeature::Titled),
+                mention.aggregate_features.contains(&MentionFeature::Titled),
                 mention
                     .aggregate_features
                     .contains(&MentionFeature::MultiWord),
@@ -149,7 +157,11 @@ fn combined_source(document_path: &str, mentions: &[MentionCandidate]) -> Memory
     MemorySourceReference::new(
         document_path,
         anchors,
-        if start_char == usize::MAX { 0 } else { start_char },
+        if start_char == usize::MAX {
+            0
+        } else {
+            start_char
+        },
         end_char,
     )
 }
@@ -304,9 +316,9 @@ fn surface_matches_haystack(
         let normalized_surface = normalize_for_match(surface);
 
         !normalized_surface.is_empty() && normalized_haystack.contains(&normalized_surface)
-    }) || normalized_surfaces.iter().any(|surface| {
-        !surface.is_empty() && normalized_haystack.contains(surface)
-    })
+    }) || normalized_surfaces
+        .iter()
+        .any(|surface| !surface.is_empty() && normalized_haystack.contains(surface))
 }
 
 fn cluster_supports_summary_link(
@@ -318,9 +330,7 @@ fn cluster_supports_summary_link(
             mention.aggregate_features.iter().any(|feature| {
                 matches!(
                     feature,
-                    MentionFeature::Repeated
-                        | MentionFeature::MultiWord
-                        | MentionFeature::Titled
+                    MentionFeature::Repeated | MentionFeature::MultiWord | MentionFeature::Titled
                 )
             })
         })
@@ -381,7 +391,9 @@ fn normalize_for_match(text: &str) -> String {
     text.to_lowercase()
         .chars()
         .filter(|character| {
-            character.is_alphanumeric() || character.is_whitespace() || matches!(character, '-' | '\'')
+            character.is_alphanumeric()
+                || character.is_whitespace()
+                || matches!(character, '-' | '\'')
         })
         .collect::<String>()
         .split_whitespace()

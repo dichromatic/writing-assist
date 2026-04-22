@@ -53,16 +53,18 @@ fn preserves_span_order_for_mixed_heading_and_paragraph_content() {
             (0, SpanType::Paragraph, "Intro paragraph.".to_string()),
             (1, SpanType::Heading, "# Heading".to_string()),
             (2, SpanType::Paragraph, "Body paragraph.".to_string()),
-            (3, SpanType::Paragraph, "Another body paragraph.".to_string()),
+            (
+                3,
+                SpanType::Paragraph,
+                "Another body paragraph.".to_string()
+            ),
         ]
     );
 }
 
 #[test]
 fn groups_content_before_first_heading_into_its_own_section() {
-    let parsed = parse_markdown_document(
-        "Intro paragraph.\n\n# Heading\n\nBody paragraph.\n",
-    );
+    let parsed = parse_markdown_document("Intro paragraph.\n\n# Heading\n\nBody paragraph.\n");
 
     assert_eq!(parsed.sections.len(), 2);
     assert_eq!(parsed.sections[0].text, "Intro paragraph.");
@@ -100,9 +102,7 @@ fn tracks_byte_and_char_offsets_for_spans_and_sections() {
 
 #[test]
 fn thematic_breaks_become_scene_spans_and_split_sections() {
-    let parsed = parse_markdown_document(
-        "Opening paragraph.\n\n---\n\nNext scene paragraph.\n",
-    );
+    let parsed = parse_markdown_document("Opening paragraph.\n\n---\n\nNext scene paragraph.\n");
 
     assert_eq!(parsed.scenes.len(), 2);
     assert_eq!(parsed.scenes[0].ordinal, 0);
@@ -177,7 +177,10 @@ fn preserves_source_text_and_exposes_whitespace_normalized_sidecars() {
         "First\tparagraph line.\n   Second   line.\n\n---\n\nThird   paragraph.\n",
     );
 
-    assert_eq!(parsed.spans[0].text, "First\tparagraph line.\n   Second   line.");
+    assert_eq!(
+        parsed.spans[0].text,
+        "First\tparagraph line.\n   Second   line."
+    );
     assert_eq!(
         parsed.spans[0].normalized_text,
         "First paragraph line. Second line."
@@ -199,7 +202,10 @@ fn headings_do_not_split_scenes() {
     );
 
     assert_eq!(parsed.scenes.len(), 1);
-    assert_eq!(parsed.scenes[0].text, "# Opening\n\nFirst paragraph.\n\n## Next beat\n\nSecond paragraph.");
+    assert_eq!(
+        parsed.scenes[0].text,
+        "# Opening\n\nFirst paragraph.\n\n## Next beat\n\nSecond paragraph."
+    );
     assert_eq!(parsed.scenes[0].separator, None);
     assert_eq!(parsed.scenes[0].start_span_ordinal, 0);
     assert_eq!(parsed.scenes[0].end_span_ordinal, 3);
@@ -213,12 +219,24 @@ fn tracks_what_opened_each_section() {
 
     assert_eq!(parsed.sections.len(), 3);
 
-    assert_eq!(parsed.sections[0].boundary_kind, SectionBoundaryKind::FileStart);
+    assert_eq!(
+        parsed.sections[0].boundary_kind,
+        SectionBoundaryKind::FileStart
+    );
     assert_eq!(parsed.sections[0].boundary_text, None);
 
-    assert_eq!(parsed.sections[1].boundary_kind, SectionBoundaryKind::Heading);
-    assert_eq!(parsed.sections[1].boundary_text, Some("# Heading".to_string()));
+    assert_eq!(
+        parsed.sections[1].boundary_kind,
+        SectionBoundaryKind::Heading
+    );
+    assert_eq!(
+        parsed.sections[1].boundary_text,
+        Some("# Heading".to_string())
+    );
 
-    assert_eq!(parsed.sections[2].boundary_kind, SectionBoundaryKind::SceneBreak);
+    assert_eq!(
+        parsed.sections[2].boundary_kind,
+        SectionBoundaryKind::SceneBreak
+    );
     assert_eq!(parsed.sections[2].boundary_text, Some("---".to_string()));
 }

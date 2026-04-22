@@ -2,11 +2,11 @@ use std::path::Path;
 
 use sqlx::Row;
 use writing_assist_core::{
-    normalize_project_directory_mapping_path, validate_project_directory_mappings, ProjectConfig,
-    ProjectDirectoryMapping, ProjectDirectoryRole,
+    ProjectConfig, ProjectDirectoryMapping, ProjectDirectoryRole,
+    normalize_project_directory_mapping_path, validate_project_directory_mappings,
 };
 
-use crate::{normalize_project_root, open_project_database, StoreError};
+use crate::{StoreError, normalize_project_root, open_project_database};
 
 fn role_to_storage_value(role: &ProjectDirectoryRole) -> &'static str {
     match role {

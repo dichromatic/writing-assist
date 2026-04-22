@@ -10,7 +10,8 @@ fn example_document_path() -> PathBuf {
 
 #[test]
 fn parses_real_example_document_without_empty_spans() {
-    let markdown = fs::read_to_string(example_document_path()).expect("example document should load");
+    let markdown =
+        fs::read_to_string(example_document_path()).expect("example document should load");
     let parsed = parse_markdown_document(&markdown);
 
     let heading_count = parsed
@@ -40,7 +41,10 @@ fn parses_real_example_document_without_empty_spans() {
         parsed.spans.first().map(|span| &span.text)
     );
 
-    assert!(!parsed.spans.is_empty(), "real documents should produce spans");
+    assert!(
+        !parsed.spans.is_empty(),
+        "real documents should produce spans"
+    );
     assert!(
         !parsed.sections.is_empty(),
         "real documents should produce at least one section"
@@ -54,10 +58,7 @@ fn parses_real_example_document_without_empty_spans() {
         "scene breaks in the example manuscript should split the document into multiple sections"
     );
     assert!(
-        parsed
-            .spans
-            .iter()
-            .all(|span| !span.text.trim().is_empty()),
+        parsed.spans.iter().all(|span| !span.text.trim().is_empty()),
         "parser should not emit empty spans for real documents"
     );
     assert!(

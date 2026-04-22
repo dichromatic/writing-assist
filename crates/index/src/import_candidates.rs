@@ -53,7 +53,10 @@ fn has_supported_text_files(directory: &Path) -> io::Result<bool> {
 
 fn suggested_role_for_directory_name(
     directory_name: &str,
-) -> (Option<ProjectDirectoryRole>, Vec<ProjectImportSuggestionReason>) {
+) -> (
+    Option<ProjectDirectoryRole>,
+    Vec<ProjectImportSuggestionReason>,
+) {
     match directory_name {
         "chapters" => (
             Some(ProjectDirectoryRole::PrimaryManuscript),

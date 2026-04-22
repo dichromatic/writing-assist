@@ -1,14 +1,14 @@
 use uuid::Uuid;
 use writing_assist_core::{
-    structured_knowledge_intended_use, DocumentArchetype, EntityProfileCandidate,
-    MemoryReviewState, MemorySourceReference, MemoryStalenessState, StructuredKnowledgeCandidateKind,
-    StructuredKnowledgeIntendedUse, TargetAnchor,
+    DocumentArchetype, EntityProfileCandidate, MemoryReviewState, MemorySourceReference,
+    MemoryStalenessState, StructuredKnowledgeCandidateKind, StructuredKnowledgeIntendedUse,
+    TargetAnchor, structured_knowledge_intended_use,
 };
 
 #[test]
 fn document_archetypes_and_candidate_kinds_serialize_as_snake_case() {
-    let archetype =
-        serde_json::to_string(&DocumentArchetype::ExpositoryWorldArticle).expect("serialize archetype");
+    let archetype = serde_json::to_string(&DocumentArchetype::ExpositoryWorldArticle)
+        .expect("serialize archetype");
     let candidate_kind = serde_json::to_string(&StructuredKnowledgeCandidateKind::StoryArc)
         .expect("serialize candidate kind");
     let intended_use = serde_json::to_string(&StructuredKnowledgeIntendedUse::PlanningOnly)
@@ -65,8 +65,11 @@ fn structured_candidate_records_preserve_source_links_and_review_gates() {
 
     let serialized = serde_json::to_value(&candidate).expect("serialize entity profile");
 
-    assert_eq!(serialized["source"]["document_path"], "story planning/estuary crew summaries.txt");
+    assert_eq!(
+        serialized["source"]["document_path"],
+        "story planning/estuary crew summaries.txt"
+    );
     assert_eq!(serialized["intended_use"], "canon_reference");
     assert_eq!(serialized["review_state"], "pending");
     assert_eq!(serialized["staleness_state"], "current");
-  }
+}

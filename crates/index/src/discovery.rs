@@ -128,7 +128,10 @@ pub fn discover_project_documents(
             continue;
         };
 
-        documents.push(DiscoveredDocument { path, document_type });
+        documents.push(DiscoveredDocument {
+            path,
+            document_type,
+        });
     }
 
     // Preserve stable ordering across import runs for the same project structure.

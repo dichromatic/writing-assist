@@ -13,7 +13,10 @@ fn preprocessing_normalizes_punctuation_without_losing_token_offsets() {
         .expect("expected first preprocessed span");
 
     assert_eq!(preprocessed.tokenizer_version, "deterministic_v1");
-    assert!(span.normalized_text.contains("\"Captain's log...\" - Kohaku said."));
+    assert!(
+        span.normalized_text
+            .contains("\"Captain's log...\" - Kohaku said.")
+    );
 
     let captain = span
         .tokens
@@ -34,9 +37,8 @@ fn preprocessing_normalizes_punctuation_without_losing_token_offsets() {
 
 #[test]
 fn preprocessing_extracts_quote_spans_and_sentence_boundaries() {
-    let parsed = parse_markdown_document(
-        "“Kohaku, move,” Captain Mara said.\n\nThen she left the dock.\n",
-    );
+    let parsed =
+        parse_markdown_document("“Kohaku, move,” Captain Mara said.\n\nThen she left the dock.\n");
 
     let preprocessed = preprocess_parsed_document(&parsed);
     let first_span = preprocessed
@@ -46,9 +48,15 @@ fn preprocessing_extracts_quote_spans_and_sentence_boundaries() {
         .expect("expected first preprocessed span");
 
     assert_eq!(first_span.quote_spans.len(), 1);
-    assert_eq!(first_span.quote_spans[0].normalized_text, "\"Kohaku, move,\"");
+    assert_eq!(
+        first_span.quote_spans[0].normalized_text,
+        "\"Kohaku, move,\""
+    );
     assert_eq!(first_span.sentences.len(), 1);
-    assert_eq!(first_span.sentences[0].sentence_type, SentenceType::Dialogue);
+    assert_eq!(
+        first_span.sentences[0].sentence_type,
+        SentenceType::Dialogue
+    );
 
     let second_span = preprocessed
         .spans
@@ -56,12 +64,16 @@ fn preprocessing_extracts_quote_spans_and_sentence_boundaries() {
         .find(|span| span.span_ordinal == 1)
         .expect("expected second preprocessed span");
     assert_eq!(second_span.sentences.len(), 1);
-    assert_eq!(second_span.sentences[0].sentence_type, SentenceType::Narrative);
+    assert_eq!(
+        second_span.sentences[0].sentence_type,
+        SentenceType::Narrative
+    );
 }
 
 #[test]
 fn preprocessing_keeps_title_abbreviations_inside_the_same_sentence() {
-    let parsed = parse_markdown_document("“I understand, Mrs. Yō.”\n\nDr. Earlean reviewed the chart.\n");
+    let parsed =
+        parse_markdown_document("“I understand, Mrs. Yō.”\n\nDr. Earlean reviewed the chart.\n");
 
     let preprocessed = preprocess_parsed_document(&parsed);
     let first_span = preprocessed
@@ -78,12 +90,16 @@ fn preprocessing_keeps_title_abbreviations_inside_the_same_sentence() {
     assert_eq!(first_span.sentences.len(), 1);
     assert!(first_span.sentences[0].text.contains("Mrs. Yō."));
     assert_eq!(second_span.sentences.len(), 1);
-    assert_eq!(second_span.sentences[0].text, "Dr. Earlean reviewed the chart.");
+    assert_eq!(
+        second_span.sentences[0].text,
+        "Dr. Earlean reviewed the chart."
+    );
 }
 
 #[test]
 fn preprocessing_emits_heading_list_and_scene_break_markers() {
-    let parsed = parse_markdown_document("# Plan\n\n- Bring Kohaku\n- Call Yō\n\n***\n\nNext scene.\n");
+    let parsed =
+        parse_markdown_document("# Plan\n\n- Bring Kohaku\n- Call Yō\n\n***\n\nNext scene.\n");
 
     let preprocessed = preprocess_parsed_document(&parsed);
     let marker_kinds: Vec<_> = preprocessed

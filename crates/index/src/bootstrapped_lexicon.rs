@@ -1,9 +1,8 @@
 use uuid::Uuid;
 use writing_assist_core::{
-    DefinitionCandidate, DocumentArchetype, MentionCluster, MentionClusterLinkKind,
-    MentionFeature, BootstrappedLexiconEntry, BootstrappedLexiconEntryKind,
-    LexiconSupportRecord, LexiconSupportRecordKind, LexiconBootstrapRule,
-    StructuredFieldCandidate,
+    BootstrappedLexiconEntry, BootstrappedLexiconEntryKind, DefinitionCandidate, DocumentArchetype,
+    LexiconBootstrapRule, LexiconSupportRecord, LexiconSupportRecordKind, MentionCluster,
+    MentionClusterLinkKind, MentionFeature, StructuredFieldCandidate,
 };
 
 /// Build deterministic bootstrapped lexicon entries from same-document evidence.
@@ -75,9 +74,7 @@ fn cluster_survives_bootstrap(cluster: &MentionCluster, support: &ClusterSupport
             support.alias_field
                 || support.participant_field
                 || support.role_field
-                || (cluster
-                    .aggregate_features
-                    .contains(&MentionFeature::Titled)
+                || (cluster.aggregate_features.contains(&MentionFeature::Titled)
                     && cluster.occurrences.len() > 1)
         }
     }
@@ -101,10 +98,7 @@ fn entry_kind_for_cluster(
             }
         }
         DocumentArchetype::Manuscript => {
-            if cluster
-                .aggregate_features
-                .contains(&MentionFeature::Titled)
-            {
+            if cluster.aggregate_features.contains(&MentionFeature::Titled) {
                 BootstrappedLexiconEntryKind::Character
             } else {
                 BootstrappedLexiconEntryKind::Unresolved
@@ -122,10 +116,7 @@ fn rule_sources_for_cluster(
     if cluster.occurrences.len() > 1 {
         rules.push(LexiconBootstrapRule::RepeatedMention);
     }
-    if cluster
-        .aggregate_features
-        .contains(&MentionFeature::Titled)
-    {
+    if cluster.aggregate_features.contains(&MentionFeature::Titled) {
         rules.push(LexiconBootstrapRule::TitledMention);
     }
     if support.alias_field {
@@ -162,7 +153,9 @@ fn evidence_for_cluster(
     for link in &cluster.linked_evidence {
         match link.kind {
             MentionClusterLinkKind::StructuredField => {
-                if let Some(field) = structured_fields.iter().find(|field| field.id == link.evidence_id)
+                if let Some(field) = structured_fields
+                    .iter()
+                    .find(|field| field.id == link.evidence_id)
                 {
                     evidence.push(LexiconSupportRecord {
                         evidence_id: field.id,
@@ -172,8 +165,9 @@ fn evidence_for_cluster(
                 }
             }
             MentionClusterLinkKind::Definition => {
-                if let Some(definition) =
-                    definitions.iter().find(|definition| definition.id == link.evidence_id)
+                if let Some(definition) = definitions
+                    .iter()
+                    .find(|definition| definition.id == link.evidence_id)
                 {
                     evidence.push(LexiconSupportRecord {
                         evidence_id: definition.id,

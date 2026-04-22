@@ -40,11 +40,17 @@ fn clusters_titled_and_bare_mentions_and_links_local_fields_and_sections() {
         .find(|cluster| cluster.display_surface == "Captain Mara")
         .expect("expected Captain Mara cluster");
 
-    assert!(mara_cluster.member_surfaces.contains(&"Captain Mara".to_string()));
+    assert!(
+        mara_cluster
+            .member_surfaces
+            .contains(&"Captain Mara".to_string())
+    );
     assert!(mara_cluster.member_surfaces.contains(&"Mara".to_string()));
-    assert!(mara_cluster
-        .aggregate_features
-        .contains(&MentionFeature::Repeated));
+    assert!(
+        mara_cluster
+            .aggregate_features
+            .contains(&MentionFeature::Repeated)
+    );
     assert!(mara_cluster.linked_evidence.iter().any(|link| {
         link.kind == MentionClusterLinkKind::StructuredField && link.summary == "Alias: Mara"
     }));
@@ -90,8 +96,7 @@ fn links_definition_evidence_to_matching_term_clusters() {
         .expect("expected Tau cluster");
 
     assert!(tau_cluster.linked_evidence.iter().any(|link| {
-        link.kind == MentionClusterLinkKind::Definition
-            && link.summary.starts_with("Tau field =>")
+        link.kind == MentionClusterLinkKind::Definition && link.summary.starts_with("Tau field =>")
     }));
     assert!(tau_cluster.linked_evidence.iter().any(|link| {
         link.kind == MentionClusterLinkKind::SectionSummarySeed && link.summary == "section:0"
@@ -104,16 +109,10 @@ fn does_not_link_section_summary_seeds_for_weak_singletons_without_other_groundi
         "# Desk Notes\n\nLantern light shivers across the desk.\n\nHome stays quiet beyond the shutters.\n",
     );
 
-    let mentions = harvest_mention_candidates(
-        "notes/desk-notes.md",
-        DocumentArchetype::LooseNote,
-        &parsed,
-    );
-    let seeds = harvest_section_summary_seeds(
-        "notes/desk-notes.md",
-        DocumentArchetype::LooseNote,
-        &parsed,
-    );
+    let mentions =
+        harvest_mention_candidates("notes/desk-notes.md", DocumentArchetype::LooseNote, &parsed);
+    let seeds =
+        harvest_section_summary_seeds("notes/desk-notes.md", DocumentArchetype::LooseNote, &parsed);
 
     let clusters = cluster_document_mentions(
         "notes/desk-notes.md",
@@ -129,7 +128,10 @@ fn does_not_link_section_summary_seeds_for_weak_singletons_without_other_groundi
         .find(|cluster| cluster.display_surface == "Home")
         .expect("expected Home cluster");
 
-    assert!(!home_cluster.linked_evidence.iter().any(|link| {
-        link.kind == MentionClusterLinkKind::SectionSummarySeed
-    }));
+    assert!(
+        !home_cluster
+            .linked_evidence
+            .iter()
+            .any(|link| { link.kind == MentionClusterLinkKind::SectionSummarySeed })
+    );
 }

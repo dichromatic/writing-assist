@@ -1,14 +1,14 @@
 use std::path::Path;
 
-use sqlx::sqlite::SqliteRow;
 use sqlx::Row;
+use sqlx::sqlite::SqliteRow;
 use uuid::Uuid;
 use writing_assist_core::{
     EntityCandidate, MemoryReviewState, MemorySourceReference, MemoryStalenessState,
     ReviewableFact, ReviewableSummary, TargetAnchor,
 };
 
-use crate::{open_project_database, StoreError};
+use crate::{StoreError, open_project_database};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StoredMemoryKind {
@@ -61,7 +61,9 @@ fn review_state_from_storage_value(value: &str) -> Result<MemoryReviewState, Sto
         "pending" => Ok(MemoryReviewState::Pending),
         "approved" => Ok(MemoryReviewState::Approved),
         "rejected" => Ok(MemoryReviewState::Rejected),
-        _ => Err(StoreError::InvalidStoredMemoryReviewState(value.to_string())),
+        _ => Err(StoreError::InvalidStoredMemoryReviewState(
+            value.to_string(),
+        )),
     }
 }
 
@@ -76,7 +78,9 @@ fn staleness_state_from_storage_value(value: &str) -> Result<MemoryStalenessStat
     match value {
         "current" => Ok(MemoryStalenessState::Current),
         "stale" => Ok(MemoryStalenessState::Stale),
-        _ => Err(StoreError::InvalidStoredMemoryStalenessState(value.to_string())),
+        _ => Err(StoreError::InvalidStoredMemoryStalenessState(
+            value.to_string(),
+        )),
     }
 }
 

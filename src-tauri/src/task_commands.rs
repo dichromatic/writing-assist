@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use writing_assist_core::{ContextSource, ConversationMode, SelectionTarget, TaskResult, TaskType};
-use writing_assist_orchestrator::{run_deterministic_task, DeterministicTaskRunRequest};
+use writing_assist_orchestrator::{DeterministicTaskRunRequest, run_deterministic_task};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct DeterministicTaskCommandRequest {
@@ -28,12 +28,11 @@ pub fn run_deterministic_task_command(
 #[cfg(test)]
 mod tests {
     use writing_assist_core::{
-        ContextSource, ContextSourceActivationPolicy, ContextSourceKind,
-        ContextSourceReviewState, ConversationMode, GuideKind, SelectionTarget, TargetAnchor,
-        TaskOutput, TaskType,
+        ContextSource, ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState,
+        ConversationMode, GuideKind, SelectionTarget, TargetAnchor, TaskOutput, TaskType,
     };
 
-    use super::{run_deterministic_task_command, DeterministicTaskCommandRequest};
+    use super::{DeterministicTaskCommandRequest, run_deterministic_task_command};
 
     fn selection_target() -> SelectionTarget {
         SelectionTarget::new(

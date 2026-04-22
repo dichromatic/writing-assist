@@ -25,7 +25,11 @@ pub enum ReferenceKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(tag = "source_type", content = "source_kind", rename_all = "snake_case")]
+#[serde(
+    tag = "source_type",
+    content = "source_kind",
+    rename_all = "snake_case"
+)]
 pub enum ContextSourceKind {
     Guide(GuideKind),
     Reference(ReferenceKind),
@@ -180,10 +184,7 @@ pub fn context_source_allowed_by_default(
     }
 }
 
-pub fn context_source_included_by_default(
-    mode: ConversationMode,
-    source: &ContextSource,
-) -> bool {
+pub fn context_source_included_by_default(mode: ConversationMode, source: &ContextSource) -> bool {
     let activation_allows_default_use = matches!(
         source.activation_policy,
         ContextSourceActivationPolicy::Pinned | ContextSourceActivationPolicy::Retrieved
@@ -202,9 +203,9 @@ pub fn context_source_included_by_default(
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_context_source_kind, context_source_allowed_by_default,
-        context_source_included_by_default, ContextSource, ContextSourceActivationPolicy,
-        ContextSourceKind, ContextSourceReviewState, GuideKind, ReferenceKind,
+        ContextSource, ContextSourceActivationPolicy, ContextSourceKind, ContextSourceReviewState,
+        GuideKind, ReferenceKind, classify_context_source_kind, context_source_allowed_by_default,
+        context_source_included_by_default,
     };
     use crate::{conversation::ConversationMode, documents::DocumentType};
 
@@ -212,10 +213,9 @@ mod tests {
     fn serializes_context_source_kinds_with_explicit_type_and_kind() {
         let guide = serde_json::to_string(&ContextSourceKind::Guide(GuideKind::Prose))
             .expect("serialize guide source kind");
-        let reference = serde_json::to_string(&ContextSourceKind::Reference(
-            ReferenceKind::CharacterBible,
-        ))
-        .expect("serialize reference source kind");
+        let reference =
+            serde_json::to_string(&ContextSourceKind::Reference(ReferenceKind::CharacterBible))
+                .expect("serialize reference source kind");
         let note = serde_json::to_string(&ContextSourceKind::Note).expect("serialize note source");
 
         assert_eq!(guide, r#"{"source_type":"guide","source_kind":"prose"}"#);
@@ -356,19 +356,11 @@ mod tests {
     #[test]
     fn ambiguous_reference_documents_remain_unclassified() {
         assert_eq!(
-            classify_context_source_kind(
-                DocumentType::Reference,
-                "reference/brainstorm.md",
-                None
-            ),
+            classify_context_source_kind(DocumentType::Reference, "reference/brainstorm.md", None),
             None
         );
         assert_eq!(
-            classify_context_source_kind(
-                DocumentType::Manuscript,
-                "chapters/chapter-1.md",
-                None
-            ),
+            classify_context_source_kind(DocumentType::Manuscript, "chapters/chapter-1.md", None),
             None
         );
     }

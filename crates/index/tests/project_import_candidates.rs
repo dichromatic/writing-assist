@@ -2,7 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use writing_assist_core::{ProjectDirectoryRole, ProjectImportCandidate, ProjectImportSuggestionReason};
+use writing_assist_core::{
+    ProjectDirectoryRole, ProjectImportCandidate, ProjectImportSuggestionReason,
+};
 use writing_assist_index::discover_project_import_candidates;
 
 fn unique_temp_dir() -> PathBuf {
@@ -48,7 +50,10 @@ fn discovers_only_immediate_child_directories_in_stable_order() {
     let candidates =
         discover_project_import_candidates(&root).expect("candidate discovery should succeed");
 
-    let paths: Vec<_> = candidates.iter().map(|candidate| candidate.path.clone()).collect();
+    let paths: Vec<_> = candidates
+        .iter()
+        .map(|candidate| candidate.path.clone())
+        .collect();
 
     assert_eq!(
         paths,
@@ -93,7 +98,10 @@ fn hidden_child_directories_are_not_import_candidates() {
 
     let candidates =
         discover_project_import_candidates(&root).expect("candidate discovery should succeed");
-    let paths: Vec<_> = candidates.iter().map(|candidate| candidate.path.clone()).collect();
+    let paths: Vec<_> = candidates
+        .iter()
+        .map(|candidate| candidate.path.clone())
+        .collect();
 
     assert_eq!(paths, vec!["chapters".to_string()]);
 
@@ -108,7 +116,10 @@ fn detects_supported_text_presence_recursively_and_marks_empty_directories() {
     fs::create_dir_all(root.join("world_context")).expect("world_context dir should exist");
     fs::create_dir_all(root.join("empty")).expect("empty dir should exist");
     write_file(&root.join("chapters/part-1/chapter-1.md"), "# Chapter 1");
-    write_file(&root.join("world_context/history.txt"), "plain text world note");
+    write_file(
+        &root.join("world_context/history.txt"),
+        "plain text world note",
+    );
 
     let candidates =
         discover_project_import_candidates(&root).expect("candidate discovery should succeed");
@@ -136,25 +147,36 @@ fn suggests_roles_from_conservative_directory_name_heuristics() {
         discover_project_import_candidates(&root).expect("candidate discovery should succeed");
 
     let chapters = candidate_by_path(&candidates, "chapters");
-    assert_eq!(chapters.suggested_role, Some(ProjectDirectoryRole::PrimaryManuscript));
-    assert!(chapters
-        .suggestion_reasons
-        .contains(&ProjectImportSuggestionReason::DirectoryNamedChapters));
-    assert!(chapters
-        .suggestion_reasons
-        .contains(&ProjectImportSuggestionReason::ContainsSupportedTextFiles));
+    assert_eq!(
+        chapters.suggested_role,
+        Some(ProjectDirectoryRole::PrimaryManuscript)
+    );
+    assert!(
+        chapters
+            .suggestion_reasons
+            .contains(&ProjectImportSuggestionReason::DirectoryNamedChapters)
+    );
+    assert!(
+        chapters
+            .suggestion_reasons
+            .contains(&ProjectImportSuggestionReason::ContainsSupportedTextFiles)
+    );
 
     let world = candidate_by_path(&candidates, "world_context");
     assert_eq!(world.suggested_role, Some(ProjectDirectoryRole::Reference));
-    assert!(world
-        .suggestion_reasons
-        .contains(&ProjectImportSuggestionReason::DirectoryNamedWorldContext));
+    assert!(
+        world
+            .suggestion_reasons
+            .contains(&ProjectImportSuggestionReason::DirectoryNamedWorldContext)
+    );
 
     let notes = candidate_by_path(&candidates, "notes");
     assert_eq!(notes.suggested_role, Some(ProjectDirectoryRole::Notes));
-    assert!(notes
-        .suggestion_reasons
-        .contains(&ProjectImportSuggestionReason::DirectoryNamedNotes));
+    assert!(
+        notes
+            .suggestion_reasons
+            .contains(&ProjectImportSuggestionReason::DirectoryNamedNotes)
+    );
 
     let misc = candidate_by_path(&candidates, "misc");
     assert_eq!(misc.suggested_role, None);

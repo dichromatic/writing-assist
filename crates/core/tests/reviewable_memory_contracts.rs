@@ -63,7 +63,10 @@ fn approved_fact_preserves_source_document_and_span_anchors() {
     );
 
     assert_eq!(fact.source.document_path, "chapters/chapter-1.md");
-    assert_eq!(fact.source.anchors, vec![TargetAnchor::span(7), TargetAnchor::section(2)]);
+    assert_eq!(
+        fact.source.anchors,
+        vec![TargetAnchor::span(7), TargetAnchor::section(2)]
+    );
     assert!(fact.is_reusable());
 }
 

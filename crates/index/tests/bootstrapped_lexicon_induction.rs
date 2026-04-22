@@ -1,14 +1,13 @@
+use writing_assist_core::DocumentArchetype;
 use writing_assist_core::{
-    BootstrappedLexiconEntryKind, LexiconSupportRecordKind, LexiconBootstrapRule,
+    BootstrappedLexiconEntryKind, LexiconBootstrapRule, LexiconSupportRecordKind,
 };
 use writing_assist_index::{
-    cluster_document_mentions, compile_exact_phrase_lexicon_matcher,
-    harvest_definition_candidates, harvest_exact_phrase_lexicon_mentions,
-    harvest_mention_candidates, harvest_section_summary_seeds,
-    harvest_structured_field_candidates, induce_bootstrapped_lexicon_entries,
-    parse_markdown_document,
+    cluster_document_mentions, compile_exact_phrase_lexicon_matcher, harvest_definition_candidates,
+    harvest_exact_phrase_lexicon_mentions, harvest_mention_candidates,
+    harvest_section_summary_seeds, harvest_structured_field_candidates,
+    induce_bootstrapped_lexicon_entries, parse_markdown_document,
 };
-use writing_assist_core::DocumentArchetype;
 
 #[test]
 fn bootstraps_character_entries_from_seedless_dossier_evidence() {
@@ -54,15 +53,19 @@ fn bootstraps_character_entries_from_seedless_dossier_evidence() {
 
     assert_eq!(mara.kind, BootstrappedLexiconEntryKind::Character);
     assert!(mara.occurrence_count >= 2);
-    assert!(mara
-        .rule_sources
-        .contains(&LexiconBootstrapRule::TitledMention));
-    assert!(mara
-        .rule_sources
-        .contains(&LexiconBootstrapRule::AliasField));
-    assert!(mara.evidence.iter().any(|evidence| {
-        evidence.kind == LexiconSupportRecordKind::MentionCluster
-    }));
+    assert!(
+        mara.rule_sources
+            .contains(&LexiconBootstrapRule::TitledMention)
+    );
+    assert!(
+        mara.rule_sources
+            .contains(&LexiconBootstrapRule::AliasField)
+    );
+    assert!(
+        mara.evidence
+            .iter()
+            .any(|evidence| { evidence.kind == LexiconSupportRecordKind::MentionCluster })
+    );
     assert!(mara.evidence.iter().any(|evidence| {
         evidence.kind == LexiconSupportRecordKind::StructuredField
             && evidence.summary == "Alias: Mara"
@@ -112,9 +115,10 @@ fn bootstraps_terminology_entries_from_definition_grounded_reference_evidence() 
         .expect("expected Tau bootstrapped entry");
 
     assert_eq!(tau.kind, BootstrappedLexiconEntryKind::Terminology);
-    assert!(tau
-        .rule_sources
-        .contains(&LexiconBootstrapRule::DefinitionTerm));
+    assert!(
+        tau.rule_sources
+            .contains(&LexiconBootstrapRule::DefinitionTerm)
+    );
     assert!(tau.evidence.iter().any(|evidence| {
         evidence.kind == LexiconSupportRecordKind::Definition
             && evidence.summary.starts_with("Tau field =>")
@@ -158,13 +162,17 @@ fn reference_bootstrapping_prefers_definition_grounded_terms_over_descriptive_fr
         &definitions,
     );
 
-    assert!(entries
-        .iter()
-        .any(|entry| entry.canonical_surface == "Slipspace boundary"
-            && entry.kind == BootstrappedLexiconEntryKind::Terminology));
-    assert!(!entries
-        .iter()
-        .any(|entry| entry.canonical_surface == "Strong"));
+    assert!(
+        entries
+            .iter()
+            .any(|entry| entry.canonical_surface == "Slipspace boundary"
+                && entry.kind == BootstrappedLexiconEntryKind::Terminology)
+    );
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry.canonical_surface == "Strong")
+    );
 }
 
 #[test]
@@ -197,25 +205,23 @@ fn planning_bootstrapping_prefers_field_grounded_entries_over_tone_vocabulary() 
         &seeds,
     );
 
-    let entries = induce_bootstrapped_lexicon_entries(
-        "story planning/briefing.md",
-        &clusters,
-        &fields,
-        &[],
-    );
+    let entries =
+        induce_bootstrapped_lexicon_entries("story planning/briefing.md", &clusters, &fields, &[]);
 
-    assert!(entries
-        .iter()
-        .any(|entry| entry.canonical_surface == "Mara"
-            && entry.kind == BootstrappedLexiconEntryKind::Character));
-    assert!(entries
-        .iter()
-        .any(|entry| entry.canonical_surface == "Yori"
-            && entry.kind == BootstrappedLexiconEntryKind::Character));
-    assert!(!entries.iter().any(|entry| entry.canonical_surface == "Warm"));
-    assert!(!entries
-        .iter()
-        .any(|entry| entry.canonical_surface == "Precise"));
+    assert!(entries.iter().any(|entry| entry.canonical_surface == "Mara"
+        && entry.kind == BootstrappedLexiconEntryKind::Character));
+    assert!(entries.iter().any(|entry| entry.canonical_surface == "Yori"
+        && entry.kind == BootstrappedLexiconEntryKind::Character));
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry.canonical_surface == "Warm")
+    );
+    assert!(
+        !entries
+            .iter()
+            .any(|entry| entry.canonical_surface == "Precise")
+    );
 }
 
 #[test]
@@ -250,9 +256,7 @@ fn lexicon_matcher_recovers_lowercase_multiword_mentions_in_a_second_pass() {
     );
     let matcher = compile_exact_phrase_lexicon_matcher(&entries);
 
-    let target = parse_markdown_document(
-        "By dawn, the radiant firth had vanished into weather.\n",
-    );
+    let target = parse_markdown_document("By dawn, the radiant firth had vanished into weather.\n");
 
     let first_pass = harvest_mention_candidates(
         "chapters/chapter-lowercase.md",
@@ -266,10 +270,16 @@ fn lexicon_matcher_recovers_lowercase_multiword_mentions_in_a_second_pass() {
         &matcher,
     );
 
-    assert!(!first_pass.iter().any(|candidate| candidate.surface == "radiant firth"));
-    assert!(second_pass
-        .iter()
-        .any(|candidate| candidate.surface == "radiant firth"));
+    assert!(
+        !first_pass
+            .iter()
+            .any(|candidate| candidate.surface == "radiant firth")
+    );
+    assert!(
+        second_pass
+            .iter()
+            .any(|candidate| candidate.surface == "radiant firth")
+    );
 }
 
 #[test]
@@ -312,7 +322,10 @@ fn lexicon_matcher_prefers_longest_overlapping_surface() {
         &matcher,
     );
 
-    let surfaces: Vec<_> = second_pass.iter().map(|candidate| candidate.surface.as_str()).collect();
+    let surfaces: Vec<_> = second_pass
+        .iter()
+        .map(|candidate| candidate.surface.as_str())
+        .collect();
 
     assert!(surfaces.contains(&"radiant firth"));
     assert!(!surfaces.contains(&"firth"));
@@ -350,7 +363,8 @@ fn planning_exact_phrase_reuse_stays_field_grounded_instead_of_reusing_tone_word
     );
     let matcher = compile_exact_phrase_lexicon_matcher(&entries);
 
-    let target = parse_markdown_document("Later, mara waits while the warm corridor stays quiet.\n");
+    let target =
+        parse_markdown_document("Later, mara waits while the warm corridor stays quiet.\n");
     let second_pass = harvest_exact_phrase_lexicon_mentions(
         "story planning/briefing-followup.md",
         DocumentArchetype::StoryPlanning,

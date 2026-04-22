@@ -32,7 +32,10 @@ fn deduplicates_repeated_entities_deterministically() {
     let first = extract_entity_candidates("chapters/chapter-1.md", &parsed);
     let second = extract_entity_candidates("chapters/chapter-1.md", &parsed);
 
-    let names: Vec<_> = first.iter().map(|candidate| candidate.name.as_str()).collect();
+    let names: Vec<_> = first
+        .iter()
+        .map(|candidate| candidate.name.as_str())
+        .collect();
 
     assert_eq!(names, vec!["Ysolde", "Radiant Firth"]);
     assert_eq!(first, second);
@@ -46,7 +49,10 @@ fn filters_ordinary_sentence_initial_single_use_words() {
     );
 
     let candidates = extract_entity_candidates("chapters/chapter-1.md", &parsed);
-    let names: Vec<_> = candidates.iter().map(|candidate| candidate.name.as_str()).collect();
+    let names: Vec<_> = candidates
+        .iter()
+        .map(|candidate| candidate.name.as_str())
+        .collect();
 
     assert_eq!(names, vec!["Captain Mara"]);
 }
@@ -59,7 +65,10 @@ fn extraction_order_follows_first_mention_in_document_order() {
     );
 
     let candidates = extract_entity_candidates("chapters/chapter-1.md", &parsed);
-    let names: Vec<_> = candidates.iter().map(|candidate| candidate.name.as_str()).collect();
+    let names: Vec<_> = candidates
+        .iter()
+        .map(|candidate| candidate.name.as_str())
+        .collect();
 
     assert_eq!(
         names,
