@@ -2,7 +2,7 @@
 
 ## Summary
 
-Build a personal, local-first desktop writing workspace for Markdown projects using `Tauri + SvelteKit + CodeMirror + Rust + SQLite + Rig`. The app combines a primary chat/discussion surface with structured editorial tools, organized into three first-class modes: `Analysis`, `Editing`, and `Ideation`.
+Build a personal, local-first desktop writing workspace for Markdown projects using `Tauri + SvelteKit + CodeMirror + Python + FastAPI + SQLite`. The app combines a primary chat/discussion surface with structured editorial tools, organized into three first-class modes: `Analysis`, `Editing`, and `Ideation`.
 
 The manuscript folder remains canonical, but the app uses an internal draft layer for AI suggestions and human review. Project import is configuration-driven: the user chooses which directories contain primary manuscript content and which directories provide supporting reference or notes material. All model work is span-bounded, retrieval is hybrid and source-linked, and all machine-derived memory is review-gated before reuse.
 
@@ -276,19 +276,90 @@ Transience rules:
 
 ### Backend architecture
 
-- Implement a Rust workspace with these subsystems:
-  - `core`: shared domain types and span anchoring
-  - `store`: SQLite persistence and migrations
-  - `index`: parsing, chunking, entity/fact extraction, summary generation, staleness tracking
-  - `retrieval`: metadata + lexical + entity/fact + vector retrieval and context packing
-  - `llm`: provider abstraction and Rig-backed adapters
-  - `orchestrator`: task execution, validation, job state, and draft emission
-  - `desktop`: Tauri commands and filesystem integration
-- Keep Rig behind internal traits; domain logic must not depend on Rig types directly.
+- Python backend runs as a local FastAPI server at `http://localhost:8000`
+- SvelteKit frontend calls the backend via `fetch`; Tauri `invoke` is only used for native shell operations (file picker, window management)
+- Tauri in `src-tauri` is a thin native shell; the NLP and storage workload lives entirely in Python
+- Use `uv` for package management and `pytest` for testing
+- Python stack:
+  - `pyahocorasick` for multi-pattern phrase matching
+  - `regex` for Unicode-aware pattern matching
+  - NLTK stopwords corpus for function-word filtering
+  - `aiosqlite` for SQLite persistence
+  - No spaCy, no pretrained NER models
 - Support two first-class auth/provider paths:
   - official API-key providers
   - experimental subscription-auth bridge adapters, clearly isolated and marked unstable/personal-use only
-- Keep the architecture open for future local-model providers, but do not make them a v1 implementation dependency.
+- Keep the architecture open for future local-model providers, but do not make them a v1 implementation dependency
+
+#### NLP pipeline module structure
+
+The pipeline has seven stages with explicit input/output types at each boundary:
+
+```
+ParsedMarkdownDocument
+    -> [markdown parser]
+PreprocessedDocument
+    -> [preprocessing]
+MentionCandidate, StructuredFieldCandidate, DefinitionCandidate, SectionSummarySeed
+    -> [evidence harvesting - archetype-aware]
+MentionCluster
+    -> [evidence clustering]
+BootstrappedLexiconEntry
+    -> [lexicon induction]
+MentionCandidate (second pass)
+    -> [exact-phrase matching via aho-corasick]
+    convergence loop until stable or max passes
+PromotedEvidenceBundle
+    -> [evidence promotion]
+```
+
+Additional stage not in the Rust implementation:
+
+```
+MentionCluster + QuoteSpan
+    -> [TF-IDF scoring]
+    graded confidence scores per cluster, feeds into promotion as a continuous signal
+```
+
+Module layout under `backend/nlp/`:
+
+```
+pipeline.py               # top-level orchestration across all stages
+types.py                  # all pipeline input/output dataclasses
+
+parsing/
+  markdown_parser.py      # Markdown -> ParsedMarkdownDocument
+  preprocessing.py        # ParsedMarkdownDocument -> PreprocessedDocument
+
+harvesting/
+  shared.py               # stable_hash_id, merge utilities, title prefix list, stopwords
+  manuscript.py           # Manuscript archetype harvester
+  dossier.py              # DossierProfile archetype harvester
+  planning.py             # StoryPlanning archetype harvester
+  reference.py            # TaxonomyReference + ExpositoryWorldArticle harvesters
+  loose_note.py           # LooseNote archetype harvester
+  dispatch.py             # archetype -> harvester function lookup table
+
+clustering/
+  clustering.py           # evidence clustering
+  linking.py              # cross-link clusters to fields, definitions, seeds
+
+lexicon/
+  induction.py            # bootstrapped lexicon entry induction
+  matcher.py              # compile and run aho-corasick exact-phrase matcher
+  bootstrap.py            # bounded document-level convergence loop
+
+promotion/
+  scoring.py              # TF-IDF scoring and graded confidence calculation
+  promotion.py            # PromotedEvidenceBundle construction
+  attribution.py          # dialogue attribution heuristics (quote -> speaker)
+```
+
+Key module rules:
+- Every archetype harvester imports from `harvesting/shared.py` - shared constants are never duplicated across modules
+- `dispatch.py` is a lookup table, not an if/elif chain
+- `pipeline.py` is the only file that orchestrates across stages
+- No class hierarchies - plain functions with typed inputs/outputs
 
 ### Core data model and interfaces
 

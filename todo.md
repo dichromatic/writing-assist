@@ -10,329 +10,26 @@ It is intended to make feature work small enough that:
 
 ## Execution Rules
 
-- Use red/green/refactor TDD for domain logic, parsing, indexing, retrieval, persistence rules, and feature behavior.
+- Test the decision, not the implementation. Write tests that encode non-obvious rules whose breakage would be invisible. Skip tests for self-evident implementation details.
+- Use pytest + selective Hypothesis: Hypothesis for preprocessing invariants (offset stability, normalization idempotence), pytest for harvesting rules and promotion boundaries.
+- Derive regression tests from inspection log failures, not from preemptive coverage.
 - Do not force TDD for trivial framework wiring, passive UI layout, or mechanical config changes.
 - If anything unexpected happens, stop and notify the user before continuing.
 - After each completed phase, write a technical implementation note under `documentation/`.
 
-## Phase 0
+---
 
-Status:
-
-- completed
-
-Artifacts:
-
-- containerized development environment
-- Rust workspace scaffold
-- SvelteKit frontend scaffold
-- Tauri desktop scaffold
-- frontend-to-Tauri healthcheck
-
-Documentation:
-
-- `documentation/phase-0-workspace-setup.md`
-
-## Phase 1
+## Python NLP Pipeline Port
 
 Goal:
 
-- import a project root
-- let the user assign directory roles
-- discover project files from those mappings
-- parse Markdown into the first useful span model
-- render imported documents in the editor
-- define project context source categories before mode-aware chat consumes them
+- port the Rust evidence pipeline to Python
+- deliver a runnable, inspectable pipeline before connecting FastAPI routes, database persistence, or provider integration
+- implement improvements not present in the Rust reference: TF-IDF scoring, dialogue attribution, graded confidence scores
 
-### Phase 1.1: Import configuration model
+Work in this order. Each subphase depends on the previous one.
 
-Deliverables:
-
-- `ProjectDirectoryRole`
-- `ProjectDirectoryMapping`
-- `ProjectImportCandidate`
-- `ProjectConfig` updated to include directory-role mappings
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- arbitrary directory names can be mapped to roles
-- exactly one `primary_manuscript` role is required
-- `reference`, `notes`, and `ignore` roles behave distinctly
-- heuristics only suggest defaults and do not override explicit mappings
-
-Done when:
-
-- indexing code no longer depends on hardcoded folder names
-- role configuration can drive downstream discovery behavior
-
-### Phase 1.2: Candidate directory scan
-
-Deliverables:
-
-- scan a chosen project root for candidate directories
-- generate suggestion records for the import UI
-- provide rationale for suggestions like `contains .md files` or `named chapters`
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- immediate child directories are discovered correctly
-- root-level Markdown files create a `.` root candidate
-- empty directories are either omitted or clearly marked
-- hidden/app directories such as `.git` and `.writing-assist` are not import candidates
-- heuristic suggestions are stable and deterministic
-
-Done when:
-
-- the frontend can request candidate directories for a project root
-- the backend returns structured import candidates, including a root candidate when root-level Markdown exists
-
-### Phase 1.3: Import UI
-
-Deliverables:
-
-- project root picker
-- import screen listing candidate directories
-- role assignment controls
-- validation that blocks continuation until one `primary_manuscript` is chosen
-
-TDD applies:
-
-- partial
-
-Test:
-
-- frontend behavior tests only where the UI enforces project rules
-- no need to TDD pure layout or cosmetic work
-
-Done when:
-
-- a user can assign roles and submit a valid import configuration
-
-### Phase 1.4: Persist project import configuration
-
-Deliverables:
-
-- initial SQLite schema for projects and directory mappings
-- persistence path for saving import configuration
-- load path for reopening an existing configured project
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- mappings persist correctly
-- reopening a project reuses stored mappings
-- invalid mappings are rejected
-
-Done when:
-
-- import configuration survives app restart and can drive indexing
-
-### Phase 1.5: File discovery from configured mappings
-
-Deliverables:
-
-- discover Markdown files from mapped directories
-- classify documents based on configured directory role, not folder name
-- ignore unmapped or explicitly ignored directories
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- only enabled mapped directories are scanned
-- only Markdown files are indexed
-- root-level Markdown files work through a safe `.` mapping
-- child directory mappings override broad `.` mappings by specificity
-- hidden/app directories are skipped when recursively discovering from broad mappings
-- supported Markdown extensions include `.md`, `.markdown`, `.mdown`, and uppercase variants
-- discovered documents inherit the correct role-derived type
-- stable ordering is preserved
-
-Done when:
-
-- the current hardcoded discovery spike has been replaced
-
-### Phase 1.6: Markdown parse to span model
-
-Deliverables:
-
-- parser output for:
-  - headings
-  - paragraphs
-  - sections
-  - explicit scene-break spans
-  - first-class scene objects
-  - byte and character offsets
-  - whitespace-normalized sidecar text
-  - section-boundary metadata
-- configurable paragraph parsing:
-  - strict blank-line mode
-  - conservative heuristic mode
-- stable document-relative span ordering
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- headings split sections correctly
-- paragraphs are extracted correctly across blank lines
-- empty lines do not become spans
-- mixed heading/paragraph content remains ordered
-- explicit scene breaks split sections and create scenes
-- non-ASCII text has correct byte and character offsets
-- normalized sidecar text does not mutate source text
-- strict paragraph mode disables the conservative heuristic
-
-Done when:
-
-- a Markdown document can be converted into spans, sections, scenes, offsets, and normalized sidecars
-
-### Phase 1.7: Editor loads imported document
-
-Deliverables:
-
-- file tree based on discovered documents
-- load selected document into CodeMirror
-
-TDD applies:
-
-- partial
-
-Test:
-
-- backend/document loading logic should be tested
-- basic UI wiring does not need exhaustive TDD
-
-Done when:
-
-- a configured project can be opened and a manuscript file can be viewed in the editor
-
-### Phase 1.8: Document workspace and selection targeting
-
-Deliverables:
-
-- extract loaded-document rendering into a dedicated document workspace component
-- keep `ProjectImportPanel` focused on import/open/load actions
-- expose CodeMirror selection state from the Markdown editor
-- map selected character ranges to parsed span ordinals
-- surface selected text and overlapping spans for later Analysis/Editing/Ideation actions
-
-TDD applies:
-
-- partial
-
-Test:
-
-- selection-to-span mapping should be tested because it is domain/feature behavior
-- basic Svelte component layout and event wiring do not need exhaustive TDD
-
-Done when:
-
-- loaded documents render through a document workspace component
-- text selection updates app state
-- selection state includes selected text, character range, and overlapping span ordinals
-- selection state is lifted to the workspace parent so Phase 2 chat/task UI can consume it
-- Phase 2 can target the current selection/window without depending on import UI internals
-
-### Phase 1.9: Project context source taxonomy
-
-Deliverables:
-
-- define the distinction between broad directory roles and document-level context source types
-- add core types for first-class guide sources:
-  - prose guideline
-  - style guide
-  - critique rubric
-  - rewrite guide
-  - custom guide
-- add core types for first-class reference sources:
-  - story summary
-  - world summary
-  - character bible
-  - timeline
-  - terminology
-  - research
-  - custom reference
-- define how `guide`, `reference`, and `note` sources enter `Analysis`, `Editing`, and `Ideation`
-- decide which parts must be implemented before Phase 2 task contracts and which parts can wait for Phase 3 retrieval/memory
-
-TDD applies:
-
-- yes once source classification or task-context policy becomes executable business logic
-
-Test:
-
-- core taxonomy serialization should be tested
-- default mode-specific context inclusion rules should be tested
-- future tests should cover source classification once it is implemented
-
-Done when:
-
-- `implementation.md` and `todo.md` define context source semantics clearly enough to shape Phase 2 `TaskRequest` and `ContextBundle`
-- `core` exposes context source taxonomy types and default mode policy helpers
-- context-source default inclusion checks activation and review state as well as source kind
-- prose/style/critique guides are not treated as ordinary notes
-- story/world/character/timeline/terminology bibles are not treated as untyped blobs
-- notes remain opt-in or retrieval-based, not automatically injected into prompts
-
-### Phase 1.10: Phase 1 hardening sweep
-
-Deliverables:
-
-- validate directory mappings as safe project-relative paths
-- support root-level Markdown projects with a normalized `.` mapping
-- preserve saved mappings that are temporarily absent from a candidate rescan
-- skip hidden/app directories during broad discovery
-- clarify that parser-emitted spans are heading, paragraph, and scene-break spans, while sections/scenes/windows are target categories
-- lift document selection target state for Phase 2 chat/task handoff
-- expose a context-source default inclusion helper that respects activation and review state
-
-TDD applies:
-
-- yes for mapping safety, discovery, context policy, and mapping-retention behavior
-- partial for component event handoff
-
-Done when:
-
-- Phase 1 review findings have concrete tests or documented scope boundaries
-- Phase 2 can build task contracts without relying on unsafe mappings or private editor state
-
-### Phase 1 completion criteria
-
-- project root import works
-- directory roles are user-defined and persisted
-- directory mappings are normalized and cannot escape the project root
-- root-level Markdown manuscripts can be imported through the `.` mapping
-- file discovery uses those mappings
-- Markdown parsing produces the first span model
-- imported documents can be opened in the editor
-- current editor selection can be mapped to parsed spans
-- current editor selection is available outside the document component for chat/task handoff
-- project context source categories are defined before Phase 2 task contracts
-- Phase 1 documentation exists in numbered subphase files such as `documentation/phase-1.1-*.md`
-
-## Phase 2
-
-Goal:
-
-- introduce mode-aware chat and task orchestration for `Analysis`, `Editing`, and `Ideation`
-
-### Phase 2.1: Core task contracts
+### Phase P.1: Pipeline types and data model
 
 Status:
 
@@ -340,99 +37,62 @@ Status:
 
 Deliverables:
 
-- `SelectionTarget`
-- `TaskRequest`
-- `TaskResult`
-- `ContextBundle`
-- mode-specific allowed output types and context-source policies
-- stable task IDs and schema/version fields for future persistence
-- explicit references to selected guide/reference/note source IDs or paths
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- `Analysis` cannot emit draft changes
-- `Editing` emits bounded draft changes
-- `Ideation` emits idea outputs, not direct edits by default
-- task requests can target the current selection/span/section/scene/window set from Phase 1.8/1.10
-- context-source defaults use the taxonomy from Phase 1.9 and the activation/review gate from Phase 1.10
-- notes are not included by default
-
-Done when:
-
-- core task contracts compile without depending on provider/Rig types
-- mode output constraints are test-covered
-- task context inputs can represent selected spans and selected/pinned context sources
-
-Documentation:
-
-- `documentation/phase-2.1-mode-aware-llm-task-contracts.md`
-
-### Phase 2.2: Selection target adapter
-
-Status:
-
-- completed
-
-Deliverables:
-
-- convert the frontend `DocumentSelectionTarget` shape into the core `SelectionTarget` contract
-- preserve document path, selected text, character range, and overlapping span ordinals
-- map span ordinals into `TargetAnchor::span`
-- leave section, scene, and window anchors empty until the frontend has enough metadata to map them correctly
-- reject or surface invalid targets before constructing a `TaskRequest`
+- dataclasses in `backend/nlp/types.py` for all pipeline input/output types:
+  - `ParsedMarkdownDocument`, `Heading`, `Paragraph`, `SceneBreak`, `Section`, `Scene`
+  - `PreprocessedDocument`, `Token`, `Sentence`, `QuoteSpan`, `StructuralMarker`
+  - `MentionCandidate`, `StructuredFieldCandidate`, `DefinitionCandidate`, `SectionSummarySeed`
+  - `MentionCluster`
+  - `BootstrappedLexiconEntry`
+  - `PromotedEvidenceBundle`, `PromotedCandidate`, `ReviewOnlyCandidate`, `SuppressedCandidate`
+  - anchor types: `DocumentAnchor`, `SpanAnchor`, `SectionAnchor`
+- `stable_hash_id` utility on all record types
+- version tag on all types for future serialization compatibility
 
 Out of scope:
 
-- automatic window expansion
-- section/scene inference from span ordinals
-- retrieval, embeddings, or model calls
+- implementation logic in any pipeline module
+- FastAPI routes, database schema, frontend types
 
 TDD applies:
 
-- yes for adapter behavior and invalid-target handling
+- yes for hash stability and any invariants expressed as constructors
 
 Behavior to test:
 
-- empty selections do not create executable task targets
-- reversed or invalid character ranges are normalized or rejected consistently
-- span ordinals become span anchors without guessing section/scene/window anchors
-- adapter output can be passed into `TaskRequest::new`
+- `stable_hash_id` is deterministic for typical inputs
+- anchor fields are required; types cannot be constructed without source provenance
+- dataclass field names match what downstream stages consume
 
 Done when:
 
-- the app has one explicit conversion path from UI selection state to core task target state
+- all pipeline stages can express their input and output types by importing from `types.py`
+- no circular imports between `types.py` and any stage module
 
 Documentation:
 
-- `documentation/phase-2.2-selection-target-adapter.md`
+- `documentation/python-p1-pipeline-types.md`
 
-### Phase 2.3: Task context selection
+### Phase P.2: Markdown parser
 
 Status:
 
-- completed
+- not started
 
 Deliverables:
 
-- build a deterministic `ContextBundle` from:
-  - `ConversationMode`
-  - `SelectionTarget`
-  - available project context sources
-  - explicitly selected/pinned context source paths
-- apply `context_source_included_by_default` rather than duplicating source-policy logic
-- preserve included and excluded source lists for later context-inspector UI
-- keep task context selection local and deterministic
+- `backend/nlp/parsing/markdown_parser.py`:
+  - parse Markdown text into `ParsedMarkdownDocument`
+  - emit `Heading`, `Paragraph`, and `SceneBreak` spans with byte and character offsets
+  - derive sections from heading boundaries
+  - derive scenes from explicit scene-break markers (`---`)
+  - produce whitespace-normalized sidecar text without mutating source text
+  - include section-boundary metadata (file-start, heading, scene-break)
 
 Out of scope:
 
-- automatic semantic retrieval
-- vector search
-- summary/fact memory
-- token-budget packing
+- preprocessing, tokenization, sentence segmentation
+- entity extraction
+- front matter or YAML header parsing
 
 TDD applies:
 
@@ -440,93 +100,92 @@ TDD applies:
 
 Behavior to test:
 
-- selected target is preserved in the bundle
-- pinned/approved guides and references enter according to mode policy
-- notes remain excluded by default
-- explicitly selected user-authored or approved notes can enter
-- pending/stale sources remain excluded even if selected
+- headings correctly split sections
+- paragraphs are extracted across blank lines without creating empty spans
+- non-ASCII text produces correct byte and character offsets
+- normalized sidecar text does not mutate or shift source offsets
+- scene-break markers produce both a `SceneBreak` span and a scene boundary
+- mixed heading/paragraph content is ordered correctly
+- a document with no headings or scene breaks produces a single section
 
 Done when:
 
-- orchestrator-facing code can construct a `ContextBundle` without depending on provider/Rig types or retrieval crates
+- a Markdown file produces a `ParsedMarkdownDocument` with correct spans, offsets, sections, and scenes
 
 Documentation:
 
-- `documentation/phase-2.3-task-context-selection.md`
+- `documentation/python-p2-markdown-parser.md`
 
-### Phase 2.4: Chat thread model
+### Phase P.3: Preprocessing
 
 Status:
 
-- completed
+- not started
 
 Deliverables:
 
-- `ChatThread`
-- stable thread ID
-- stored `ConversationMode`
-- current scope attachment:
-  - selection
-  - document
-  - project
-- message list with author role and timestamp
-- selected guide/reference/note source paths captured as thread state
-- lightweight persistence plan or explicit decision to keep threads in-memory until a later phase
+- `backend/nlp/parsing/preprocessing.py`:
+  - Unicode normalization: smart quotes to straight quotes, em-dashes to hyphens, apostrophes, ellipses
+  - stable tokenizer with preserved source offsets post-normalization
+  - sentence boundary detection that handles dialogue and headings correctly without collapsing them
+  - explicit `QuoteSpan` detection from normalized text
+  - structural markers: heading, list item, and scene-break tagging
 
 Out of scope:
 
-- streaming
-- model-provider transcripts
-- long-term conversation compaction
+- harvesting or entity detection
+- syntactic parsing or dependency roles
+- pretrained models of any kind
 
 TDD applies:
 
-- yes for thread construction, scope attachment, and mode persistence
+- yes
+- Hypothesis for offset stability under normalization and normalization idempotence
 
 Behavior to test:
 
-- a new thread stores its mode and initial target scope
-- mode does not silently change when selection changes
-- selected context source paths are preserved separately from `ContextBundle` values selected for tasks
-- chat messages append in order
+- token source offsets round-trip correctly through Unicode normalization
+- sentence segmentation avoids merging dialogue attribution lines with preceding sentences
+- quote spans are recoverable from manuscripts with varied quoting styles
+- heading and list-item structural markers are tagged correctly for planning and reference files
+- normalization is idempotent: running it twice produces the same result
+- non-ASCII characters do not shift downstream token offsets
 
 Done when:
 
-- a thread can be created before task execution and can carry enough state to reproduce the local task request
+- `ParsedMarkdownDocument` produces a `PreprocessedDocument` with stable, inspectable token and sentence boundaries
 
 Documentation:
 
-- `documentation/phase-2.4-chat-thread-model.md`
+- `documentation/python-p3-preprocessing.md`
 
-### Phase 2.5: Deterministic task runner stub
+### Phase P.4: Harvesting shared infrastructure and manuscript archetype
 
 Status:
 
-- completed
+- not started
 
 Deliverables:
 
-- orchestrator function that accepts:
-  - `ConversationMode`
-  - `TaskType`
-  - `SelectionTarget`
-  - context source candidates
-  - explicit context source selections
-- construct `ContextBundle`
-- construct `TaskRequest`
-- return deterministic `TaskResult` placeholder outputs by mode:
-  - `Analysis`: one `AnalysisComment`
-  - `Editing`: one bounded `DraftChange`
-  - `Ideation`: one `IdeaCard`
-- use the existing mode constraints in `TaskResult::new`
-- keep provider/Rig integration out of this phase slice
+- `backend/nlp/harvesting/shared.py`:
+  - `stable_hash_id`
+  - anchor merge utilities
+  - occurrence and feature merge utilities
+  - title prefix list: Mr, Mrs, Ms, Miss, Dr, Prof, Captain, Cpt, Lady, Lord, Sir, Dame, Admiral, General, Sergeant, ...
+  - label lists for field detection
+  - NLTK-backed stopword set
+  - structural suppression helpers: sentence-initial singleton check, bullet-start singleton check, field-label position check, heading-only singleton check
+
+- `backend/nlp/harvesting/manuscript.py`:
+  - extract `MentionCandidate` from prose spans using title/possessive/capitalization patterns
+  - suppress sentence-initial unsupported singletons, dialogue-internal noise, and stopword tokens
+  - attach document path and span/section anchors to every candidate
 
 Out of scope:
 
-- actual prompt construction
-- network calls
-- streaming responses
-- draft persistence or file mutation
+- other archetype harvesters
+- clustering or promotion
+- cross-document merge
 
 TDD applies:
 
@@ -534,267 +193,321 @@ TDD applies:
 
 Behavior to test:
 
-- analysis requests never produce draft changes
-- editing requests produce only bounded draft changes
-- ideation requests produce idea cards only
-- invalid draft targets fail through `TaskResult::new`
-- deterministic outputs include enough target data for the UI to display them
+- title prefix patterns (`Captain Aldous`) produce candidates; bare title tokens alone do not
+- possessive forms (`Aldous's`) attach to the correct base mention
+- sentence-initial capitalized singletons with no further support are suppressed
+- stopwords are filtered without any project-specific word lists
+- every emitted candidate includes document path and span anchor
+- suppression does not remove recurring names that have support in other spans
+- `shared.py` exports are the only source of title prefix lists and stopwords; no duplicates in harvester modules
 
 Done when:
 
-- a non-UI test can execute each mode through the orchestrator stub and receive mode-correct structured outputs
+- `harvesting/shared.py` and `harvesting/manuscript.py` are implemented
+- manuscript archetype produces `MentionCandidate` records with correct anchors and suppression behavior on a test document
 
 Documentation:
 
-- `documentation/phase-2.5-deterministic-task-runner-stub.md`
+- `documentation/python-p4-harvesting-shared-and-manuscript.md`
 
-### Phase 2.6: Tauri command bridge for task execution
+### Phase P.5: Evidence clustering
 
 Status:
 
-- completed
+- not started
 
 Deliverables:
 
-- expose a Tauri command for deterministic task execution
-- TypeScript wrapper under `src/lib/tauri/`
-- shared frontend types for task request inputs and task outputs
-- clear non-desktop/browser fallback behavior for the demo app
-- basic error mapping from Rust errors to UI-friendly messages
+- `backend/nlp/clustering/clustering.py`:
+  - group `MentionCandidate` records into `MentionCluster` by normalized surface form
+  - strip possessives, normalize whitespace and case for the grouping key
+  - merge anchors, occurrence counts, and support features across clustered candidates
+
+- `backend/nlp/clustering/linking.py`:
+  - cross-link clusters to related `StructuredFieldCandidate` and `DefinitionCandidate` records
+  - cross-link clusters to `SectionSummarySeed` where the cluster surface appears in the seed context
 
 Out of scope:
 
-- provider settings
-- streaming
-- background job queue
-- applying edits to disk
+- lexicon induction
+- alias resolution across different surface forms
+- promotion
 
 TDD applies:
 
-- yes for Rust command-adjacent business behavior if separated from Tauri wiring
-- partial for TypeScript wrapper behavior
-- no for trivial Tauri `invoke` wiring
+- yes
 
 Behavior to test:
 
-- command input maps to the same orchestrator path as Rust tests
-- browser fallback does not pretend to call the desktop backend
-- errors preserve enough detail to debug invalid targets or context-policy exclusions
+- `Aldous`, `Aldous's`, and `Captain Aldous` cluster under the same normalized key
+- clusters preserve all source anchors from merged candidates
+- occurrence count reflects total mentions across all merged candidates
+- linking attaches the correct field or definition candidate without losing its anchor
+- normalization grouping is deterministic and stable across processing order
+- a candidate that appears in multiple sections preserves all section anchors
 
 Done when:
 
-- frontend code has a single API wrapper for running a local deterministic task
+- harvested `MentionCandidate` records from `manuscript.py` fold into `MentionCluster` records with correct grouping and cross-links
 
 Documentation:
 
-- `documentation/phase-2.6-tauri-command-bridge-for-task-execution.md`
+- `documentation/python-p5-evidence-clustering.md`
 
-### Phase 2.7: Frontend mode-aware chat UI
-
-Status:
-
-- completed
-
-Deliverables:
-
-- chat panel
-- mode switcher
-- current scope display
-- display of task outputs
-- show current selected text/span target from the document workspace
-- show selected/pinned context sources once available
-- send task requests through the Tauri wrapper or browser fallback
-- keep Analysis, Editing, and Ideation visually distinct enough to avoid accidental edit workflows
-- show draft changes as suggestions, not applied manuscript edits
-
-TDD applies:
-
-- partial
-
-Behavior to test:
-
-- mode switcher state is explicit and visible
-- current selection target appears before task execution
-- Analysis output renders as comments/findings
-- Editing output renders as proposed draft changes without mutating the editor text
-- Ideation output renders as idea cards
-- browser demo path can exercise the UI without desktop-only Tauri failure noise
-
-Done when:
-
-- user can manually run a deterministic local task from the loaded demo/imported document and inspect the structured output
-
-Documentation:
-
-- `documentation/phase-2.7-frontend-mode-aware-chat-ui.md`
-
-### Phase 2.8: Phase 2 hardening sweep
+### Phase P.6: Bootstrapped lexicon and convergence loop
 
 Status:
 
-- completed
+- not started
 
 Deliverables:
 
-- move the frontend workspace architecture spec into `implementation.md` before locking in the current chat-panel prototype
-- define the intended `WriterWorkspace`, `IntelligenceHub`, `KnowledgeRail`, and editor pane responsibilities
-- document global focus and selection state requirements for multi-pane task targeting
-- document why span ordinal anchors are session-local until durable span IDs or revalidated anchors exist
-- verify task terminology is consistent across code, UI, and planning docs
-- verify no frontend path bypasses the `SelectionTarget` adapter
-- verify no model/provider dependency leaked into `core`
-- verify no task execution path mutates manuscript files
-- document Phase 2 limitations and Phase 3 handoff points
+- `backend/nlp/lexicon/induction.py`:
+  - induce `BootstrappedLexiconEntry` records from clustered evidence
+  - record provenance: source anchors, occurrence counts, archetypes seen in, rule sources
+  - manuscript induction is mention-led
+  - reference/taxonomy induction is definition-led
+  - planning/dossier induction is field-led
 
-TDD applies:
+- `backend/nlp/lexicon/matcher.py`:
+  - compile induced entries into a `pyahocorasick` automaton
+  - run phrase matching over normalized preprocessed text
+  - emit matched `MentionCandidate` records with span offsets
 
-- yes for any discovered behavioral bug
-- no for terminology-only documentation cleanup
-
-Done when:
-
-- Phase 2 can hand off to Phase 3 retrieval/memory without hidden provider dependencies or unsafe edit paths
-- frontend architecture is explicit enough to guide the next UI refactor without prematurely implementing Phase 3/4 features
-
-Documentation:
-
-- `documentation/phase-2.8-phase-2-hardening-sweep.md`
-
-### Phase 2 completion criteria
-
-- user can start or simulate a thread in each mode
-- frontend selection state is converted through the `SelectionTarget` adapter
-- backend receives structured `TaskRequest` values
-- local `ContextBundle` selection is deterministic and policy-gated
-- outputs are mode-correct and validated through `TaskResult::new`
-- editing outputs are suggestions only; no manuscript files are mutated in Phase 2
-- browser demo remains usable without a desktop backend
-- Phase 2 documentation exists in numbered subphase files such as `documentation/phase-2.2-*.md`
-
-## Phase 3
-
-Goal:
-
-- add reviewable project memory, context-source controls, and deterministic retrieval inputs
-- keep all generated memory review-gated before it can influence task context
-- avoid provider-dependent extraction until the storage/contracts/review flow is stable
-
-### Phase 3.1: Reviewable memory contracts
-
-Status:
-
-- completed
-
-Deliverables:
-
-- core types for:
-  - `EntityCandidate`
-  - `ReviewableFact`
-  - `ReviewableSummary`
-  - `MemoryReviewState`
-  - `MemoryStalenessState`
-  - source span/document references
-- validation rules for reviewable memory:
-  - pending memory is not reusable
-  - rejected memory is not reusable
-  - stale memory is not reusable
-  - approved memory remains source-linked
-- serialization tests for frontend/Tauri wire compatibility
+- `backend/nlp/lexicon/bootstrap.py`:
+  - bounded document-level convergence loop (max passes configurable, default 3)
+  - re-run harvesters with the compiled lexicon until no new entries appear or max-pass cap is reached
+  - track pass metrics: new entries per pass, convergence delta
 
 Out of scope:
 
-- LLM extraction
+- cross-document lexicon merge
+- treating lexicon entries as approved canon memory
+- LLM-driven alias merging
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- a document with no user-provided vocabulary bootstraps lexicon entries from repeated surfaces
+- later passes produce additional matches that were not found in pass 0
+- common stopwords are not inducted as lexicon entries
+- structurally weak singletons (sentence-initial, bullet-start) do not survive induction
+- titled names survive induction; bare title tokens alone do not
+- convergence loop terminates at max-pass cap even if new entries still appear
+- matcher produces candidates with correct source offsets
+
+Done when:
+
+- the convergence loop produces a stable per-document bootstrapped lexicon
+- second-pass harvest improvements are visible in inspection output
+
+Documentation:
+
+- `documentation/python-p6-bootstrapped-lexicon.md`
+
+### Phase P.7: Evidence promotion, TF-IDF scoring, and dialogue attribution
+
+Status:
+
+- not started
+
+Deliverables:
+
+- `backend/nlp/promotion/attribution.py`:
+  - detect post-quote attribution: `"..." , NameSpan said/asked/replied/...`
+  - detect pre-quote attribution: `NameSpan said/asked/... , "..."`
+  - attach speaker attribution signal to the nearest `MentionCandidate` or cluster
+  - filter dialogue-internal surface forms not attributed to any speaker
+
+- `backend/nlp/promotion/scoring.py`:
+  - compute per-document and per-section term frequencies
+  - TF-IDF score per cluster as a continuous signal
+  - combine signals into a graded deterministic confidence score:
+    - rule tier: seed lexicon entry > titled pattern > capitalization only
+    - title/honorific presence
+    - possessive occurrence frequency
+    - speech-verb co-occurrence near quote spans (from attribution pass)
+    - scene dispersion: appears across multiple scenes is stronger
+    - TF-IDF specificity
+
+- `backend/nlp/promotion/promotion.py`:
+  - classify clusters into `PromotedCandidate`, `ReviewOnlyCandidate`, or `SuppressedCandidate` using graded scores
+  - construct `PromotedEvidenceBundle` with all three buckets and source provenance
+  - define `EvidenceWindow` type: entity-centric context slice for retrieval (first introduction, attributed dialogue, high-activation nearby events)
+
+Out of scope:
+
+- retrieval implementation
+- vector search or embeddings
+- provider calls
+- final canon/alias resolution
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- post-quote and pre-quote attribution patterns produce correct speaker signals on test sentences
+- scene-dispersed clusters score higher than single-scene singletons under the same rule tier
+- TF-IDF downweights names that appear at background frequency across all sections
+- graded confidence scores are deterministic given the same input
+- ambiguous middle-confidence clusters land in `review_only` rather than being forced into `promoted` or `suppressed`
+- suppressed candidates include a traceable suppression reason
+- `EvidenceWindow` carries the anchor of its source span
+
+Done when:
+
+- the pipeline produces `PromotedEvidenceBundle` records with graded confidence
+- speaker attribution signals are visible in inspection output for a manuscript document with dialogue
+
+Documentation:
+
+- `documentation/python-p7-promotion-scoring-attribution.md`
+
+### Phase P.8: Pipeline wiring and inspection tool
+
+Status:
+
+- not started
+
+Deliverables:
+
+- `backend/nlp/pipeline.py`:
+  - orchestrate all stages in order: parser -> preprocessing -> harvesting -> clustering -> lexicon -> promotion
+  - accept a document path and archetype label, return a `PromotedEvidenceBundle`
+  - expose per-stage intermediate output for inspection
+
+- `backend/inspect.py`:
+  - CLI tool: `uv run --project backend python backend/inspect.py path/to/doc.md`
+  - print per-stage output with configurable verbosity (spans, tokens, candidates, clusters, lexicon entries, promoted/review/suppressed bundles)
+  - structured JSON output option for later FastAPI integration
+
+Out of scope:
+
+- FastAPI routes
 - database persistence
-- frontend review UI
-- retrieval ranking
+- frontend integration
 
 TDD applies:
 
-- yes
+- partial: pipeline wiring is integration, not the decision layer; test that stage output types feed into downstream stage inputs cleanly
 
 Behavior to test:
 
-- pending/rejected/stale records are excluded from reusable memory
-- approved records preserve source document path and span anchors
-- entity/fact/summary IDs are stable fields, not inferred from display text
-- review state and stale state serialize in snake_case
+- running the pipeline on a manuscript document produces a non-empty `PromotedEvidenceBundle`
+- all promoted candidates have at least one source anchor
+- stage outputs feed into downstream stage inputs without type errors or missing fields
+- the max-pass convergence cap prevents infinite loops on degenerate input
 
 Done when:
 
-- `core` can represent reviewable memory without depending on provider/Rig types
+- `inspect.py` on a Markdown document produces readable per-stage output
+- pipeline wiring has no silent data loss between stages
 
 Documentation:
 
-- `documentation/phase-3.1-reviewable-memory-contracts.md`
+- `documentation/python-p8-pipeline-wiring-and-inspection.md`
 
-### Phase 3.2: Deterministic entity extraction spike
+### Phase P.9: Remaining archetype harvesters
 
 Status:
 
-- completed
+- not started
 
 Deliverables:
 
-- deterministic local extractor for obvious entity candidates from parsed Markdown spans
-- extraction limited to imported documents and parsed spans
-- output as pending `EntityCandidate` records with source anchors
-- conservative heuristics only:
-  - capitalized names/phrases
-  - repeated proper nouns
-  - glossary-like lines if present
+- `backend/nlp/harvesting/dossier.py`:
+  - field-led harvesting: alias fields, participant fields, role fields
+  - section structure: profile sections as evidence units
+  - suppress prose-approach and tone vocabulary
+
+- `backend/nlp/harvesting/planning.py`:
+  - block-structure-led: scene/beat/outline headings, goal/outcome fields
+  - participant and named entity extraction from field-grounded positions
+  - suppress editorial and planning-descriptor vocabulary
+
+- `backend/nlp/harvesting/reference.py`:
+  - definition-led: glossary-like headings, acronym/expansion patterns, explicit term blocks
+  - stricter about descriptive singletons and heading fragments than manuscript harvesting
+
+- `backend/nlp/harvesting/loose_note.py`:
+  - conservative wrapper using reference-style suppression
+  - avoid promoting bullet-start singletons or editorial asides as candidates
+
+- `backend/nlp/harvesting/dispatch.py`:
+  - lookup table mapping archetype label to harvester function
+  - no if/elif chain; raise on unknown archetypes
 
 Out of scope:
 
-- LLM extraction
-- fact claims
-- summaries
-- entity merging beyond deterministic exact/normalized matching
-- persistence
+- cross-archetype semantic merging
+- project-level identity resolution across documents
 
 TDD applies:
 
-- yes
+- yes for archetype-specific suppression rules
 
 Behavior to test:
 
-- extractor emits candidates with document path and span ordinal
-- repeated entities deduplicate deterministically
-- ordinary sentence capitalization does not create noisy single-use entities where avoidable
-- extraction order is stable
+- dossier alias fields produce candidate records; prose-adjacent tone words do not
+- planning participant fields survive; planning-descriptor words (`compelling`, `brutal`, `tense`) do not
+- reference descriptive heading fragments are rejected; explicit term blocks survive
+- loose notes do not promote bullet-start singletons
+- dispatch routes each archetype to exactly one harvester
+- all harvesters produce candidates using utilities from `shared.py` only; no inline title prefix lists or stopword sets
 
 Done when:
 
-- the index crate can produce pending entity candidates from a loaded parsed document
+- all five archetype harvesters and `dispatch.py` are implemented
+- full pipeline runs on a document of each archetype type
+- `inspect.py` shows archetype-appropriate evidence for each document type
 
-Documentation:
+### Python NLP pipeline completion criteria
 
-- `documentation/phase-3.2-deterministic-entity-extraction.md`
+- all pipeline stage modules are implemented and importable without circular imports
+- `inspect.py` produces readable per-stage output for all five supported archetypes
+- `types.py` covers all input/output types with source anchors required on every record
+- `harvesting/shared.py` is the single source for shared constants, utilities, title prefix lists, and stopword sets
+- no archetype module duplicates title prefix lists, stopword sets, or merge logic
+- convergence loop terminates deterministically within max-pass cap
+- test suite covers: offset stability, normalization idempotence, suppression rules, archetype policy, promotion boundary, attribution patterns
+- inspection output on a real manuscript document shows meaningful promoted candidates with traceable suppression reasons
 
-### Phase 3.3: Memory persistence schema
+---
 
-Status:
+## Phase 4: FastAPI server and editing
 
-- completed
+Goal:
+
+- wire the Python NLP pipeline into FastAPI routes
+- add SQLite persistence for memory records
+- make editing reviewable in the frontend
+
+### Phase 4.1: FastAPI server and NLP routes
 
 Deliverables:
 
-- SQLite schema for reviewable memory:
-  - entity candidates
-  - reviewable facts
-  - reviewable summaries
-  - source references
-  - review and stale states
-- store APIs for:
-  - save pending candidates
-  - list pending/approved/stale records
-  - approve/reject memory records
-  - mark records stale when source hashes change
+- FastAPI app in `backend/main.py`
+- `POST /analyze`: accepts document path and archetype, runs pipeline, returns `PromotedEvidenceBundle`
+- `GET /health`: connectivity check for frontend
+- structured error responses
 
-Out of scope:
+TDD applies:
 
-- frontend review UI
-- LLM extraction
-- vector indexes
+- yes for route input validation and error handling
+- partial for pipeline integration
+
+### Phase 4.2: SQLite persistence for memory records
+
+Deliverables:
+
+- `aiosqlite`-backed persistence for entity candidates, reviewable facts, reviewable summaries, review states, stale states
+- store APIs: save pending candidates, list by state, approve/reject, mark stale on source change
+- migration schema versioning
 
 TDD applies:
 
@@ -802,603 +515,32 @@ TDD applies:
 
 Behavior to test:
 
-- pending records persist and reload
+- pending records persist and reload correctly
 - approve/reject transitions persist
 - stale records are excluded from reusable memory queries
-- source references survive round trip
-- duplicate candidate handling is deterministic
+- source references survive round-trip
 
-Done when:
-
-- store can persist and retrieve reviewable memory independently of frontend UI
-
-Documentation:
-
-- `documentation/phase-3.3-memory-persistence-schema.md`
-
-### Phase 3.4: Context source classification and knowledge rail state
-
-Status:
-
-- completed
+### Phase 4.3: Draft change model and review flow
 
 Deliverables:
 
-- document-level context-source classification helpers for:
-  - guides
-  - references
-  - notes
-- frontend `KnowledgeRail` state model for active context paths
-- task request builder accepts active context paths and sends them as `explicitly_selected_source_paths`
-- UI planning for guide/reference/note toggles, but minimal rendering only if needed to validate data flow
-
-Out of scope:
-
-- fact/summary review UI
-- semantic retrieval
-- vector search
-- final rail visual design
-
-TDD applies:
-
-- yes for classification and request payload behavior
-- partial for frontend rail state
-
-Behavior to test:
-
-- prose/style/critique/rewrite documents classify as guide sources when explicitly marked or confidently named
-- story/world/character/timeline/terminology documents classify as reference sources when explicitly marked or confidently named
-- ambiguous files remain custom/unclassified instead of guessed aggressively
-- active context paths flow into task requests without bypassing backend review-state gates
-
-Done when:
-
-- selected guide/reference/note context can be represented in frontend state and included in task request payloads
-
-Documentation:
-
-- `documentation/phase-3.4-context-source-classification-and-knowledge-rail-state.md`
-
-### Phase 3.5: Fact and summary candidate generation
-
-Status:
-
-- completed
-
-Deliverables:
-
-- deterministic summary candidate scaffolding for document/section scope
-- deterministic fact candidate scaffolding for structured reference-like lines
-- all generated records start as pending review
-- source references include document path and span/section anchors where available
-
-Out of scope:
-
-- provider-generated summaries
-- broad claim extraction from prose
-- automatic approval
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- generated facts/summaries are pending by default
-- generated records include source references
-- stale or rejected records are not returned for task context
-- extractor avoids inventing facts from ordinary manuscript prose
-
-Done when:
-
-- fact and summary records can enter the review queue safely without becoming reusable memory
-
-Documentation:
-
-- `documentation/phase-3.5-fact-and-summary-candidate-generation.md`
-
-Notes:
-
-- This phase is now treated as a narrow deterministic spike, not the final extraction architecture.
-- A later Phase 3.6 will generalize deterministic extraction around document archetypes, richer candidate schemas, and retrieval preparation.
-
-### Phase 3.6: Document archetypes, structured knowledge schemas, and retrieval preparation
-
-Status:
-
-- completed
-
-Deliverables:
-
-- document archetype classification for imported project documents, including:
-  - dossier/profile
-  - story planning / outline
-  - taxonomy / glossary / world-rule reference
-  - expository world article
-  - generic loose note
-- role-aware ingestion support for plain-text `.txt` files in `reference` and `notes` mappings while keeping `primary_manuscript` Markdown-first
-- structured knowledge candidate contracts for deterministic extraction and later LLM output validation, including:
-  - `EntityProfileCandidate`
-  - `RelationshipCandidate`
-  - `TimelineEventCandidate`
-  - `StoryArcCandidate`
-  - `WorldRuleCandidate`
-  - `TerminologyCandidate`
-  - extractive summaries as one candidate type among others, not the only fallback
-- archetype-aware retrieval unit planning:
-  - when retrieval should use sections
-  - when it should use bullet/list items
-  - when it should use profile fields
-  - when it should use timeline/arc nodes
-- source-linking rules so all extracted candidates and retrieval units preserve document path plus span/section anchors
-- planning notes for how later LLM tasks should consume and emit these schemas safely
-- hybrid RAG design for later phases:
-  - exact target vicinity
-  - explicitly selected guide/reference/note sources
-  - lexical/entity/terminology retrieval
-  - approved structured memory retrieval
-  - vector retrieval only as optional fallback
-
-Out of scope:
-
-- provider implementation
-- embeddings as a hard requirement
-- final memory review UI
-- final retrieval ranking implementation
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- dossier-style files classify differently from planning files and world-reference articles
-- taxonomy/reference files expose deterministic terminology/world-rule extraction targets
-- planning files are not flattened into canon-like fact memory automatically
-- long expository files prefer extractive summary/definition units over aggressive claim explosion
-- source anchors survive archetype classification and candidate shaping
-
-Done when:
-
-- the program has a stable, readable structured-knowledge model that can guide both deterministic extraction and later LLM schema design
-- retrieval planning no longer assumes raw spans or generic fact triples are the only useful units
-
-Documentation:
-
-- `documentation/phase-3.6-document-archetypes-structured-knowledge-and-rag-preparation.md`
-
-Notes:
-
-- The completed entity/fact/summary spikes should now be treated as temporary scaffolding.
-- The next extraction step should package evidence for later semantic review instead of trying to deterministically infer final entity truth from prose.
-
-### Phase 3.7: Deterministic evidence harvesting and packaging
-
-Status:
-
-- completed
-
-Deliverables:
-
-- evidence-oriented deterministic candidate contracts and extractor boundaries for:
-  - `MentionCandidate`
-  - `RepeatedPhraseCandidate`
-  - `StructuredFieldCandidate`
-  - `DefinitionCandidate`
-  - `SectionSummarySeed`
-  - local context/neighbor packaging for later semantic filtering
-- archetype-aware harvesting rules so:
-  - manuscripts favor repeated surface forms and titled mentions
-  - dossiers favor labeled fields and profile sections
-  - planning notes favor outline labels, beat lists, and arc headings
-  - taxonomy/reference notes favor definition-like lines and terminology blocks
-  - expository world articles favor bounded extractive summary seeds and explicit repeated terms
-- deterministic junk suppression for obvious prose noise:
-  - universal stopwords and function words
-  - contractions
-  - structurally weak singleton positions
-  - malformed title-case fragments
-- source-linking rules so every evidence record preserves:
-  - document path
-  - span/section anchors
-  - local surrounding text or heading context
-- migration/refactor plan for the current `EntityCandidate` and fact-summary spikes so they become either:
-  - retained narrow scaffolds
-  - or promotion outputs from the new evidence layer
-
-Out of scope:
-
-- final semantic typing
-- alias resolution
-- canon-versus-planning judgment
-- provider calls
-- frontend review UI
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- obvious prose noise is suppressed without collapsing useful repeated mentions
-- noise suppression does not depend on project-specific singleton word lists copied from current logs
-- harvested evidence preserves local context and source anchors deterministically
-- dossier/planning/taxonomy/article archetypes emit different evidence shapes from the same parser output
-- manuscript harvesting stays high-recall but avoids trivial garbage such as `I`, `We`, `It`, and mixed dialogue fragments
-
-Done when:
-
-- the deterministic layer emits inspectable evidence records that are good inputs for later semantic consolidation
-- the current noisy manuscript entity spike has a clear replacement path
-
-Documentation:
-
-- `documentation/phase-3.7-deterministic-evidence-harvesting-and-packaging.md`
-
-Follow-up hardening before Phase 3.8 depends on the current branch findings and
-should be treated as required prep, not optional polish:
-
-#### Phase 3.7a: Shallow NLP preprocessing and segmentation
-
-Status:
-
-- complete
-
-Deliverables:
-
-- stable Unicode normalization for quotes, dashes, apostrophes, and ellipses
-- tokenizer/version metadata for deterministic offsets
-- explicit sentence boundaries
-- explicit quote spans
-- explicit heading/list/scene-break spans
-
-Out of scope:
-
-- full syntactic parsing
-- pretrained NER
-- dependency parsing
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- token offsets stay stable across normalized punctuation
-- sentence segmentation avoids collapsing dialogue and headings into the same unit
-- quote spans are recoverable from manuscript files
-- heading/list/scene-break tagging works for planning and reference files
-
-Done when:
-
-- the evidence layer has a stable structural preprocessing step that later harvesters can rely on
-
-Documentation:
-
-- `documentation/phase-3.7a-shallow-nlp-preprocessing-and-segmentation.md`
-
-#### Phase 3.7b: Bootstrapped project lexicon and deterministic rule matchers
-
-Status:
-
-- complete
-
-Deliverables:
-
-- seedless bootstrapped lexicon induction over bounded deterministic document
-  passes
-- bootstrapped lexicon entry model for:
-  - characters
-  - places
-  - factions
-  - artifacts
-  - terminology
-  - unresolved/unknown candidates
-- provenance captured for each bootstrapped lexicon entry:
-  - source anchors
-  - occurrence counts
-  - archetypes seen in
-  - rule sources that produced it
-- deterministic lexicon matching over normalized text, using `aho-corasick` as
-  the baseline multi-pattern matcher and leaving `fst` as a later optimization
-  if lexicon size requires it
-- standard stopword integration for universal singleton/function-word filtering
-- document-level pass orchestration that allows re-harvesting with the
-  bootstrapped lexicon until convergence or max-pass cutoff
-- archetype-specific token-pattern rules for:
-  - titles/honorifics
-  - possessives
-  - appositions/epithets
-  - acronym/definition shapes
-  - planning-field participants/goals/outcomes
-- structural suppression rules for weak evidence positions such as:
-  - sentence-initial unsupported singletons
-  - loose-note bullet-start unsupported singletons
-  - field-label positions
-  - heading-only unsupported singletons
-- optional user-authored lexicons as later enrichment, not a requirement for initial extraction
-
-Completed:
-
-- bootstrapped lexicon contracts in `crates/core/src/lexicon.rs`
-- document-local induction in `crates/index/src/bootstrapped_lexicon.rs`
-- exact phrase matching with `aho-corasick` in
-  `crates/index/src/exact_phrase_lexicon_matcher.rs`
-- bounded document-level convergence in
-  `crates/index/src/document_lexicon_bootstrap.rs`
-- parser-log smoke-test output for:
-  - bootstrapped entries
-  - exact phrase matches
-  - document bootstrap pass metrics
-  - pass-1 versus converged deltas
-
-Out of scope:
-
-- cross-document identity resolution
-- project-level cross-document lexicon merge and reranking
-- LLM-driven alias merging
-- treating bootstrapped lexicon entries as approved canon memory
-- corpus-specific deny-lists derived from current example logs as a long-term extraction strategy
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- a project with no user-provided vocabulary can still bootstrap lexicon entries from its corpus
-- later passes improve harvest quality using earlier bootstrapped lexicon entries
-- common stopwords are filtered without needing user setup or project-specific word lists
-- structurally weak singleton positions are demoted or rejected without relying on example-specific hardcoding
-- titled names survive without promoting bare titles alone
-
-Done when:
-
-- the current mention layer is materially improved by stopword-backed,
-  structurally filtered harvesting plus a seedless document-level bootstrapped
-  lexicon loop
-
-Documentation:
-
-- `documentation/phase-3.7b-bootstrapped-project-lexicon-and-deterministic-rule-matchers.md`
-
-#### Phase 3.7c: Archetype-specific lexicon induction and reuse
-
-Status:
-
-- complete
-
-Deliverables:
-
-- a shared lexicon-bootstrap framework with archetype-family-specific entry
-  induction strategies for:
-  - manuscript
-  - reference/taxonomy/world article
-  - planning/dossier/loose-note
-- archetype-family-specific exact-phrase reuse policy:
-  - manuscript: enabled and mention-led
-  - reference/taxonomy: enabled but definition/term-led
-  - planning/dossier/loose-note: limited or field-grounded, not generic
-    mention-first reuse
-- manuscript bootstrapping that improves recurring prose mentions without
-  requiring manual vocabulary seeding
-- reference/taxonomy bootstrapping that prefers definitions and explicit terms
-  over descriptive heading fragments
-- planning/dossier bootstrapping that prefers participant/alias/role fields
-  over prose-approach or tone vocabulary
-
-Completed:
-
-- manuscript induction remains mention-led
-- reference/taxonomy/world-article induction is definition-led
-- planning/dossier/loose-note induction is field-led
-- planning-family exact phrase reuse is constrained by field-grounded entry
-  eligibility instead of generic mention-first entries
-- `RoleField` provenance records role/title/position field support explicitly
-- tests cover:
-  - reference descriptive-fragment rejection
-  - planning tone/editorial vocabulary rejection
-  - planning exact-phrase reuse avoiding discarded tone words
-
-Deferred follow-up:
-
-- richer block-led grounding for large planning files that do not use explicit
-  participant/alias/role fields
-- narrower reference definition parsing for weak definition-backed fragments
-
-Out of scope:
-
-- project-level cross-document identity resolution
-- LLM-driven alias merging
-- treating bootstrapped lexicon entries as approved canon memory
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- manuscript bootstrapping improves recurring prose mentions without requiring
-  manual vocabulary seeding
-- reference/taxonomy bootstrapping prefers definitions and explicit terms over
-  descriptive heading fragments
-- planning/dossier bootstrapping prefers participant/alias/role fields over
-  prose-approach or tone vocabulary
-- reference acronym-expansion patterns promote explicit terms and keep unknown
-  abbreviations in review-only buckets
-- planning headings and field labels stop leaking into generic mention clusters
-- the lexicon bootstrap path no longer assumes one main mention-first
-  induction strategy for manuscripts, planning notes, and reference documents
-
-Done when:
-
-- lexicon induction and exact-phrase reuse are split by archetype family while
-  keeping the surrounding deterministic infrastructure shared
-
-Documentation:
-
-- `documentation/phase-3.7c-archetype-specific-lexicon-induction-and-reuse.md`
-
-#### Phase 3.7d: Evidence promotion boundary for retrieval and semantic input
-
-Status:
-
-- complete
-
-Deliverables:
-
-- deterministic promotion rules from raw evidence into smaller, stronger
-  retrieval and semantic-input bundles
-- explicit distinction between:
-  - raw mention evidence
-  - clustered evidence
-  - promoted semantic candidates
-- traceable suppression/review reasons where useful
-- compact promoted evidence bundles for:
-  - strong mention/entity-like candidates
-  - definition-backed terminology candidates
-  - field-backed participants, aliases, and roles
-  - unresolved or review-only evidence that should remain visible but not
-    dominate retrieval or LLM prompts
-
-Completed:
-
-- promoted evidence contracts in `crates/core/src/promoted_evidence.rs`
-- deterministic promotion rules in `crates/index/src/evidence_promotion.rs`
-- relationship-shaped field evidence is retained in `review_only` instead of
-  becoming final relationship records
-- weak singleton clusters and unresolved abbreviations are suppressed with
-  source-linked reason records
-- parser-log smoke-test output now includes promoted, review-only, and
-  suppressed evidence sections
-
-Out of scope:
-
-- provider calls
-- final reusable-memory approval
-- deterministic relationship extraction
-- deterministic causality, timeline, world-rule, or planning-intent inference
-- cross-document semantic identity merging
-- canon-versus-planning interpretation
-
-TDD applies:
-
-- yes
-
-Behavior to test:
-
-- retrieval does not depend on raw noisy mention surfaces
-- semantic input bundles exclude obvious weak surfaces and unresolved abbreviations
-- promoted records remain source-linked
-- relationship-shaped evidence can be retained as source-linked evidence, but
-  is not promoted as a final relationship record in Phase 3
-
-Done when:
-
-- both retrieval and later provider-backed semantic consolidation can consume
-  compact evidence bundles instead of raw harvested noise
-
-Documentation:
-
-- `documentation/phase-3.7d-evidence-promotion-boundary-for-retrieval-and-semantic-input.md`
-
-### Phase 3.8: Retrieval v1 and context inspector
-
-Deliverables:
-
-- metadata retrieval
-- lexical retrieval over parsed normalized text
-- deterministic evidence retrieval where useful for inspection or semantic promotion
-- approved entity/fact/summary retrieval where available
-- archetype-aware retrieval over structured deterministic candidates where available
-- vector retrieval abstraction only, with implementation deferred if needed
-- context inspector showing exact included/excluded sources and memory records for a task
-- thread-local anchor display in the intelligence hub
-
-Out of scope:
-
-- production-grade embeddings
-- provider calls
-- automatic draft mutation
-
-TDD applies:
-
-- yes for retrieval ranking and memory gating
-- partial for context inspector UI
-
-Behavior to test:
-
-- retrieval excludes pending/rejected/stale memory
-- lexical/entity/fact matches rank ahead of vector fallbacks for names and canon terms
-- exact text and deterministic evidence hits can be inspected even when they are not yet approved canon memory
-- archetype-aware units outrank generic raw-text chunks when a dossier/timeline/terminology candidate is a better fit
-- context inspector displays the exact context bundle used by the task
-- anchor display uses session-local anchors and marks stale anchors once Phase 4 mutations exist
-
-Done when:
-
-- approved memory can be used in policy-gated context selection and inspected after a task
-
-### Phase 3 completion criteria
-
-- reviewable memory contracts exist in `core`
-- deterministic extraction can classify document archetypes and produce evidence-oriented pending candidates suitable for later LLM and retrieval work
-- memory records persist with source links, review state, and stale state
-- pending/rejected/stale memory is excluded from reusable context
-- the knowledge rail can pass explicit active context paths into task requests
-- the context inspector can show the exact context used for a task
-- vector retrieval remains optional behind an abstraction, not a blocker for Phase 3
-
-## Phase 4
-
-Goal:
-
-- make editing reviewable and canon-aware
-
-### Phase 4.1: Draft change model
-
-Deliverables:
-
-- `DraftChange`
-- draft lifecycle states
-- diff payload storage
-- frontend session state for unresolved draft overlays
-
-TDD applies:
-
-- yes
-
-### Phase 4.2: Diff review flow
-
-Deliverables:
-
+- `DraftChange` type with lifecycle states and diff payload
 - CodeMirror decoration overlays for draft changes
-- accept/reject draft changes
-- apply accepted edits to Markdown files
-- stale related chat/editor anchors after accepted edits
+- accept/reject controls
+- accepted edits write back to Markdown files
+- stale related editor anchors after accepted edits
 
 TDD applies:
 
 - yes for backend file-application logic
 - partial for UI
 
-### Phase 4.3: Validator task
-
-Deliverables:
-
-- validator request/response contract
-- rewrite validation before draft promotion where enabled
-
-TDD applies:
-
-- yes
-
 ### Phase 4.4: Consistency checks
 
 Deliverables:
 
-- canon consistency task
-- terminology consistency task
+- canon consistency task using approved memory only
+- terminology consistency task using approved memory only
 
 TDD applies:
 
@@ -1406,79 +548,54 @@ TDD applies:
 
 ### Phase 4 completion criteria
 
-- bounded edits are reviewable
-- accepted edits write back correctly
+- FastAPI server runs in Docker and responds to frontend fetch calls
+- pipeline results persist to SQLite
+- bounded edits are reviewable and accepted edits write back correctly
 - consistency checks only use approved memory
 
-## Phase 5
+---
+
+## Phase 5: Provider integration and semantic consolidation
 
 Goal:
 
 - harden provider access and settings
+- add LLM-backed semantic consolidation over promoted evidence bundles
 
-### Phase 5.1: API-key providers
+### Phase 5.1: API-key provider setup
 
 Deliverables:
 
 - provider config storage
 - API-key setup flow
+- provider abstraction that keeps domain logic independent of provider SDK types
 
 TDD applies:
 
-- yes for config/validation logic
-- no for basic settings UI wiring
+- yes for config validation
+- no for basic settings UI
 
 ### Phase 5.2: Experimental subscription bridge
 
 Deliverables:
 
 - isolated adapter boundary
-- explicit unstable/personal-use labeling
+- explicit unstable/personal-use labeling in UI and code
 
 TDD applies:
 
 - yes for adapter-selection and failure isolation logic
 
-### Phase 5.3: Provider settings UX
+### Phase 5.3: Provider-backed semantic consolidation
 
 Deliverables:
 
-- switch provider
-- inspect provider state
-- surface failures clearly
-
-TDD applies:
-
-- partial
-
-### Phase 5.4: Provider-backed semantic consolidation and schema validation
-
-Deliverables:
-
-- provider-backed semantic filter pipeline that consumes promoted evidence bundles instead of raw harvested mentions
-- schema-validated promotion from evidence into typed candidates such as:
-  - `EntityProfileCandidate`
-  - `RelationshipCandidate`
-  - `TimelineEventCandidate`
-  - `StoryArcCandidate`
-  - `WorldRuleCandidate`
-  - `TerminologyCandidate`
-  - semantically reviewed memory candidates where still appropriate
-- explicit rejection path for borderline or noisy harvested evidence
+- semantic filter pipeline that consumes promoted evidence bundles, not raw mention clusters
+- schema-validated promotion into typed candidates: `EntityProfileCandidate`, `RelationshipCandidate`, `TimelineEventCandidate`, `StoryArcCandidate`, `WorldRuleCandidate`, `TerminologyCandidate`
+- explicit rejection path for borderline or noisy evidence
 - alias-resolution policy that remains reviewable and source-linked
-- archetype-specific provider tasks for:
-  - manuscript entity/alias consolidation
-  - reference terminology/world-rule consolidation
-  - planning-note participant/goal/relationship consolidation
-- provider-output validation that rejects:
-  - unknown evidence IDs
-  - malformed rejection payloads
-  - weak abbreviations promoted as reusable entities without explicit expansion
-
-Out of scope:
-
-- bulk merge UX
-- final polished review UI
+- archetype-specific provider tasks: manuscript entity/alias consolidation, reference terminology/world-rule consolidation, planning-note participant/goal/relationship consolidation
+- provider-output validation: reject unknown evidence IDs, malformed rejection payloads, and weak abbreviations promoted without explicit expansion
 
 TDD applies:
 
@@ -1490,53 +607,31 @@ Behavior to test:
 - promoted candidates preserve source anchors from harvested evidence
 - semantically rejected evidence does not enter reusable memory
 - alias merges remain inspectable and reversible
-- rejected evidence IDs map back to actual evidence IDs from the request bundle
-- reference tasks do not promote undefined abbreviations into `proposed_entities`
-- manuscript tasks prefer review/open-question buckets over weak one-off entity promotion
 
 Done when:
 
-- harvested evidence can be turned into typed, reviewable candidates without trusting raw LLM output directly
+- harvested evidence can be turned into typed, reviewable candidates without trusting raw provider output directly
 
-### Phase 5.5: Memory review UI
+### Phase 5.4: Memory review UI
 
 Deliverables:
 
-- review UI for semantically consolidated candidates and retained deterministic summaries/facts where still useful
-- approve/reject controls through Tauri/store commands
+- review UI for semantically consolidated candidates
+- approve/reject controls through backend API calls
 - visible stale state
 - no automatic use of pending memory in task context
-
-Out of scope:
-
-- polished final visual design
-- bulk merge UX
 
 TDD applies:
 
 - partial
 
-Behavior to test:
-
-- UI calls review commands with stable record IDs
-- approved records become available to reusable-memory queries
-- rejected records stay hidden from reusable-memory queries
-- stale records remain visible but excluded from task context
-
 Done when:
 
-- user can review promoted memory before it is allowed into retrieval/context selection
+- user can review promoted memory before it is allowed into retrieval or context selection
 
 ### Phase 5 completion criteria
 
 - provider configuration is stable
 - semantic consolidation is schema-validated and source-linked
 - adapter failures do not corrupt project state
-
-## Immediate Next Tasks
-
-1. Start Phase 3.8 retrieval v1 and context inspector.
-2. Feed retrieval from promoted evidence bundles, structured deterministic candidates, and approved memory rather than raw mention clusters.
-3. Keep the new workspace-state model as the frontend target for future UI refactors.
-4. Do not implement CodeMirror draft mutation or accept/reject flows until Phase 4.
-5. Keep context-source review and the knowledge rail in Phase 3 scope.
+- memory review UI gates all machine-derived candidates before retrieval

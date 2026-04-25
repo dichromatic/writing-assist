@@ -33,6 +33,7 @@ venv/
 !.env.example
 .codex
 AGENTS.md
+CLAUDE.md
 .ignore
 
 # project data (managed locally, not committed)
