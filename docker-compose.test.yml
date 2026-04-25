@@ -1,0 +1,17 @@
+version: '3.7'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    working_dir: /workspace
+    command: uv run --project backend pytest backend/tests/ -v --tb=short
+    volumes:
+      - ./:/workspace
+      - uv-cache:/root/.cache/uv
+    environment:
+      PYTHONPATH: /workspace
+
+volumes:
+  uv-cache:

@@ -1,22 +1,41 @@
-node_modules/
-.svelte-kit/
-build/
-.dist/
-dist/
-coverage/
+# frontend
+frontend/node_modules/
+frontend/.svelte-kit/
+frontend/build/
+frontend/.dist/
+frontend/dist/
+frontend/coverage/
+
+# tauri
+src-tauri/target/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+*.egg-info/
+.hypothesis/
+
+# database
+.db/
+*.db
+*.db-wal
+*.db-shm
+
+# os / tooling
 .DS_Store
 .env
 .env.*
 !.env.example
-src-tauri/target/
-target/
-.db/
-*.db
-*.db-shm
-*.db-wal
 .codex
 AGENTS.md
+.ignore
+
+# project data (managed locally, not committed)
 documentation/
 logs/
 examples/
-.ignore

@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
 set -eu
 
-npm install
-cargo fetch
+cd frontend && npm install && cd ..
+uv sync --project backend --group dev

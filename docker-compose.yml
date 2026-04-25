@@ -1,7 +1,7 @@
 version: '3.7'
 
 services:
-  workspace:
+  backend:
     build:
       context: .
       dockerfile: docker/Dockerfile.dev
@@ -9,19 +9,16 @@ services:
     command: sleep infinity
     volumes:
       - ./:/workspace
-      - cargo-registry:/usr/local/cargo/registry
-      - cargo-git:/usr/local/cargo/git
-      - node-modules:/workspace/node_modules
+      - frontend-node-modules:/workspace/frontend/node_modules
+      - uv-cache:/root/.cache/uv
     ports:
+      - '${API_PORT:-8000}:${API_PORT:-8000}'
       - '${VITE_PORT:-5180}:${VITE_PORT:-5180}'
-      - '${VITE_PREVIEW_PORT:-4180}:${VITE_PREVIEW_PORT:-4180}'
     environment:
       HOST: 0.0.0.0
-      PORT: ${VITE_PORT:-5180}
-      PREVIEW_PORT: ${VITE_PREVIEW_PORT:-4180}
-      RUST_LOG: info
+      API_PORT: ${API_PORT:-8000}
+      VITE_PORT: ${VITE_PORT:-5180}
 
 volumes:
-  cargo-registry:
-  cargo-git:
-  node-modules:
+  frontend-node-modules:
+  uv-cache:
