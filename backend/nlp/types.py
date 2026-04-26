@@ -136,7 +136,10 @@ class Paragraph:
 
 @dataclass
 class SceneBreak:
-    """An explicit scene-break marker (--- on its own line).
+    """An explicit scene-break marker on its own line.
+
+    Recognised forms are ---, ***, and ___ (three or more of each character),
+    matching the CommonMark thematic break specification.
 
     Args:
         span_ordinal: Position in document order.

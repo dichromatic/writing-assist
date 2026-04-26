@@ -298,5 +298,3 @@ def _find_speaker(
                 break
 
     return best_key
-
-    return None

@@ -9,11 +9,11 @@ buckets and constructs the PromotedEvidenceBundle for downstream stages.
         B --> C{For each cluster}
         C -->|is stopword| D[SuppressedCandidate STOPWORD]
         C -->|score below SUPPRESS_THRESHOLD| E[SuppressedCandidate LOW_CONFIDENCE]
-        C -->|score >= PROMOTE_THRESHOLD\nAND is bare title key| G[ReviewOnlyCandidate BARE_TITLE]
         C -->|score >= PROMOTE_THRESHOLD\nAND not bare title key| F[PromotedCandidate]
-        C -->|otherwise| G
-        F & G --> H[Build EvidenceWindows for all anchors]
-        D & E & F & G & H --> I[PromotedEvidenceBundle]
+        C -->|score >= PROMOTE_THRESHOLD\nAND is bare title key| G[ReviewOnlyCandidate\nreason: bare title prefix]
+        C -->|score between thresholds| G2[ReviewOnlyCandidate\nreason: mid-confidence]
+        F & G & G2 --> H[Build EvidenceWindows for all anchors]
+        D & E & F & G & G2 & H --> I[PromotedEvidenceBundle]
 """
 
 from __future__ import annotations

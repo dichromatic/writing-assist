@@ -301,6 +301,7 @@ def _pair_quote_tokens(
 
 def _make_structural_marker(
     span: Heading | SceneBreak,
+    raw_text: str,
 ) -> StructuralMarker:
     """Build a StructuralMarker for a span that carries structural meaning.
 
@@ -309,6 +310,8 @@ def _make_structural_marker(
 
     Args:
         span: A Heading or SceneBreak span.
+        raw_text: The full document raw text, used to extract the actual scene
+            break characters (---, ***, or ___) for SceneBreak spans.
 
     Returns:
         A StructuralMarker for the span.
@@ -321,9 +324,12 @@ def _make_structural_marker(
             end_char=span.end_char,
             span_ordinal=span.span_ordinal,
         )
+    # SceneBreak has no text field; slice the actual marker characters from the
+    # raw document so the StructuralMarker faithfully reflects ---, ***, or ___.
+    marker_text = raw_text[span.start_char:span.end_char].strip()
     return StructuralMarker(
         kind=StructuralMarkerKind.SCENE_BREAK,
-        text='---',
+        text=marker_text,
         start_char=span.start_char,
         end_char=span.end_char,
         span_ordinal=span.span_ordinal,
@@ -356,7 +362,7 @@ def preprocess(doc: ParsedMarkdownDocument) -> PreprocessedDocument:
 
     for span in content_spans:
         if isinstance(span, (Heading, SceneBreak)):
-            structural_markers.append(_make_structural_marker(span))
+            structural_markers.append(_make_structural_marker(span, doc.raw_text))
 
         # SceneBreak spans carry no text to tokenise.
         if isinstance(span, SceneBreak):
