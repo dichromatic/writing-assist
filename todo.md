@@ -76,7 +76,7 @@ Documentation:
 
 Status:
 
-- not started
+- completed
 
 Deliverables:
 
@@ -120,7 +120,7 @@ Documentation:
 
 Status:
 
-- not started
+- completed
 
 Deliverables:
 
