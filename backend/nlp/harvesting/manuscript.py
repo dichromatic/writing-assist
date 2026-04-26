@@ -159,6 +159,39 @@ def _extract_from_span(
         consumed.add(i)
 
     # ------------------------------------------------------------------
+    # Pass 2b: two-token possessive (base ending in 's + bare apostrophe)
+    # "James'" tokenises as ["James", "'"] because the tokenizer regex
+    # requires at least one \w after the apostrophe. When the base word
+    # ends in 's', a bare apostrophe immediately adjacent signals the
+    # standard English terminal-s possessive ("soldiers'", "James'").
+    # ------------------------------------------------------------------
+    for i, token in enumerate(tokens):
+        if i in consumed or i + 1 >= len(tokens):
+            continue
+        next_tok = tokens[i + 1]
+        # The apostrophe must be directly attached - no whitespace between.
+        if next_tok.text != "'" or next_tok.start_char != token.end_char:
+            continue
+        if not token.text[0].isalpha() or not token.text[0].isupper():
+            continue
+        # Only the terminal-s possessive form is handled here; the base must
+        # end in 's' so the combined surface ends in "s'".
+        if not token.text[-1].lower() == 's':
+            continue
+        if is_stopword(token.text):
+            continue
+        candidates.append(make_candidate(
+            surface=token.raw_text + next_tok.raw_text,
+            start_char=token.start_char,
+            end_char=next_tok.end_char,
+            has_title_prefix=False,
+            has_possessive=True,
+            rule_source='possessive',
+        ))
+        consumed.add(i)
+        consumed.add(i + 1)
+
+    # ------------------------------------------------------------------
     # Pass 3: bare capitalised names (not stopword, not yet consumed)
     # "Aldous", "Rhea", "Vayne"
     # ------------------------------------------------------------------

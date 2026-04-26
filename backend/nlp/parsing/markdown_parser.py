@@ -41,8 +41,11 @@ from backend.nlp.types import (
 )
 
 _HEADING_RE = re.compile(r'^(#{1,6})\s+(.*)')
-# Three or more dashes on a line by themselves, with optional surrounding space.
-_SCENE_BREAK_RE = re.compile(r'^\s*-{3,}\s*$')
+# CommonMark thematic break: three or more of ---, ***, or ___ on a line by
+# themselves with optional surrounding whitespace. All three styles are treated
+# as scene breaks so manuscripts that use asterisms (***) or underscores work
+# without requiring the author to convert to dashes.
+_SCENE_BREAK_RE = re.compile(r'^\s*(-{3,}|\*{3,}|_{3,})\s*$')
 
 _Span = Union[Heading, Paragraph, SceneBreak]
 

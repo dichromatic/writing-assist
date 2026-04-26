@@ -241,6 +241,50 @@ class TestQuoteDetection:
         qs = pre.quote_spans[0]
         assert text[qs.start_char:qs.end_char] == '"hello"'
 
+    def test_single_quoted_dialogue_detected(self):
+        # British-style dialogue and internal character speech use single quotes.
+        # Without single-quote detection, these passages produce no QuoteSpan
+        # records and the attribution stage silently misses all dialogue in
+        # single-quote manuscripts.
+        text = "'Hello there,' she said."
+        doc, pre = make(text)
+        assert len(pre.quote_spans) == 1
+        assert pre.quote_spans[0].inner_text == "Hello there,"
+
+    def test_apostrophe_not_confused_with_single_quote(self):
+        # Apostrophes inside contractions and possessives (don't, Aldous's) are
+        # absorbed by the tokenizer into a single word token and must not appear
+        # as standalone quote delimiters. Without this invariant, contractions in
+        # the vicinity of single-quote dialogue would corrupt the open/close pairing.
+        text = "She didn't hear him. 'Go away,' he said."
+        doc, pre = make(text)
+        # Only one QuoteSpan: the single-quote dialogue. The apostrophe in
+        # "didn't" is absorbed into the contraction token and is invisible to
+        # the quote detector.
+        assert len(pre.quote_spans) == 1
+        assert "away" in pre.quote_spans[0].inner_text
+
+    def test_plural_possessive_apostrophe_not_confused_with_single_quote(self):
+        # Plural possessives ending with a bare apostrophe ("James'", "soldiers'")
+        # produce a standalone ' token because the tokenizer has no following word
+        # character to absorb. Without the preceding-character boundary check in
+        # _pair_quote_tokens, this token pairs with the next real quote delimiter
+        # and produces a false QuoteSpan that spans the possessive word and the
+        # surrounding prose rather than the actual dialogue.
+        text = "James' sword fell. 'Hello,' she said."
+        doc, pre = make(text)
+        assert len(pre.quote_spans) == 1
+        assert "Hello" in pre.quote_spans[0].inner_text
+
+    def test_typographic_single_quotes_are_detected(self):
+        # Curly single quotes (‘ / ’) are normalised to ASCII `'`
+        # before tokenisation. Without this, typographic single quotes would
+        # not produce QuoteSpan records for manuscripts from word processors that
+        # auto-convert to curly quotes.
+        text = "‘Hello.’"
+        doc, pre = make(text)
+        assert len(pre.quote_spans) == 1
+
 
 # ---------------------------------------------------------------------------
 # Structural markers

@@ -175,6 +175,23 @@ class TestScenes:
         assert before_ordinal not in scene_1_ordinals
         assert after_ordinal not in scene_0_ordinals
 
+    def test_asterisk_scene_break_produces_scene(self):
+        # *** is a valid CommonMark thematic break and must be treated as a
+        # scene break. Authors using asterisms (***) instead of dashes should
+        # not have to convert their manuscripts for the parser to split scenes.
+        text = "Before.\n***\nAfter."
+        doc = parse("doc.md", text)
+        assert len(doc.scene_breaks) == 1
+        assert len(doc.scenes) == 2
+
+    def test_underscore_scene_break_produces_scene(self):
+        # ___ is the third CommonMark thematic break style. Including it means
+        # the parser accepts all three standard styles without special-casing.
+        text = "Before.\n___\nAfter."
+        doc = parse("doc.md", text)
+        assert len(doc.scene_breaks) == 1
+        assert len(doc.scenes) == 2
+
 
 # ---------------------------------------------------------------------------
 # Edge cases

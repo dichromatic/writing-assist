@@ -163,6 +163,19 @@ class TestPossessiveExtraction:
         assert "aldous" in keys
         assert len([c for c in candidates if c.normalized == "aldous"]) >= 2
 
+    def test_terminal_s_possessive_produces_candidate(self):
+        # "James'" tokenises as ["James", "'"] because the tokenizer regex
+        # requires at least one \w after the apostrophe. Pass 2b detects this
+        # two-token form via a lookahead: if an uppercase word ending in 's' is
+        # immediately followed by an adjacent bare apostrophe, it is a possessive.
+        # Without this, names like "James'", "Aldous'", and "soldiers'" would
+        # silently produce no possessive candidate.
+        candidates = pipeline("James' sword was missing.")
+        poss = next((c for c in candidates if c.rule_source == 'possessive'), None)
+        assert poss is not None
+        assert poss.normalized == "james"
+        assert poss.has_possessive is True
+
 
 # ---------------------------------------------------------------------------
 # Candidate extraction: bare capitalised names

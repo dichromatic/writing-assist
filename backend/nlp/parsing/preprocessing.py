@@ -13,7 +13,7 @@ and recover the exact original surface form without a separate mapping table.
         B --> C[Normalise span text\n1:1 char substitutions]
         C --> D[Tokenise normalised text\noffsets valid in original]
         D --> E[Split into sentences\nabbreviation-aware]
-        D --> F[Detect quote spans\npaired double-quotes]
+        D --> F[Detect quote spans\npaired double- and single-quotes]
         B --> G[Tag structural markers\nheadings and scene breaks]
         E & F & G --> H[PreprocessedDocument]
 """
@@ -202,12 +202,23 @@ def _detect_quotes(
     span_ordinal: int,
     raw_text: str,
 ) -> list[QuoteSpan]:
-    """Pair double-quote tokens into QuoteSpan records.
+    """Pair quote tokens into QuoteSpan records for both double and single quotes.
 
-    Quotes are paired left-to-right. If an odd number of `"` tokens appear,
-    the final unmatched quote is silently discarded rather than raising an
-    error - unbalanced quotes in prose are common and should not halt
-    preprocessing.
+    Handles `"` (universal double-quote dialogue) and `'` (British-style dialogue
+    and internal character speech). Each style is matched independently: a `"`
+    opening can only close with `"`, and a `'` opening can only close with `'`.
+    If an odd number of tokens of either style appear, the final unmatched token
+    is silently discarded - unbalanced quotes are common in prose and should not
+    halt preprocessing.
+
+    Apostrophes within contractions ("don't") and possessives ("Aldous's") are
+    absorbed by the tokenizer into a single word token, so they never appear as
+    standalone `'` tokens. Plural possessives ending with a bare apostrophe
+    ("James'") do produce a standalone `'` token, because there is no following
+    word character for the contraction sub-pattern to absorb. These are filtered
+    in `_pair_quote_tokens` by checking the character immediately before the
+    token in the raw text: a possessive apostrophe is always attached to its
+    word, so the preceding character is alphanumeric.
 
     Args:
         path: Document path, used to construct QuoteSpan anchors.
@@ -216,18 +227,60 @@ def _detect_quotes(
         raw_text: The full document raw text, used to extract inner_text.
 
     Returns:
-        QuoteSpan records for each matched open/close pair, in document order.
+        QuoteSpan records for each matched open/close pair, sorted by start_char.
+    """
+    all_spans: list[QuoteSpan] = []
+    for quote_char in ('"', "'"):
+        all_spans.extend(
+            _pair_quote_tokens(path, tokens, span_ordinal, raw_text, quote_char)
+        )
+    all_spans.sort(key=lambda q: q.start_char)
+    return all_spans
+
+
+def _pair_quote_tokens(
+    path: str,
+    tokens: list[Token],
+    span_ordinal: int,
+    raw_text: str,
+    quote_char: str,
+) -> list[QuoteSpan]:
+    """Pair all standalone tokens matching quote_char into QuoteSpan records.
+
+    For single quotes, tokens immediately following a word character are
+    skipped: they are possessive suffixes ("James'"), not quote delimiters.
+    The check uses the raw document character at start_char - 1, because the
+    tokenizer places the bare apostrophe as a separate token only when there
+    is no following word character to absorb into a contraction.
+
+    Args:
+        path: Document path for anchor construction.
+        tokens: All tokens for a single span.
+        span_ordinal: The span ordinal of the parent span.
+        raw_text: The full document raw text for inner_text extraction.
+        quote_char: The exact character to pair, either `"` or `'`.
+
+    Returns:
+        QuoteSpan records for each matched pair, in document order.
     """
     quote_spans: list[QuoteSpan] = []
     open_token: Optional[Token] = None
 
     for token in tokens:
-        if token.text != '"':
+        if token.text != quote_char:
+            continue
+        # A bare ' immediately following an alphanumeric character is a
+        # possessive suffix, not a quote delimiter. Double quotes have no
+        # equivalent ambiguity so this check is single-quote only.
+        if (
+            quote_char == "'"
+            and token.start_char > 0
+            and raw_text[token.start_char - 1].isalnum()
+        ):
             continue
         if open_token is None:
             open_token = token
         else:
-            # inner_text is the content between the quotation marks, exclusive.
             inner_text = raw_text[open_token.end_char:token.start_char]
             quote_spans.append(QuoteSpan(
                 inner_text=inner_text,

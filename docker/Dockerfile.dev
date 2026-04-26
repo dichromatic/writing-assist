@@ -15,4 +15,12 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Download NLTK corpora needed by the NLP pipeline into a system-wide path
+# so every Python environment in the container finds them. This runs during
+# image build (network available) so the corpora are baked in and no
+# runtime download is attempted against a network that may not be reachable.
+RUN uv pip install --system --no-cache nltk \
+    && python -m nltk.downloader -d /usr/local/share/nltk_data \
+        stopwords wordnet omw-1.4
+
 WORKDIR /workspace
