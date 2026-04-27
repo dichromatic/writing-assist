@@ -113,7 +113,7 @@ def main(path: str) -> None:
     # Bootstrap-time classification uses an empty attribution set because
     # attribution runs after bootstrapping. classify_clusters applies the
     # attribution tie-break so that speakers are never mislabelled as places.
-    corrected_categories = classify_clusters(result.clusters, attribution_records)
+    corrected_categories = classify_clusters(result.clusters, pre, attribution_records)
 
     if result.lexicon:
         print()

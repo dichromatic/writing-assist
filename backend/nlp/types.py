@@ -495,10 +495,11 @@ class LexiconCategory(Enum):
     """
 
     CHARACTER = "character"
+    GROUP = "group"
     PLACE = "place"
-    FACTION = "faction"
-    ARTIFACT = "artifact"
-    TERMINOLOGY = "terminology"
+    OBJECT = "object"
+    EVENT = "event"
+    CONCEPT = "concept"
     UNRESOLVED = "unresolved"
 
 
@@ -553,6 +554,7 @@ class SuppressReason(Enum):
     FIELD_LABEL_POSITION = "field_label_position"
     HEADING_ONLY_SINGLETON = "heading_only_singleton"
     DIALOGUE_INTERNAL = "dialogue_internal"
+    LOW_ENTITYHOOD = "low_entityhood"
     LOW_CONFIDENCE = "low_confidence"
 
 

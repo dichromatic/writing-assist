@@ -11,7 +11,12 @@ import pytest
 from backend.nlp.parsing.markdown_parser import parse
 from backend.nlp.parsing.preprocessing import preprocess
 from backend.nlp.harvesting.manuscript import harvest_manuscript
-from backend.nlp.harvesting.shared import normalize_surface, is_stopword, TITLE_PREFIXES
+from backend.nlp.harvesting.shared import (
+    PLACE_DESCRIPTOR_NOUNS,
+    TITLE_PREFIXES,
+    is_stopword,
+    normalize_surface,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -79,6 +84,23 @@ class TestIsStopword:
     def test_proper_name_is_not_stopword(self):
         # Character names must not be suppressed by the stopword filter.
         assert is_stopword("Aldous") is False
+
+
+class TestPlaceDescriptorNouns:
+    def test_wordnet_expansion_adds_generic_place_descriptors(self):
+        # The place classifier should be able to recognize more than the small
+        # hand-curated seed list. WordNet-backed expansion is meant to add
+        # generic descriptor nouns such as "municipality" and "seaport"
+        # without requiring a growing manual list.
+        assert "municipality" in PLACE_DESCRIPTOR_NOUNS
+        assert "seaport" in PLACE_DESCRIPTOR_NOUNS
+
+    def test_wordnet_expansion_does_not_become_gazetteer(self):
+        # PLACE_DESCRIPTOR_NOUNS is a common-noun descriptor list, not a
+        # database of actual place names. Named entries like "amsterdam" would
+        # make descriptor support behave like a noisy gazetteer.
+        assert "amsterdam" not in PLACE_DESCRIPTOR_NOUNS
+        assert "aachen" not in PLACE_DESCRIPTOR_NOUNS
 
 
 # ---------------------------------------------------------------------------

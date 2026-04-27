@@ -58,6 +58,110 @@ LOCATIVE_PREPOSITIONS: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# Place-context refinements
+#
+# The manuscript harvester records only a coarse "has location context" flag.
+# Later classifiers refine that signal using the actual neighboring tokens.
+# Strong locatives can resolve a place on their own; weak locatives need
+# corroboration because they also introduce abstract compounds ("through
+# Cosmic Time") and adjectival demonyms ("by Lunarian druids").
+# ---------------------------------------------------------------------------
+STRONG_LOCATIVE_PREPOSITIONS: frozenset[str] = frozenset({
+    "in", "at", "from", "into", "onto", "within", "inside", "outside",
+    "near", "on",
+})
+
+WEAK_LOCATIVE_PREPOSITIONS: frozenset[str] = LOCATIVE_PREPOSITIONS - STRONG_LOCATIVE_PREPOSITIONS
+
+_BASE_PLACE_DESCRIPTOR_NOUNS: frozenset[str] = frozenset({
+    "city", "capital", "planet", "continent", "forest", "valley", "mountain",
+    "range", "lagoon", "bay", "beach", "beaches", "street", "streets",
+    "garden", "gardens", "village", "town", "port", "groundport",
+})
+
+DEMONYM_SUFFIXES: frozenset[str] = frozenset({
+    "ian", "an", "ish", "ese",
+})
+
+
+def _load_place_descriptor_nouns() -> frozenset[str]:
+    """Build a conservative place-descriptor noun set.
+
+    The place classifier needs common nouns such as "city", "valley", and
+    "seaport", not a gazetteer of actual named places. WordNet is therefore
+    used only as a lexical expansion source from selected geographic root
+    synsets, with strict filtering and a fallback to the hand-curated seed set.
+
+    Returns:
+        A frozenset of lowercase single-token common nouns that can act as
+        place descriptors in local context such as "city of Sidhe".
+    """
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return _BASE_PLACE_DESCRIPTOR_NOUNS
+
+    root_synset_names = (
+        "city.n.01",
+        "town.n.01",
+        "village.n.01",
+        "municipality.n.01",
+        "administrative_district.n.01",
+        "district.n.01",
+        "region.n.03",
+        "geographical_area.n.01",
+        "community.n.01",
+        "province.n.01",
+        "country.n.02",
+        "continent.n.01",
+        "island.n.01",
+        "archipelago.n.01",
+        "body_of_water.n.01",
+        "river.n.01",
+        "lake.n.01",
+        "bay.n.01",
+        "gulf.n.01",
+        "mountain.n.01",
+        "mountain_range.n.01",
+        "valley.n.01",
+        "forest.n.01",
+        "woods.n.01",
+        "plain.n.01",
+        "plateau.n.01",
+        "desert.n.01",
+        "garden.n.01",
+        "park.n.02",
+        "port.n.01",
+        "harbor.n.01",
+        "station.n.01",
+    )
+    blacklist = {
+        "common", "commons", "green", "field", "water", "land", "state",
+        "range", "chain", "mount", "area", "community", "district",
+        "territory", "dominion", "park",
+    }
+
+    try:
+        descriptor_words = set(_BASE_PLACE_DESCRIPTOR_NOUNS)
+        for name in root_synset_names:
+            synset = wn.synset(name)
+            candidate_synsets = [synset] + synset.hyponyms()
+            for candidate in candidate_synsets:
+                for lemma in candidate.lemmas():
+                    word = lemma.name().lower()
+                    if "_" in word or not word.isalpha():
+                        continue
+                    if len(word) < 3 or word in blacklist:
+                        continue
+                    descriptor_words.add(word)
+        return frozenset(descriptor_words)
+    except Exception:
+        return _BASE_PLACE_DESCRIPTOR_NOUNS
+
+
+PLACE_DESCRIPTOR_NOUNS: frozenset[str] = _load_place_descriptor_nouns()
+
+# ---------------------------------------------------------------------------
 # Faction suffixes
 #
 # Normalized-key suffixes that indicate a cluster names a group, organisation,

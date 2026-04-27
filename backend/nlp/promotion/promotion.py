@@ -18,11 +18,13 @@ buckets and constructs the PromotedEvidenceBundle for downstream stages.
 
 from __future__ import annotations
 
+from backend.nlp.classification.arbitration import classify_clusters
 from backend.nlp.types import (
     BootstrappedLexiconEntry,
     DocumentAnchor,
     EvidenceWindow,
     MentionCluster,
+    LexiconCategory,
     PreprocessedDocument,
     PromotedCandidate,
     PromotedEvidenceBundle,
@@ -48,6 +50,34 @@ _CONTEXT_RADIUS = 150
 # referred to only by title - but they are ambiguous enough that a human reviewer
 # should confirm them before they enter the promoted bucket.
 _BARE_TITLE_KEYS: frozenset[str] = frozenset(t.lower() for t in TITLE_PREFIXES)
+
+
+def _review_reason_for_classification(
+    classification,
+    score: float,
+) -> str | None:
+    """Return a class-aware review reason when promotion should be withheld."""
+    category = classification.winning_category
+
+    if category == LexiconCategory.UNRESOLVED:
+        return (
+            f"'{category.value}' classification remained unresolved; "
+            f"confidence {score:.3f} requires human review"
+        )
+
+    if category in {
+        LexiconCategory.PLACE,
+        LexiconCategory.GROUP,
+        LexiconCategory.OBJECT,
+        LexiconCategory.EVENT,
+        LexiconCategory.CONCEPT,
+    }:
+        return (
+            f"resolved as {category.value}; confidence {score:.3f} requires "
+            f"class-aware review before promotion"
+        )
+
+    return None
 
 
 def _build_evidence_windows(
@@ -166,6 +196,7 @@ def promote(
     """
     doc = pre.source
     scores = score_all(clusters, attribution_records, pre)
+    classifications = classify_clusters(clusters, pre, attribution_records)
 
     promoted: list[PromotedCandidate] = []
     review_only: list[ReviewOnlyCandidate] = []
@@ -185,6 +216,25 @@ def promote(
             continue
 
         signals, score = scores[cluster.normalized_key]
+        classification = classifications[cluster.normalized_key]
+
+        # Weak unresolved clusters are usually capitalized noise that survived
+        # harvesting through recurrence or scene dispersion alone. Keep
+        # unresolved for plausible entities, but suppress clusters whose
+        # entityhood never cleared the acceptance threshold.
+        if (
+            classification.winning_category == LexiconCategory.UNRESOLVED
+            and not classification.entityhood.accepted
+        ):
+            suppressed.append(SuppressedCandidate(
+                cluster=cluster,
+                reason=SuppressReason.LOW_ENTITYHOOD,
+                detail=(
+                    f"entityhood {classification.entityhood.score:.3f} below "
+                    f"acceptance threshold for unresolved cluster"
+                ),
+            ))
+            continue
 
         if score < SUPPRESS_THRESHOLD:
             suppressed.append(SuppressedCandidate(
@@ -197,7 +247,13 @@ def promote(
             ))
             continue
 
-        if score >= PROMOTE_THRESHOLD and cluster.normalized_key not in _BARE_TITLE_KEYS:
+        review_reason = _review_reason_for_classification(classification, score)
+
+        if (
+            score >= PROMOTE_THRESHOLD
+            and cluster.normalized_key not in _BARE_TITLE_KEYS
+            and review_reason is None
+        ):
             promoted.append(PromotedCandidate(
                 cluster=cluster,
                 confidence_score=score,
@@ -219,6 +275,8 @@ def promote(
                     f"confidence {score:.3f} is above promotion threshold "
                     f"{PROMOTE_THRESHOLD:.3f} but human review is required"
                 )
+            elif score >= PROMOTE_THRESHOLD and review_reason is not None:
+                reason = review_reason
             else:
                 reason = (
                     f"confidence {score:.3f} between suppression threshold "

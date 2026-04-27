@@ -33,7 +33,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
+from backend.nlp.classification.arbitration import classify_clusters
 from backend.nlp.types import (
+    LexiconCategory,
     MentionCluster,
     PreprocessedDocument,
     QuoteSpan,
@@ -99,6 +101,11 @@ _SPEECH_VERB_FALLBACK: frozenset[str] = SPEECH_VERB_LEMMAS | frozenset({
 
 # Maximum number of tokens to examine on either side of a quote boundary.
 _WINDOW_SIZE = 10
+
+# Maximum token distance allowed between the matched surface and the speech
+# verb. This keeps attribution tied to local speech tags rather than to any
+# capitalized token elsewhere in the sentence window.
+_MAX_SPEAKER_DISTANCE = 3
 
 
 def _init_lemmatizer():
@@ -193,10 +200,28 @@ def attribute_dialogue(
     Returns:
         AttributionRecord entries in sentence order, one per attributed quote.
     """
+    # Restrict speaker candidates to clusters that are not already classified
+    # as strongly non-person-like. Bare names often remain unresolved before
+    # attribution itself has a chance to strengthen them, so unresolved keys
+    # stay eligible here. Clear groups and other non-speaker categories are
+    # excluded.
+    classifications = classify_clusters(clusters, pre, [])
+    eligible_keys = {
+        key
+        for key, decision in classifications.items()
+        if decision.winning_category in {
+            LexiconCategory.CHARACTER,
+            LexiconCategory.PLACE,
+            LexiconCategory.UNRESOLVED,
+        }
+    }
+
     # Map lowercase base surface form -> cluster normalized_key.
     # Possessives are stripped so "Aldous's" resolves to "aldous".
     surface_to_key: dict[str, str] = {}
     for cluster in clusters:
+        if cluster.normalized_key not in eligible_keys:
+            continue
         for surface in cluster.surface_forms:
             base = surface[:-2] if surface.endswith("'s") else surface
             surface_to_key[base.lower()] = cluster.normalized_key
@@ -290,6 +315,8 @@ def _find_speaker(
                     for surface_pos in range(i, i + len(words))
                     for verb_pos in verb_positions
                 )
+                if distance > _MAX_SPEAKER_DISTANCE:
+                    break
                 if distance < best_distance:
                     best_distance = distance
                     best_key = key

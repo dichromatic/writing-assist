@@ -127,14 +127,49 @@ class TestPromotion:
         promoted_keys = {c.cluster.normalized_key for c in bundle.promoted}
         assert "aldous" in promoted_keys
 
+    def test_resolved_place_cluster_routes_to_review_not_promoted(self):
+        # A place can accumulate enough generic confidence to cross the
+        # promotion threshold, but resolved places should not be auto-promoted
+        # on the same policy as characters. They need a category-aware review
+        # path until place-specific promotion rules are defined.
+        text = (
+            "In Sidhe, bells rang. Sidhe's harbor glowed.\n\n"
+            "---\n\n"
+            "They returned to Sidhe.\n\n"
+            "---\n\n"
+            "Sidhe slept."
+        )
+        bundle = run_promote(text)
+        promoted_keys = {c.cluster.normalized_key for c in bundle.promoted}
+        review_keys = {c.cluster.normalized_key for c in bundle.review_only}
+        assert "sidhe" not in promoted_keys
+        assert "sidhe" in review_keys
+
+    def test_accepted_unresolved_cluster_routes_to_review_not_promoted(self):
+        # Plausible unresolved entities should survive for review, but they
+        # should not auto-promote just because possessive recurrence and scene
+        # dispersion pushed the generic score high enough.
+        text = (
+            "Aldous's sword fell.\n\n"
+            "---\n\n"
+            "Aldous's bag opened.\n\n"
+            "---\n\n"
+            "Aldous's room was dark."
+        )
+        bundle = run_promote(text)
+        promoted_keys = {c.cluster.normalized_key for c in bundle.promoted}
+        review_keys = {c.cluster.normalized_key for c in bundle.review_only}
+        assert "aldous" not in promoted_keys
+        assert "aldous" in review_keys
+
     def test_weak_cluster_is_suppressed_with_low_confidence(self):
-        # A bare-capitalised name appearing once mid-sentence with no title,
-        # possessive, or recurrence must be suppressed as LOW_CONFIDENCE. Without
-        # this check, every incidental capitalised word would survive to promoted
-        # or review-only.
+        # A bare-capitalised singleton with no structural support must be
+        # suppressed before review. The entityhood guard is now the first
+        # filter for this case, so callers can distinguish weak unresolved
+        # noise from plausible mid-confidence entities.
         bundle = run_promote("She saw Sunlight through the window.")
         suppressed_reasons = {sc.reason for sc in bundle.suppressed}
-        assert SuppressReason.LOW_CONFIDENCE in suppressed_reasons
+        assert SuppressReason.LOW_ENTITYHOOD in suppressed_reasons
 
     def test_suppressed_candidate_has_non_empty_detail(self):
         # Every SuppressedCandidate must carry a non-empty detail string so the
@@ -219,3 +254,45 @@ class TestPromotion:
         promoted_keys = {c.cluster.normalized_key for c in bundle.promoted}
         assert "captain" in review_keys
         assert "captain" not in promoted_keys
+
+    def test_weak_unresolved_recurring_cluster_is_suppressed(self):
+        # A recurring bare-cap cluster with no title, possessive, attribution,
+        # or class-specific evidence can accumulate enough scene-dispersion
+        # score to enter review_only. Entityhood filtering must suppress it so
+        # the unresolved bucket is reserved for plausible entities.
+        text = "Still waited.\n\n---\n\nStill listened.\n\n---\n\nStill lingered."
+        doc = parse("doc.md", text)
+        pre = preprocess(doc)
+        anchors = []
+        start = 0
+        while True:
+            found = text.find("Still", start)
+            if found == -1:
+                break
+            anchors.append(SpanAnchor(
+                path="doc.md",
+                span_ordinal=0,
+                start_char=found,
+                end_char=found + len("Still"),
+            ))
+            start = found + 1
+
+        cluster = MentionCluster(
+            normalized_key="still",
+            surface_forms=["Still"],
+            anchors=anchors,
+            occurrence_count=len(anchors),
+            has_title_support=False,
+            has_possessive_support=False,
+            has_location_support=False,
+            linked_fields=[],
+            linked_definitions=[],
+            linked_seeds=[],
+            cluster_id=stable_hash_id("doc.md", "still"),
+        )
+
+        bundle = promote(pre, [cluster], [], [])
+        suppressed_keys = {c.cluster.normalized_key for c in bundle.suppressed}
+        review_keys = {c.cluster.normalized_key for c in bundle.review_only}
+        assert "still" in suppressed_keys
+        assert "still" not in review_keys

@@ -136,3 +136,22 @@ class TestAttribution:
         records = attribute_dialogue(pre, clusters)
         assert any(r.speaker_key == "mary" for r in records)
         assert not any(r.speaker_key == "aldous" for r in records)
+
+    def test_distant_discourse_word_not_treated_as_speaker(self):
+        # A distant sentence-initial discourse word must not win attribution
+        # just because it is capitalized and appears in the same sentence as a
+        # speech verb. The speaker candidate must be structurally close to the
+        # speech tag, not merely somewhere in the token window.
+        pre = parse_and_preprocess('Still facing the water, she adds, "Hello."')
+        clusters = [make_cluster("still", ["Still"])]
+        records = attribute_dialogue(pre, clusters)
+        assert records == []
+
+    def test_group_like_cluster_not_eligible_as_speaker(self):
+        # A collective or institutional name should not be considered a speaker
+        # candidate in dialogue attribution unless later phases add explicit
+        # support for personified groups.
+        pre = parse_and_preprocess('"Go now," Institute said.')
+        clusters = [make_cluster("institute", ["Institute"])]
+        records = attribute_dialogue(pre, clusters)
+        assert records == []

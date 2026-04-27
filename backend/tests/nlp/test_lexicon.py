@@ -109,11 +109,14 @@ class TestInductionCategory:
         assert aldous_entry.category == LexiconCategory.CHARACTER
 
     def test_possessive_cluster_gets_character_category(self):
-        # Possessive forms also reliably indicate personhood.
+        # Possessive form alone is not enough to choose a top-level class.
+        # It establishes entityhood strongly enough for induction, but the
+        # classifier should leave the category unresolved until stronger
+        # person/place/group evidence appears.
         clusters = harvest_and_cluster("Aldous's sword was missing.")
         lexicon = induce_lexicon(clusters, "doc.md", induction_pass=0)
         entry = next(e for e in lexicon if e.normalized_phrase == "aldous")
-        assert entry.category == LexiconCategory.CHARACTER
+        assert entry.category == LexiconCategory.UNRESOLVED
 
     def test_bare_recurring_cluster_gets_unresolved_category(self):
         # A name that recurs but has no title or possessive signal cannot be

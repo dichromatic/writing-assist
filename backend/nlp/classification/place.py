@@ -1,0 +1,151 @@
+"""
+Place classification evidence.
+
+.. code-block:: mermaid
+
+    flowchart TD
+        A[MentionCluster] --> B[Locative context]
+        A --> C[Speaker veto]
+        B & C --> D[Place ClassEvidence]
+"""
+
+from __future__ import annotations
+
+from backend.nlp.classification.types import ClassEvidence
+from backend.nlp.harvesting.shared import (
+    DEMONYM_SUFFIXES,
+    PLACE_DESCRIPTOR_NOUNS,
+    STRONG_LOCATIVE_PREPOSITIONS,
+    WEAK_LOCATIVE_PREPOSITIONS,
+)
+from backend.nlp.types import LexiconCategory, MentionCluster, PreprocessedDocument
+
+
+def _token_for_anchor(cluster: MentionCluster, pre: PreprocessedDocument | None):
+    """Yield the span token list and token index for each anchor in the cluster."""
+    if pre is None:
+        return
+
+    for anchor in cluster.anchors:
+        tokens = pre.tokens_by_span.get(anchor.span_ordinal, [])
+        for index, token in enumerate(tokens):
+            if token.start_char == anchor.start_char and token.end_char == anchor.end_char:
+                yield tokens, index
+                break
+
+
+def _is_capitalized_word(text: str) -> bool:
+    """Return True when text begins with an uppercase alphabetic character."""
+    return bool(text) and text[0].isalpha() and text[0].isupper()
+
+
+def _place_descriptor_support(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
+    """Return True when local context names the cluster as a geographic place."""
+    for tokens, index in _token_for_anchor(cluster, pre):
+        if index >= 2:
+            if (
+                tokens[index - 1].text.lower() == "of"
+                and tokens[index - 2].text.lower() in PLACE_DESCRIPTOR_NOUNS
+            ):
+                return True
+
+        if index + 2 < len(tokens):
+            if (
+                tokens[index + 1].text == ","
+                and tokens[index + 2].text.lower() in {"the", "a", "an"}
+                and index + 3 < len(tokens)
+                and tokens[index + 3].text.lower() in PLACE_DESCRIPTOR_NOUNS
+            ):
+                return True
+
+        if index + 1 < len(tokens) and tokens[index + 1].text.lower() in PLACE_DESCRIPTOR_NOUNS:
+            return True
+
+    return False
+
+
+def _locative_strength(cluster: MentionCluster, pre: PreprocessedDocument | None) -> tuple[float, list[str], list[str]]:
+    """Refine harvest-time location flags using neighboring token context."""
+    if pre is None or not cluster.has_location_support:
+        return 0.0, [], []
+
+    strong_hits = 0
+    weak_hits = 0
+    weak_compound_hits = 0
+
+    for tokens, index in _token_for_anchor(cluster, pre):
+        if index == 0:
+            continue
+
+        preceding = tokens[index - 1].text.lower()
+        following = tokens[index + 1].text if index + 1 < len(tokens) else ""
+
+        if preceding in STRONG_LOCATIVE_PREPOSITIONS:
+            strong_hits += 1
+        elif preceding in WEAK_LOCATIVE_PREPOSITIONS:
+            weak_hits += 1
+            if _is_capitalized_word(following):
+                weak_compound_hits += 1
+
+    reasons: list[str] = []
+    vetoes: list[str] = []
+
+    if strong_hits:
+        reasons.append("appears after a strong locative preposition")
+        return 0.60, reasons, vetoes
+
+    if weak_hits:
+        reasons.append("appears after a weak locative preposition")
+        if weak_compound_hits == weak_hits:
+            vetoes.append("weak locative context only appears in a capitalized compound")
+            return 0.0, reasons, vetoes
+        return 0.25, reasons, vetoes
+
+    return 0.0, reasons, vetoes
+
+
+def score_place_evidence(
+    cluster: MentionCluster,
+    pre: PreprocessedDocument | None,
+    attributed_speakers: frozenset[str],
+) -> ClassEvidence:
+    """Score how strongly a cluster behaves like a place.
+
+    Args:
+        cluster: Cluster being classified.
+        pre: Preprocessed document context. Reserved for future use.
+        attributed_speakers: Normalized keys that were attributed as speakers.
+
+    Returns:
+        Place evidence for the cluster.
+    """
+    score = 0.0
+    reasons: list[str] = []
+    vetoes: list[str] = []
+
+    locative_score, locative_reasons, locative_vetoes = _locative_strength(cluster, pre)
+    score += locative_score
+    reasons.extend(locative_reasons)
+    vetoes.extend(locative_vetoes)
+
+    if _place_descriptor_support(cluster, pre):
+        score += 0.60
+        reasons.append("appears with a geographic descriptor")
+
+    if (
+        cluster.normalized_key.endswith(tuple(DEMONYM_SUFFIXES))
+        and score < 0.60
+    ):
+        vetoes.append("demonym-like form without stronger place evidence")
+        score = min(score, 0.15)
+
+    if cluster.normalized_key in attributed_speakers:
+        vetoes.append("attributed speaker evidence blocks place resolution")
+        score = 0.0
+
+    return ClassEvidence(
+        category=LexiconCategory.PLACE,
+        score=min(score, 1.0),
+        reasons=reasons,
+        vetoes=vetoes,
+    )
