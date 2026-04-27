@@ -158,7 +158,9 @@ class TestPossessiveExtraction:
         # "Aldous's" and "Aldous" both normalise to "aldous". This test
         # verifies that both forms produce candidates with the same normalised
         # key, which is the pre-condition for correct clustering in phase P.5.
-        candidates = pipeline("Aldous came in. Aldous's sword fell.")
+        # The bare "Aldous" appears mid-sentence so it survives the
+        # all-sentence-initial suppression gate.
+        candidates = pipeline("She saw Aldous. Aldous's sword fell.")
         keys = normalized_keys(candidates)
         assert "aldous" in keys
         assert len([c for c in candidates if c.normalized == "aldous"]) >= 2
@@ -203,11 +205,13 @@ class TestBareCapitalized:
         candidates = pipeline("Sunlight flooded the room.")
         assert not any(c.normalized == "sunlight" for c in candidates)
 
-    def test_recurring_sentence_initial_name_not_suppressed(self):
-        # If the same normalised key appears more than once (even if some
-        # occurrences are sentence-initial), all occurrences are kept.
-        # The recurrence itself is the evidence.
-        candidates = pipeline("Aldous entered. Aldous sat down.")
+    def test_recurring_name_with_mid_sentence_occurrence_not_suppressed(self):
+        # A name that appears at sentence-initial position AND mid-sentence
+        # must not be suppressed. The mid-sentence occurrence is the evidence
+        # that the capital reflects a proper name rather than sentence position.
+        # A name appearing exclusively at sentence-initial position is suppressed
+        # because the capitalisation is fully explained by position alone.
+        candidates = pipeline("Aldous entered. She greeted Aldous warmly.")
         aldous_cands = [c for c in candidates if c.normalized == "aldous"]
         assert len(aldous_cands) >= 2
 

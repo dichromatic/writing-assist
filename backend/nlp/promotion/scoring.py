@@ -9,11 +9,10 @@ into a single deterministic confidence score in [0.0, 1.0].
 
     flowchart TD
         A[MentionCluster list] --> B[compute_tfidf\nper cluster]
-        C[BootstrappedLexiconEntry list] --> D[Build lexicon key set]
-        E[AttributionRecord list] --> F[Count attributions per cluster key]
-        B & D & F --> G[For each cluster: compute_signals]
-        G --> H[score_cluster: weighted sum of signals]
-        H --> I[dict: normalized_key -> ConfidenceSignals + float]
+        C[AttributionRecord list] --> D[Count attributions per cluster key]
+        B & D --> E[For each cluster: compute_signals\ntier from title/possessive flags]
+        E --> F[score_cluster: weighted sum of signals]
+        F --> G[dict: normalized_key -> ConfidenceSignals + float]
 """
 
 from __future__ import annotations
@@ -21,12 +20,19 @@ from __future__ import annotations
 import math
 
 from backend.nlp.types import (
-    BootstrappedLexiconEntry,
     ConfidenceSignals,
     MentionCluster,
     PreprocessedDocument,
 )
 from backend.nlp.promotion.attribution import AttributionRecord
+from backend.nlp.harvesting.shared import TITLE_PREFIXES
+
+# Lowercased set of title prefix strings. A cluster whose normalized_key is in
+# this set is a bare title used as a character reference ("The Captain spoke").
+# These clusters never produce a title_prefix candidate (no name follows), so
+# has_title_support is False on the cluster, but they still carry title semantics
+# and warrant tier=3 so that promotion.py's bare-title routing can intercept them.
+_TITLE_NORMALIZED: frozenset[str] = frozenset(t.lower() for t in TITLE_PREFIXES)
 
 # ---------------------------------------------------------------------------
 # Promotion thresholds - exported so promotion.py and tests can reference them
@@ -133,7 +139,6 @@ def compute_tfidf(
 
 def compute_signals(
     cluster: MentionCluster,
-    lexicon_keys: set[str],
     attr_counts: dict[str, int],
     pre: PreprocessedDocument,
     tfidf_scores: dict[str, float],
@@ -142,8 +147,6 @@ def compute_signals(
 
     Args:
         cluster: The cluster to score.
-        lexicon_keys: Set of normalized_phrase values present in the final lexicon.
-            Membership here gives rule_tier=3 (strongest evidence).
         attr_counts: Mapping from normalized_key to number of attribution records.
         pre: The preprocessed document, used for scene-boundary lookups.
         tfidf_scores: Pre-computed TF-IDF scores from compute_tfidf.
@@ -151,12 +154,19 @@ def compute_signals(
     Returns:
         ConfidenceSignals with all deterministic signal values populated.
     """
-    # Lexicon membership outranks title, which outranks bare capitalisation.
-    # A cluster in the lexicon was inducted through strong recurrence or
-    # structural evidence and is the most reliable signal we have.
-    if cluster.normalized_key in lexicon_keys:
+    # Tier is driven by the cluster's own structural signals, not by lexicon
+    # membership. The lexicon is a phrase-matching tool; its contribution to
+    # confidence comes through occurrence count, scene dispersion, and TF-IDF
+    # rather than through tier. This prevents bare-cap recurrence-only clusters
+    # (place names, discourse words) from reaching tier 3 purely by recurring.
+    #
+    # Bare title keys ("captain", "lord") also get tier=3: they never produce a
+    # title_prefix candidate because no name follows, so has_title_support is
+    # False, but they carry title semantics and must reach PROMOTE_THRESHOLD so
+    # that promotion.py's bare-title intercept can route them to review_only.
+    if cluster.has_title_support or cluster.normalized_key in _TITLE_NORMALIZED:
         rule_tier = 3
-    elif cluster.has_title_support:
+    elif cluster.has_possessive_support:
         rule_tier = 2
     else:
         rule_tier = 1
@@ -219,7 +229,6 @@ def score_cluster(signals: ConfidenceSignals) -> float:
 
 def score_all(
     clusters: list[MentionCluster],
-    lexicon: list[BootstrappedLexiconEntry],
     attribution_records: list[AttributionRecord],
     pre: PreprocessedDocument,
 ) -> dict[str, tuple[ConfidenceSignals, float]]:
@@ -227,16 +236,12 @@ def score_all(
 
     Args:
         clusters: All clusters from the bootstrap result.
-        lexicon: Final lexicon entries. A cluster whose normalized_key appears
-            here gets rule_tier=3.
         attribution_records: Speaker attribution records from attribute_dialogue.
         pre: The preprocessed document, used for TF-IDF and scene counting.
 
     Returns:
         Mapping from normalized_key to (ConfidenceSignals, confidence_score).
     """
-    lexicon_keys = {e.normalized_phrase for e in lexicon}
-
     attr_counts: dict[str, int] = {}
     for record in attribution_records:
         attr_counts[record.speaker_key] = attr_counts.get(record.speaker_key, 0) + 1
@@ -245,7 +250,7 @@ def score_all(
 
     result: dict[str, tuple[ConfidenceSignals, float]] = {}
     for cluster in clusters:
-        signals = compute_signals(cluster, lexicon_keys, attr_counts, pre, tfidf_scores)
+        signals = compute_signals(cluster, attr_counts, pre, tfidf_scores)
         score = score_cluster(signals)
         result[cluster.normalized_key] = (signals, score)
 

@@ -165,7 +165,7 @@ def promote(
         the evidence windows drawn from promoted and review-only clusters.
     """
     doc = pre.source
-    scores = score_all(clusters, lexicon, attribution_records, pre)
+    scores = score_all(clusters, attribution_records, pre)
 
     promoted: list[PromotedCandidate] = []
     review_only: list[ReviewOnlyCandidate] = []

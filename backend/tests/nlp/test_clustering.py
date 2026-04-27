@@ -86,7 +86,10 @@ class TestClustering:
         # occurrence_count as a weight; counting distinct surfaces instead would
         # report a character mentioned 20 times as count=1 if they always appear
         # with the same form.
-        text = "Aldous came. Aldous left. Aldous returned."
+        # All three occurrences must survive Q3 suppression, so at least one
+        # must appear mid-sentence. Sentence-initial occurrences are fine as
+        # long as a mid-sentence occurrence also exists.
+        text = "She saw Aldous. Aldous left. She met Aldous again."
         clusters = pipeline(text)
         aldous = next(c for c in clusters if c.normalized_key == "aldous")
         assert aldous.occurrence_count == 3

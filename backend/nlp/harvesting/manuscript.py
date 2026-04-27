@@ -5,23 +5,23 @@ Three extraction passes run per span, in priority order. Tokens consumed by a
 higher-priority pass are excluded from lower-priority passes so the same name
 does not produce duplicate candidates at different granularities.
 
-After all spans are processed, sentence-initial singleton suppression runs as
-a global pass: a candidate whose normalised key appears exactly once in the
-full document and whose token was the first word of a sentence is discarded,
-because a sentence-initial capital provides no evidence beyond the capitalisation
-convention itself.
+After all spans are processed, a global suppression pass removes bare-cap
+candidates whose normalised key appears exclusively in sentence-initial
+position. A key with no mid-sentence occurrence provides no evidence of a
+proper name - the capital is explained entirely by sentence position.
 
 .. code-block:: mermaid
 
     flowchart TD
         A[PreprocessedDocument] --> B[Build sentence-initial\nposition index]
-        B --> C[For each content span\nin ordinal order]
+        A --> B2[Build quote-closing\nend-char set]
+        B & B2 --> C[For each content span\nin ordinal order]
         C --> D[Pass 1: title-prefixed phrases\nTitle + Name words]
         D --> E[Pass 2: possessive tokens\ntoken ending apostrophe-s]
-        E --> E2[Pass 2b: two-token possessives\nbase ending s + bare apostrophe]
+        E --> E2[Pass 2b: two-token possessives\nbase ending s + bare apostrophe\nquote-close filtered]
         E2 --> F[Pass 3: bare capitalised names\nnot stopword, not consumed]
         F --> G[All raw MentionCandidates]
-        G --> H[Global suppression\nsentence-initial singletons]
+        G --> H[Global suppression\nall-sentence-initial keys]
         H --> I[Filtered MentionCandidates]
 """
 
@@ -61,6 +61,7 @@ def _extract_from_span(
     path: str,
     tokens: list[Token],
     span_ordinal: int,
+    quote_end_chars: set[int],
 ) -> list[MentionCandidate]:
     """Extract raw MentionCandidate records from a single span's tokens.
 
@@ -68,10 +69,18 @@ def _extract_from_span(
     names. Each pass marks its tokens consumed so lower-priority passes do not
     re-emit the same text.
 
+    All candidate surfaces are built from token.text (the preprocessing-
+    normalized form with ASCII apostrophes) rather than token.raw_text, so
+    that normalize_surface and all downstream endswith checks work correctly
+    regardless of the apostrophe variant used in the source document.
+
     Args:
         path: Document path for anchor construction.
         tokens: Tokens for the span, in document order.
         span_ordinal: Ordinal of the parent span.
+        quote_end_chars: Set of end_char values for all QuoteSpan closing
+            delimiters in the document. Pass 2b uses this to distinguish a
+            terminal-s possessive apostrophe from a quote-closing apostrophe.
 
     Returns:
         MentionCandidate records for this span. May be empty.
@@ -120,7 +129,7 @@ def _extract_from_span(
             if j > name_start:
                 # At least one name word follows the title: emit the phrase.
                 phrase_tokens = [tokens[i]] + tokens[name_start:j]
-                surface = ' '.join(t.raw_text for t in phrase_tokens)
+                surface = ' '.join(t.text for t in phrase_tokens)
                 has_possessive = surface.endswith("'s") or surface.endswith("s'")
                 candidates.append(make_candidate(
                     surface=surface,
@@ -150,7 +159,7 @@ def _extract_from_span(
         if is_stopword(base):
             continue
         candidates.append(make_candidate(
-            surface=token.raw_text,
+            surface=token.text,
             start_char=token.start_char,
             end_char=token.end_char,
             has_title_prefix=False,
@@ -181,8 +190,14 @@ def _extract_from_span(
             continue
         if is_stopword(token.text):
             continue
+        # A closing quote apostrophe is indistinguishable from a terminal-s
+        # possessive in token form. Disambiguate by checking whether this
+        # apostrophe's end position matches a known QuoteSpan close: if it does,
+        # it is a quote delimiter ('Tears'), not a possessive (James').
+        if next_tok.end_char in quote_end_chars:
+            continue
         candidates.append(make_candidate(
-            surface=token.raw_text + next_tok.raw_text,
+            surface=token.text + next_tok.text,
             start_char=token.start_char,
             end_char=next_tok.end_char,
             has_title_prefix=False,
@@ -209,7 +224,7 @@ def _extract_from_span(
         if not token.text.replace("'", '').isalpha():
             continue
         candidates.append(make_candidate(
-            surface=token.raw_text,
+            surface=token.text,
             start_char=token.start_char,
             end_char=token.end_char,
             has_title_prefix=False,
@@ -220,19 +235,26 @@ def _extract_from_span(
     return candidates
 
 
-def _suppress_sentence_initial_singletons(
+def _suppress_sentence_initial_only(
     candidates: list[MentionCandidate],
     sentence_initial_chars: set[int],
 ) -> list[MentionCandidate]:
-    """Remove sentence-initial capitalized names that appear only once.
+    """Remove bare-cap candidates whose key appears only in sentence-initial position.
 
-    A sentence-initial capital provides no evidence of a proper name by itself;
-    any common word would be capitalised in that position. If a bare_capitalized
-    candidate's normalised key appears only once across all candidates AND its
-    first character is at a sentence-initial position, it is suppressed.
+    A bare-cap key is suppressed entirely when every occurrence of that key is at
+    a sentence-initial position. Sentence-initial capitalisation explains itself -
+    any word would be capitalised there. Without at least one mid-sentence
+    occurrence there is no evidence that the capital reflects a proper name rather
+    than the start-of-sentence convention.
+
+    This is a stronger rule than the previous singleton check: it does not matter
+    how many times the key recurs - if all occurrences are sentence-initial the
+    key is suppressed. Dialogue particles ("Hey", "Well"), sentence-opening
+    adverbs ("Still", "Even"), and common discourse words that happen to recur
+    are all caught by this rule without listing them explicitly.
 
     Title-prefix and possessive candidates are never suppressed here: the
-    pattern itself (title or possessive) is the evidence, not the position.
+    pattern itself is the evidence regardless of position.
 
     Args:
         candidates: All raw candidates across all spans.
@@ -240,21 +262,23 @@ def _suppress_sentence_initial_singletons(
             each sentence in the document.
 
     Returns:
-        Candidates with sentence-initial singletons removed.
+        Candidates with all-sentence-initial bare-cap keys removed.
     """
-    # Count how many times each normalised key appears across all candidates.
-    key_counts: dict[str, int] = {}
-    for c in candidates:
-        key_counts[c.normalized] = key_counts.get(c.normalized, 0) + 1
+    # Collect keys that have at least one non-sentence-initial bare-cap
+    # occurrence. These keys survive suppression entirely.
+    keys_with_mid_sentence: set[str] = {
+        c.normalized
+        for c in candidates
+        if c.rule_source == 'bare_capitalized'
+        and c.anchor.start_char not in sentence_initial_chars
+    }
 
     result: list[MentionCandidate] = []
     for c in candidates:
         if (
             c.rule_source == 'bare_capitalized'
-            and key_counts[c.normalized] == 1
-            and c.anchor.start_char in sentence_initial_chars
+            and c.normalized not in keys_with_mid_sentence
         ):
-            # Singleton at sentence-initial position with no other evidence.
             continue
         result.append(c)
     return result
@@ -271,8 +295,8 @@ def harvest_manuscript(pre: PreprocessedDocument) -> list[MentionCandidate]:
 
     Returns:
         MentionCandidate records in document order (by span ordinal, then by
-        token position within the span). Sentence-initial singletons are
-        suppressed before returning.
+        token position within the span). All-sentence-initial bare-cap keys
+        are suppressed before returning.
     """
     sentence_initial_chars: set[int] = {
         s.tokens[0].start_char
@@ -280,11 +304,15 @@ def harvest_manuscript(pre: PreprocessedDocument) -> list[MentionCandidate]:
         if s.tokens
     }
 
+    # Quote-close positions are computed once and shared across spans so that
+    # Pass 2b can distinguish terminal-s possessives from closing quote marks.
+    quote_end_chars: set[int] = {q.end_char for q in pre.quote_spans}
+
     raw: list[MentionCandidate] = []
     for span_ordinal in sorted(pre.tokens_by_span.keys()):
         tokens = pre.tokens_by_span[span_ordinal]
         if not tokens:
             continue
-        raw.extend(_extract_from_span(pre.source.path, tokens, span_ordinal))
+        raw.extend(_extract_from_span(pre.source.path, tokens, span_ordinal, quote_end_chars))
 
-    return _suppress_sentence_initial_singletons(raw, sentence_initial_chars)
+    return _suppress_sentence_initial_only(raw, sentence_initial_chars)
