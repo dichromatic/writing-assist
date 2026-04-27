@@ -33,6 +33,7 @@ from backend.nlp.types import (
     SpanAnchor,
 )
 from backend.nlp.harvesting.shared import (
+    LOCATIVE_PREPOSITIONS,
     TITLE_PREFIXES,
     is_stopword,
     normalize_surface,
@@ -95,6 +96,7 @@ def _extract_from_span(
         has_title_prefix: bool,
         has_possessive: bool,
         rule_source: str,
+        has_location_context: bool = False,
     ) -> MentionCandidate:
         anchor = SpanAnchor(
             path=path,
@@ -108,6 +110,7 @@ def _extract_from_span(
             anchor=anchor,
             has_title_prefix=has_title_prefix,
             has_possessive=has_possessive,
+            has_location_context=has_location_context,
             rule_source=rule_source,
             candidate_id=stable_hash_id(path, str(span_ordinal), surface),
         )
@@ -223,6 +226,11 @@ def _extract_from_span(
         # and standalone uppercase letters used as labels.
         if not token.text.replace("'", '').isalpha():
             continue
+        # A capitalized token immediately following a locative preposition is
+        # strong evidence of a place name rather than a character name.
+        preceding_is_locative = (
+            i > 0 and tokens[i - 1].text.lower() in LOCATIVE_PREPOSITIONS
+        )
         candidates.append(make_candidate(
             surface=token.text,
             start_char=token.start_char,
@@ -230,6 +238,7 @@ def _extract_from_span(
             has_title_prefix=False,
             has_possessive=False,
             rule_source='bare_capitalized',
+            has_location_context=preceding_is_locative,
         ))
 
     return candidates

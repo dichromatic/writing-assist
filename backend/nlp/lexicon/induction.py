@@ -24,7 +24,7 @@ from backend.nlp.types import (
     LexiconCategory,
     MentionCluster,
 )
-from backend.nlp.harvesting.shared import is_stopword, stable_hash_id
+from backend.nlp.harvesting.shared import FACTION_SUFFIXES, is_stopword, stable_hash_id
 
 
 def _meets_induction_threshold(cluster: MentionCluster) -> bool:
@@ -51,23 +51,73 @@ def _meets_induction_threshold(cluster: MentionCluster) -> bool:
     )
 
 
-def _assign_category(cluster: MentionCluster) -> LexiconCategory:
+def _assign_category(
+    cluster: MentionCluster,
+    attr_keys: frozenset[str] = frozenset(),
+) -> LexiconCategory:
     """Determine the best-effort lexicon category from cluster evidence.
 
-    Title and possessive signals reliably indicate a person. All other clusters
-    are UNRESOLVED until higher-confidence signals (promotion stage, user
-    feedback) are available.
+    Priority order matters because signals can co-occur. A place name can
+    appear in possessive form ("Tairngire's hills") and a character can appear
+    after a locative preposition ("she saw herself in Yō"). The attribution
+    tie-break resolves this: any cluster that has been attributed as a speaker
+    is definitively a person, so locative context cannot override that.
 
     Args:
         cluster: A cluster from the clustering stage.
+        attr_keys: Normalized keys of all clusters that have been attributed as
+            dialogue speakers. When called during bootstrapping (before
+            attribution), pass the default empty set - the category will be
+            corrected later via classify_clusters.
 
     Returns:
-        LexiconCategory.CHARACTER when title or possessive evidence is present,
-        otherwise LexiconCategory.UNRESOLVED.
+        The most specific LexiconCategory determinable from cluster evidence,
+        or UNRESOLVED when no reliable signal is present.
     """
-    if cluster.has_title_support or cluster.has_possessive_support:
+    # A title prefix ("Captain", "Lord") is unambiguous evidence of a person.
+    if cluster.has_title_support:
         return LexiconCategory.CHARACTER
+
+    # Location beats possessive only when the cluster has no attribution
+    # evidence. An attributed cluster spoke in the text and is definitively a
+    # person even if they also appear after a locative preposition.
+    if cluster.has_location_support and cluster.normalized_key not in attr_keys:
+        return LexiconCategory.PLACE
+
+    # Faction/organisation suffixes are recognisable by the normalized key
+    # alone - no candidate-level signal is needed.
+    if any(cluster.normalized_key.endswith(suffix) for suffix in FACTION_SUFFIXES):
+        return LexiconCategory.FACTION
+
+    # Possessive form implies the entity is treated as a person by the author.
+    if cluster.has_possessive_support:
+        return LexiconCategory.CHARACTER
+
     return LexiconCategory.UNRESOLVED
+
+
+def classify_clusters(
+    clusters: list[MentionCluster],
+    attribution_records: list,
+) -> dict[str, LexiconCategory]:
+    """Classify clusters using attribution evidence that was not available
+    at bootstrap time.
+
+    This is called after attribute_dialogue has run so that the attribution
+    tie-break in _assign_category can resolve ambiguous cases where a cluster
+    has both locative and possessive support (e.g. a character who appears
+    after "in" in a figurative construction).
+
+    Args:
+        clusters: All clusters from the bootstrap result.
+        attribution_records: Speaker attribution records from attribute_dialogue.
+            Each record must have a speaker_key attribute.
+
+    Returns:
+        Mapping from normalized_key to corrected LexiconCategory.
+    """
+    attr_keys: frozenset[str] = frozenset(r.speaker_key for r in attribution_records)
+    return {c.normalized_key: _assign_category(c, attr_keys) for c in clusters}
 
 
 def _rule_sources(cluster: MentionCluster) -> list[str]:

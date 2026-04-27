@@ -76,6 +76,7 @@ def cluster_mentions(candidates: list[MentionCandidate]) -> list[MentionCluster]
             occurrence_count=len(group),
             has_title_support=any(c.has_title_prefix for c in group),
             has_possessive_support=any(c.has_possessive for c in group),
+            has_location_support=any(c.has_location_context for c in group),
             linked_fields=[],
             linked_definitions=[],
             linked_seeds=[],

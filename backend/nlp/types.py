@@ -362,6 +362,9 @@ class MentionCandidate:
         has_title_prefix: True if the surface form starts with a recognised
             title or honorific.
         has_possessive: True if the surface form ends with 's or s'.
+        has_location_context: True if the token immediately preceding this
+            candidate in its span is a locative preposition (e.g. "in", "at",
+            "from"). Used to classify bare-cap clusters as PLACE.
         rule_source: Label of the harvesting rule that produced this candidate.
         candidate_id: Stable ID derived from anchor path, span_ordinal, and
             surface. Use stable_hash_id to construct it.
@@ -372,6 +375,7 @@ class MentionCandidate:
     anchor: SpanAnchor
     has_title_prefix: bool
     has_possessive: bool
+    has_location_context: bool
     rule_source: str
     candidate_id: str
 
@@ -457,6 +461,8 @@ class MentionCluster:
         occurrence_count: Total number of mention occurrences across the cluster.
         has_title_support: True if any mention in the cluster has a title prefix.
         has_possessive_support: True if any mention has a possessive form.
+        has_location_support: True if any mention appeared immediately after a
+            locative preposition, indicating the cluster likely names a place.
         linked_fields: Structured field candidates that reference this cluster's
             normalized key.
         linked_definitions: Definition candidates whose term matches this cluster.
@@ -470,6 +476,7 @@ class MentionCluster:
     occurrence_count: int
     has_title_support: bool
     has_possessive_support: bool
+    has_location_support: bool
     linked_fields: list[StructuredFieldCandidate]
     linked_definitions: list[DefinitionCandidate]
     linked_seeds: list[SectionSummarySeed]

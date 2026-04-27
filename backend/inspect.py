@@ -32,6 +32,7 @@ from pathlib import Path
 from backend.nlp.parsing.markdown_parser import parse
 from backend.nlp.parsing.preprocessing import preprocess
 from backend.nlp.lexicon.bootstrap import bootstrap
+from backend.nlp.lexicon.induction import classify_clusters
 from backend.nlp.promotion.attribution import attribute_dialogue
 from backend.nlp.promotion.promotion import promote
 
@@ -103,17 +104,24 @@ def main(path: str) -> None:
     print(f"  Clusters        : {len(result.clusters)}")
     print(f"  Candidates      : {len(result.candidates)}")
 
-    if result.lexicon:
-        print()
-        for entry in sorted(result.lexicon, key=lambda e: e.normalized_phrase):
-            print(f"    [{entry.category.value}]  {entry.normalized_phrase!r}  "
-                  f"(pass {entry.induction_pass}, n={entry.occurrence_count},"
-                  f" rules={entry.rule_sources})")
-
     # ------------------------------------------------------------------
     # Stage 4: Attribution
     # ------------------------------------------------------------------
     attribution_records = attribute_dialogue(pre, result.clusters)
+
+    # Re-classify clusters now that attribution evidence is available.
+    # Bootstrap-time classification uses an empty attribution set because
+    # attribution runs after bootstrapping. classify_clusters applies the
+    # attribution tie-break so that speakers are never mislabelled as places.
+    corrected_categories = classify_clusters(result.clusters, attribution_records)
+
+    if result.lexicon:
+        print()
+        for entry in sorted(result.lexicon, key=lambda e: e.normalized_phrase):
+            category = corrected_categories.get(entry.normalized_phrase, entry.category)
+            print(f"    [{category.value}]  {entry.normalized_phrase!r}  "
+                  f"(pass {entry.induction_pass}, n={entry.occurrence_count},"
+                  f" rules={entry.rule_sources})")
 
     _hr("ATTRIBUTION")
     print(f"  Records : {len(attribution_records)}")

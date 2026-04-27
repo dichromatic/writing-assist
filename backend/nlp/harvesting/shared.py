@@ -37,6 +37,52 @@ TITLE_PREFIXES: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# Locative prepositions
+#
+# Used during harvesting to detect when a bare-capitalized token appears in a
+# position that strongly indicates a place name. The preceding token is checked
+# against this set in Pass 3 of the manuscript harvester.
+#
+# "to", "toward", "towards", and "for" are deliberately excluded: they precede
+# people as often as places ("she spoke to Aldous", "he ran toward Kohaku")
+# and would produce too many false positives.
+# ---------------------------------------------------------------------------
+LOCATIVE_PREPOSITIONS: frozenset[str] = frozenset({
+    # Position
+    "in", "at", "on", "near", "by", "beside", "between", "among",
+    "amid", "amidst", "within", "outside", "inside", "around",
+    "across", "along", "through", "beyond", "beneath", "below",
+    "above", "over", "under", "underneath", "opposite", "behind",
+    # Origin and path - reliable place indicators even when directional
+    "from", "into", "onto", "throughout",
+})
+
+# ---------------------------------------------------------------------------
+# Faction suffixes
+#
+# Normalized-key suffixes that indicate a cluster names a group, organisation,
+# or faction rather than an individual. Checked against the cluster's
+# normalized_key in _assign_category. The list is intentionally broad to cover
+# both realistic fiction and fantasy tropes.
+# ---------------------------------------------------------------------------
+FACTION_SUFFIXES: frozenset[str] = frozenset({
+    # Formal organisations
+    "council", "guild", "union", "assembly", "congress", "committee",
+    "parliament", "senate", "court", "tribunal", "institute", "academy",
+    "foundation", "bureau", "agency", "ministry", "department",
+    # Military and paramilitary
+    "order", "legion", "corps", "regiment", "battalion", "brigade",
+    "cohort", "garrison", "vanguard", "guard", "watch",
+    # Cultural and religious
+    "clan", "tribe", "house", "brotherhood", "sisterhood", "fellowship",
+    "covenant", "conclave", "chapter", "congregation", "sect", "cult",
+    "circle", "coven", "lodge",
+    # Fantasy tropes
+    "alliance", "confederation", "empire", "realm", "dominion",
+    "collective", "syndicate", "cabal",
+})
+
+# ---------------------------------------------------------------------------
 # Field label list
 #
 # Used by structured-document harvesters to recognise labeled fields

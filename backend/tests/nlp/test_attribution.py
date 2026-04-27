@@ -35,6 +35,7 @@ def make_cluster(normalized_key: str, surface_forms: list[str]) -> MentionCluste
         occurrence_count=len(surface_forms),
         has_title_support=False,
         has_possessive_support=False,
+        has_location_support=False,
         linked_fields=[],
         linked_definitions=[],
         linked_seeds=[],

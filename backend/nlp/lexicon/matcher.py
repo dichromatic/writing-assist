@@ -130,6 +130,7 @@ def match_text(
             ),
             has_title_prefix=False,
             has_possessive=False,
+            has_location_context=False,
             rule_source='lexicon',
             candidate_id=stable_hash_id(path, str(span_ordinal), surface),
         ))
