@@ -145,6 +145,68 @@ class TestPromotion:
         assert "sidhe" not in promoted_keys
         assert "sidhe" in review_keys
 
+    def test_strong_recurring_place_is_promoted(self):
+        # Once a place has strong classification evidence plus broad document
+        # recurrence, it should not be trapped in review forever. This is the
+        # first positive place-promotion rule.
+        text = (
+            "In Tairngire, the sea glowed. Tairngire's capital shimmered. "
+            "The forests of Tairngire hummed at dusk.\n\n"
+            "---\n\n"
+            "They returned to Tairngire. Tairngire waited beneath the storm.\n\n"
+            "---\n\n"
+            "Tairngire opened before them again."
+        )
+        bundle = run_promote(text)
+        promoted_keys = {c.cluster.normalized_key for c in bundle.promoted}
+        assert "tairngire" in promoted_keys
+
+    def test_thin_place_stays_review_only(self):
+        # A place with strong local syntax but only a thin document footprint
+        # should still route to review. The positive place path is meant for
+        # recurring setting entities, not every one-off location mention.
+        text = "In Sidhe, bells rang."
+        bundle = run_promote(text)
+        promoted_keys = {c.cluster.normalized_key for c in bundle.promoted}
+        review_keys = {c.cluster.normalized_key for c in bundle.review_only}
+        assert "sidhe" not in promoted_keys
+        assert "sidhe" in review_keys
+
+    def test_resolved_event_with_low_generic_score_routes_to_review(self):
+        # A capitalized event can have enough typed evidence to resolve as
+        # EVENT even when the generic promotion score is still below the usual
+        # review band. It must remain visible for review rather than being
+        # suppressed as low confidence.
+        text = "The Festival began at dusk. During the Festival, bells rang."
+        bundle = run_promote(text)
+        suppressed_keys = {c.cluster.normalized_key for c in bundle.suppressed}
+        review_keys = {c.cluster.normalized_key for c in bundle.review_only}
+        assert "festival" not in suppressed_keys
+        assert "festival" in review_keys
+
+    def test_resolved_concept_with_low_generic_score_routes_to_review(self):
+        # Definition-style concept evidence should keep a concept visible for
+        # review even when the generic promotion score remains low.
+        text = (
+            "The term Leva refers to a magical resonance system. "
+            "Leva destabilized the chamber."
+        )
+        bundle = run_promote(text)
+        suppressed_keys = {c.cluster.normalized_key for c in bundle.suppressed}
+        review_keys = {c.cluster.normalized_key for c in bundle.review_only}
+        assert "leva" not in suppressed_keys
+        assert "leva" in review_keys
+
+    def test_resolved_group_with_low_generic_score_routes_to_review(self):
+        # Group evidence should keep a resolved collective visible for review
+        # even when the generic promotion score remains below the usual band.
+        text = "She served with Meridian. Meridian deployed scouts at dawn."
+        bundle = run_promote(text)
+        suppressed_keys = {c.cluster.normalized_key for c in bundle.suppressed}
+        review_keys = {c.cluster.normalized_key for c in bundle.review_only}
+        assert "meridian" not in suppressed_keys
+        assert "meridian" in review_keys
+
     def test_accepted_unresolved_cluster_routes_to_review_not_promoted(self):
         # Plausible unresolved entities should survive for review, but they
         # should not auto-promote just because possessive recurrence and scene

@@ -16,7 +16,13 @@ from backend.nlp.harvesting.manuscript import harvest_manuscript
 from backend.nlp.clustering.clustering import cluster_mentions
 from backend.nlp.clustering.linking import link_clusters
 from backend.nlp.promotion.attribution import attribute_dialogue
-from backend.nlp.types import LexiconCategory, MentionCluster, stable_hash_id
+from backend.nlp.types import (
+    DefinitionCandidate,
+    LexiconCategory,
+    MentionCluster,
+    SpanAnchor,
+    stable_hash_id,
+)
 
 
 def harvest_and_cluster(text: str, path: str = "doc.md"):
@@ -25,6 +31,20 @@ def harvest_and_cluster(text: str, path: str = "doc.md"):
     candidates = harvest_manuscript(pre)
     clusters = cluster_mentions(candidates)
     link_clusters(clusters, [], [], [])
+    return pre, clusters
+
+
+def harvest_and_cluster_with_definitions(
+    text: str,
+    definitions: list[DefinitionCandidate],
+    path: str = "doc.md",
+):
+    """Run harvest/cluster/link with explicit definition candidates."""
+    doc = parse(path, text)
+    pre = preprocess(doc)
+    candidates = harvest_manuscript(pre)
+    clusters = cluster_mentions(candidates)
+    link_clusters(clusters, [], definitions, [])
     return pre, clusters
 
 
@@ -92,6 +112,38 @@ class TestClassification:
         assert decision.winning_category == LexiconCategory.GROUP
         assert decision.resolved is True
 
+    def test_membership_and_collective_action_resolve_group(self):
+        # A non-suffix name should still resolve as GROUP when the prose gives
+        # membership context and collective action verbs.
+        text = "She served with Meridian. Meridian deployed scouts at dawn."
+        pre, clusters = harvest_and_cluster(text)
+        meridian = next(c for c in clusters if c.normalized_key == "meridian")
+        decision = classify_cluster(meridian, pre, [])
+        assert decision.winning_category == LexiconCategory.GROUP
+        assert decision.resolved is True
+
+    def test_leadership_phrase_resolves_group(self):
+        # Leadership framing like "leader of Meridian" should support group
+        # resolution even when the name itself has no faction-like suffix.
+        text = "The leader of Meridian arrived. Meridian governed the coast."
+        pre, clusters = harvest_and_cluster(text)
+        meridian = next(c for c in clusters if c.normalized_key == "meridian")
+        decision = classify_cluster(meridian, pre, [])
+        assert decision.winning_category == LexiconCategory.GROUP
+        assert decision.resolved is True
+
+    def test_wordnet_expanded_group_terms_resolve_group(self):
+        # NLTK-backed group lexicons should drive real classification behavior,
+        # not just expand constants on paper. "collaborated with" and
+        # "regulated" are broader collective cues than the original manual
+        # seed set.
+        text = "She collaborated with Meridian. Meridian regulated the coast."
+        pre, clusters = harvest_and_cluster(text)
+        meridian = next(c for c in clusters if c.normalized_key == "meridian")
+        decision = classify_cluster(meridian, pre, [])
+        assert decision.winning_category == LexiconCategory.GROUP
+        assert decision.resolved is True
+
     def test_place_descriptor_support_resolves_place(self):
         # A geographic descriptor around a capitalized name should be enough
         # to resolve placehood even without a preceding locative preposition.
@@ -100,6 +152,102 @@ class TestClassification:
         decision = classify_cluster(sidhe, pre, [])
         assert decision.winning_category == LexiconCategory.PLACE
         assert decision.resolved is True
+
+    def test_possessive_place_context_resolves_place(self):
+        # Possessive context such as "Numazu's streets" should count as place
+        # evidence rather than being left unresolved.
+        text = "Numazu's streets glowed. She missed Numazu."
+        pre, clusters = harvest_and_cluster(text)
+        numazu = next(c for c in clusters if c.normalized_key == "numazu")
+        decision = classify_cluster(numazu, pre, [])
+        assert decision.winning_category == LexiconCategory.PLACE
+        assert decision.resolved is True
+
+    def test_heart_of_pattern_resolves_place(self):
+        # Phrases like "heart of Numazu" are place framing even when the name
+        # is not directly preceded by a standard location descriptor noun.
+        text = "The heart of Numazu was loud. Numazu shimmered at dusk."
+        pre, clusters = harvest_and_cluster(text)
+        numazu = next(c for c in clusters if c.normalized_key == "numazu")
+        decision = classify_cluster(numazu, pre, [])
+        assert decision.winning_category == LexiconCategory.PLACE
+        assert decision.resolved is True
+
+    def test_civic_resident_pattern_resolves_place(self):
+        # Resident nouns like "citizens" should support place resolution for
+        # names such as "Numazu citizens".
+        text = "Numazu citizens gathered at dawn. She left Numazu by noon."
+        pre, clusters = harvest_and_cluster(text)
+        numazu = next(c for c in clusters if c.normalized_key == "numazu")
+        decision = classify_cluster(numazu, pre, [])
+        assert decision.winning_category == LexiconCategory.PLACE
+        assert decision.resolved is True
+
+    def test_temporal_event_noun_resolves_event(self):
+        # A recurring capitalized event noun with temporal framing and
+        # occurrence language should resolve as EVENT rather than remaining
+        # generic unresolved review noise.
+        text = (
+            "The Festival began at dusk. During the Festival, bells rang."
+        )
+        pre, clusters = harvest_and_cluster(text)
+        festival = next(c for c in clusters if c.normalized_key == "festival")
+        decision = classify_cluster(festival, pre, [])
+        assert decision.winning_category == LexiconCategory.EVENT
+        assert decision.resolved is True
+
+    def test_event_noun_without_temporal_context_stays_unresolved(self):
+        # Event-like nouns should not resolve as EVENT from capitalization
+        # alone. Without temporal or occurrence framing they are too broad to
+        # classify safely.
+        text = (
+            "They admired Festival lanterns. The boat carried Festival "
+            "ribbons against the railing."
+        )
+        pre, clusters = harvest_and_cluster(text)
+        festival = next(c for c in clusters if c.normalized_key == "festival")
+        decision = classify_cluster(festival, pre, [])
+        assert decision.winning_category == LexiconCategory.UNRESOLVED
+        assert decision.resolved is False
+
+    def test_definition_style_term_resolves_concept(self):
+        # A capitalized term followed by definition syntax and an abstract
+        # descriptor should resolve as CONCEPT rather than staying unresolved.
+        text = (
+            "The term Leva refers to a magical resonance system. "
+            "Leva destabilized the chamber."
+        )
+        pre, clusters = harvest_and_cluster(text)
+        leva = next(c for c in clusters if c.normalized_key == "leva")
+        decision = classify_cluster(leva, pre, [])
+        assert decision.winning_category == LexiconCategory.CONCEPT
+        assert decision.resolved is True
+
+    def test_linked_definition_resolves_concept(self):
+        # Structured definition notes are strong concept evidence even when
+        # prose context is sparse.
+        definition = DefinitionCandidate(
+            term="Azoth",
+            definition_text="A particulate energy protocol used in solunar rites.",
+            anchor=SpanAnchor(path="doc.md", span_ordinal=0, start_char=0, end_char=5),
+            candidate_id=stable_hash_id("doc.md", "0", "Azoth"),
+        )
+        text = "Azoth shimmered in the air. Later, Azoth failed."
+        pre, clusters = harvest_and_cluster_with_definitions(text, [definition])
+        azoth = next(c for c in clusters if c.normalized_key == "azoth")
+        decision = classify_cluster(azoth, pre, [])
+        assert decision.winning_category == LexiconCategory.CONCEPT
+        assert decision.resolved is True
+
+    def test_abstractish_word_without_definition_context_stays_unresolved(self):
+        # A capitalized abstract-looking word should not resolve as CONCEPT
+        # from recurrence alone. It still needs definition-style context.
+        text = "Guide lights flickered. She picked up the Guide."
+        pre, clusters = harvest_and_cluster(text)
+        guide = next(c for c in clusters if c.normalized_key == "guide")
+        decision = classify_cluster(guide, pre, [])
+        assert decision.winning_category == LexiconCategory.UNRESOLVED
+        assert decision.resolved is False
 
     def test_possessive_only_cluster_remains_unresolved(self):
         # Possessive form alone is evidence of entityhood but not enough to
@@ -110,6 +258,25 @@ class TestClassification:
         assert decision.winning_category == LexiconCategory.UNRESOLVED
         assert decision.resolved is False
         assert decision.entityhood.accepted is True
+
+    def test_possessive_owned_object_does_not_resolve_place(self):
+        # Possessive nouns should not become places just because they precede
+        # a common noun. Owned-object syntax such as "Aldous's room" is not
+        # the same as "Numazu's streets".
+        text = "Aldous's room was dark. She found Aldous later."
+        pre, clusters = harvest_and_cluster(text)
+        aldous = next(c for c in clusters if c.normalized_key == "aldous")
+        decision = classify_cluster(aldous, pre, [])
+        assert decision.winning_category != LexiconCategory.PLACE
+
+    def test_collective_verb_alone_does_not_force_group(self):
+        # A single collective-ish verb without membership or leadership
+        # framing should not be enough to force a non-suffix name into GROUP.
+        text = "Meridian shimmered at dusk. Later, Meridian moved again."
+        pre, clusters = harvest_and_cluster(text)
+        meridian = next(c for c in clusters if c.normalized_key == "meridian")
+        decision = classify_cluster(meridian, pre, [])
+        assert decision.winning_category != LexiconCategory.GROUP
 
     def test_recurring_bare_cluster_is_weak_entityhood(self):
         # Recurrence alone is not enough to call a cluster a trustworthy entity.

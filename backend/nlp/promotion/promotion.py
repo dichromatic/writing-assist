@@ -52,12 +52,40 @@ _CONTEXT_RADIUS = 150
 _BARE_TITLE_KEYS: frozenset[str] = frozenset(t.lower() for t in TITLE_PREFIXES)
 
 
-def _review_reason_for_classification(
+def _should_promote_place(
+    cluster: MentionCluster,
     classification,
+    signals,
+    score: float,
+) -> bool:
+    """Return True when a resolved place has enough support to auto-promote."""
+    return (
+        classification.winning_category == LexiconCategory.PLACE
+        and classification.resolved
+        and classification.entityhood.accepted
+        and classification.winning_score >= 0.60
+        and cluster.occurrence_count >= 5
+        and signals.scene_count >= 2
+        and score >= 0.45
+    )
+
+
+def _review_reason_for_classification(
+    cluster: MentionCluster,
+    classification,
+    signals,
     score: float,
 ) -> str | None:
     """Return a class-aware review reason when promotion should be withheld."""
     category = classification.winning_category
+
+    if category == LexiconCategory.PLACE:
+        if _should_promote_place(cluster, classification, signals, score):
+            return None
+        return (
+            f"resolved as {category.value}; confidence {score:.3f} requires "
+            f"place review until broader place support is present"
+        )
 
     if category == LexiconCategory.UNRESOLVED:
         return (
@@ -66,7 +94,6 @@ def _review_reason_for_classification(
         )
 
     if category in {
-        LexiconCategory.PLACE,
         LexiconCategory.GROUP,
         LexiconCategory.OBJECT,
         LexiconCategory.EVENT,
@@ -236,7 +263,14 @@ def promote(
             ))
             continue
 
-        if score < SUPPRESS_THRESHOLD:
+        review_reason = _review_reason_for_classification(
+            cluster,
+            classification,
+            signals,
+            score,
+        )
+
+        if score < SUPPRESS_THRESHOLD and review_reason is None:
             suppressed.append(SuppressedCandidate(
                 cluster=cluster,
                 reason=SuppressReason.LOW_CONFIDENCE,
@@ -246,8 +280,6 @@ def promote(
                 ),
             ))
             continue
-
-        review_reason = _review_reason_for_classification(classification, score)
 
         if (
             score >= PROMOTE_THRESHOLD

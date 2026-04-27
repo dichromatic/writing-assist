@@ -15,6 +15,9 @@ from backend.nlp.classification.types import ClassEvidence
 from backend.nlp.harvesting.shared import (
     DEMONYM_SUFFIXES,
     PLACE_DESCRIPTOR_NOUNS,
+    PLACE_OF_CONTEXT_NOUNS,
+    PLACE_POSSESSIVE_CONTEXT_NOUNS,
+    PLACE_RESIDENT_NOUNS,
     STRONG_LOCATIVE_PREPOSITIONS,
     WEAK_LOCATIVE_PREPOSITIONS,
 )
@@ -45,7 +48,7 @@ def _place_descriptor_support(cluster: MentionCluster, pre: PreprocessedDocument
         if index >= 2:
             if (
                 tokens[index - 1].text.lower() == "of"
-                and tokens[index - 2].text.lower() in PLACE_DESCRIPTOR_NOUNS
+                and tokens[index - 2].text.lower() in PLACE_OF_CONTEXT_NOUNS
             ):
                 return True
 
@@ -59,6 +62,30 @@ def _place_descriptor_support(cluster: MentionCluster, pre: PreprocessedDocument
                 return True
 
         if index + 1 < len(tokens) and tokens[index + 1].text.lower() in PLACE_DESCRIPTOR_NOUNS:
+            return True
+
+    return False
+
+
+def _possessive_place_support(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
+    """Return True when possessive syntax clearly frames the cluster as a place."""
+    if pre is None or not cluster.has_possessive_support:
+        return False
+
+    for tokens, index in _token_for_anchor(cluster, pre):
+        next_token = tokens[index + 1].text.lower() if index + 1 < len(tokens) else ""
+        next_next = tokens[index + 2].text.lower() if index + 2 < len(tokens) else ""
+
+        if next_token in {"'s", "'"} and next_next in PLACE_POSSESSIVE_CONTEXT_NOUNS:
+            return True
+
+    return False
+
+
+def _resident_place_support(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
+    """Return True when resident nouns frame the cluster as a place."""
+    for tokens, index in _token_for_anchor(cluster, pre):
+        if index + 1 < len(tokens) and tokens[index + 1].text.lower() in PLACE_RESIDENT_NOUNS:
             return True
 
     return False
@@ -131,6 +158,14 @@ def score_place_evidence(
     if _place_descriptor_support(cluster, pre):
         score += 0.60
         reasons.append("appears with a geographic descriptor")
+
+    if _possessive_place_support(cluster, pre):
+        score += 0.60
+        reasons.append("appears in possessive place context")
+
+    if _resident_place_support(cluster, pre):
+        score += 0.60
+        reasons.append("appears with resident or civic framing")
 
     if (
         cluster.normalized_key.endswith(tuple(DEMONYM_SUFFIXES))

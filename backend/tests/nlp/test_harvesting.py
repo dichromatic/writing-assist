@@ -12,7 +12,12 @@ from backend.nlp.parsing.markdown_parser import parse
 from backend.nlp.parsing.preprocessing import preprocess
 from backend.nlp.harvesting.manuscript import harvest_manuscript
 from backend.nlp.harvesting.shared import (
+    EVENT_NOUNS,
+    GROUP_COLLECTIVE_VERBS,
+    GROUP_LEADERSHIP_NOUNS,
+    GROUP_MEMBERSHIP_VERBS,
     PLACE_DESCRIPTOR_NOUNS,
+    PLACE_POSSESSIVE_CONTEXT_NOUNS,
     TITLE_PREFIXES,
     is_stopword,
     normalize_surface,
@@ -101,6 +106,78 @@ class TestPlaceDescriptorNouns:
         # make descriptor support behave like a noisy gazetteer.
         assert "amsterdam" not in PLACE_DESCRIPTOR_NOUNS
         assert "aachen" not in PLACE_DESCRIPTOR_NOUNS
+
+
+class TestPlacePossessiveContextNouns:
+    def test_wordnet_expansion_adds_place_feature_nouns(self):
+        # Possessive place context should grow beyond the manual seed so the
+        # place scorer can recognize common civic or terrain features.
+        assert "harbour" in PLACE_POSSESSIVE_CONTEXT_NOUNS or "harbor" in PLACE_POSSESSIVE_CONTEXT_NOUNS
+        assert "avenue" in PLACE_POSSESSIVE_CONTEXT_NOUNS
+
+    def test_wordnet_expansion_does_not_become_owned_object_bag(self):
+        # This set is for place-owned features, not arbitrary possessed nouns.
+        # Words like "room" or "house" would make personal possession look
+        # like place evidence too often.
+        assert "room" not in PLACE_POSSESSIVE_CONTEXT_NOUNS
+        assert "house" not in PLACE_POSSESSIVE_CONTEXT_NOUNS
+
+
+class TestEventNouns:
+    def test_wordnet_expansion_adds_generic_event_nouns(self):
+        # EVENT_NOUNS should grow beyond the small manual seed so the event
+        # scorer can recognize common event heads without hand-curating every
+        # ceremony or occurrence term.
+        assert "pageant" in EVENT_NOUNS
+        assert "burial" in EVENT_NOUNS
+
+    def test_wordnet_expansion_does_not_become_abstract_noun_bag(self):
+        # EVENT_NOUNS should remain a concrete event-head list rather than
+        # absorbing broad abstractions that would make event resolution noisy.
+        assert "joy" not in EVENT_NOUNS
+        assert "idea" not in EVENT_NOUNS
+        assert "circumstance" not in EVENT_NOUNS
+
+
+class TestGroupMembershipVerbs:
+    def test_wordnet_expansion_adds_group_membership_verbs(self):
+        # Group membership detection should grow beyond the manual seed so the
+        # classifier can recognize collective affiliation prose without
+        # hand-curating every verb form.
+        assert "collaborate" in GROUP_MEMBERSHIP_VERBS
+        assert "collaborated" in GROUP_MEMBERSHIP_VERBS
+
+    def test_wordnet_expansion_does_not_become_generic_action_bag(self):
+        # This set should stay focused on affiliation/membership language.
+        # Drift into broad work verbs would make group resolution noisy.
+        assert "whore" not in GROUP_MEMBERSHIP_VERBS
+        assert "busy" not in GROUP_MEMBERSHIP_VERBS
+
+
+class TestGroupLeadershipNouns:
+    def test_wordnet_expansion_adds_collective_leadership_nouns(self):
+        # Leadership framing should recognize common collective-role nouns
+        # beyond the original hand-picked list.
+        assert "manager" in GROUP_LEADERSHIP_NOUNS
+
+    def test_wordnet_expansion_does_not_become_generic_person_role_bag(self):
+        # This set should stay focused on leadership roles, not drift into
+        # broad person-like nouns that would overfire on character prose.
+        assert "hero" not in GROUP_LEADERSHIP_NOUNS
+
+
+class TestGroupCollectiveVerbs:
+    def test_wordnet_expansion_adds_collective_action_verbs(self):
+        # Group-like action should recognize a few more institutional verbs
+        # than the manual seed list alone.
+        assert "regulate" in GROUP_COLLECTIVE_VERBS
+        assert "regulated" in GROUP_COLLECTIVE_VERBS
+
+    def test_wordnet_expansion_does_not_become_generic_motion_bag(self):
+        # Collective-action detection should not absorb stray verb senses from
+        # ambiguous roots like deploy or meet.
+        assert "play" not in GROUP_COLLECTIVE_VERBS
+        assert "see" not in GROUP_COLLECTIVE_VERBS
 
 
 # ---------------------------------------------------------------------------

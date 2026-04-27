@@ -79,9 +79,282 @@ _BASE_PLACE_DESCRIPTOR_NOUNS: frozenset[str] = frozenset({
     "garden", "gardens", "village", "town", "port", "groundport",
 })
 
+_BASE_PLACE_POSSESSIVE_CONTEXT_NOUNS: frozenset[str] = frozenset({
+    "street", "streets", "road", "roads", "shore", "shores", "sand", "sands",
+    "harbor", "harbour", "bay", "beach", "beaches", "forest", "forests",
+    "garden", "gardens", "capital", "port",
+})
+
+PLACE_RESIDENT_NOUNS: frozenset[str] = frozenset({
+    "citizen", "citizens", "resident", "residents", "local", "locals",
+    "inhabitant", "inhabitants",
+})
+
 DEMONYM_SUFFIXES: frozenset[str] = frozenset({
     "ian", "an", "ish", "ese",
 })
+
+# ---------------------------------------------------------------------------
+# Event-context refinements
+#
+# Event classification needs narrow lexical support because capitalized event
+# nouns such as "Festival" or "Remembrance" otherwise look like generic bare
+# entities. These sets intentionally encode only stable local cues: event-like
+# head nouns, temporal framing words, and nearby occurrence verbs.
+# ---------------------------------------------------------------------------
+_BASE_EVENT_NOUNS: frozenset[str] = frozenset({
+    "festival", "ceremony", "remembrance", "memorial", "battle", "war",
+    "mission", "ritual", "celebration", "coronation", "pilgrimage",
+    "funeral", "trial", "summit", "expedition",
+})
+
+EVENT_TEMPORAL_PREPOSITIONS: frozenset[str] = frozenset({
+    "during", "before", "after", "since", "until",
+})
+
+EVENT_INSTANCE_MARKERS: frozenset[str] = frozenset({
+    "annual", "yearly", "nightly", "daily", "weekly", "monthly",
+    "last", "next", "first", "final", "opening", "closing",
+})
+
+EVENT_OCCURRENCE_VERBS: frozenset[str] = frozenset({
+    "begin", "begins", "began", "start", "starts", "started",
+    "end", "ends", "ended",
+    "held", "hold", "holds",
+    "celebrate", "celebrates", "celebrated",
+    "observe", "observes", "observed",
+    "mark", "marks", "marked",
+    "attend", "attends", "attended",
+    "resume", "resumes", "resumed",
+})
+
+# ---------------------------------------------------------------------------
+# Concept-context refinements
+#
+# Concept classification targets named abstract systems, rules, energies, and
+# glossary-like terms. The local rules depend on definition verbs and abstract
+# descriptor nouns rather than on generic recurrence.
+# ---------------------------------------------------------------------------
+CONCEPT_DEFINITION_VERBS: frozenset[str] = frozenset({
+    "is", "was", "means", "meant", "refers", "describe", "describes",
+    "described", "denotes", "denoted",
+})
+
+CONCEPT_DESCRIPTOR_NOUNS: frozenset[str] = frozenset({
+    "system", "theory", "protocol", "resonance", "energy", "force",
+    "discipline", "practice", "condition", "technique", "method",
+    "concept", "term", "law", "principle", "process",
+})
+
+# ---------------------------------------------------------------------------
+# Group-context refinements
+#
+# Group classification needs contextual cues for collective entities whose
+# names do not end in a faction-like suffix. The lexical inventories use the
+# same conservative WordNet-backed expansion pattern as place and event sets,
+# while the prepositions remain manual because they are syntactic markers.
+# ---------------------------------------------------------------------------
+_BASE_GROUP_MEMBERSHIP_VERBS: frozenset[str] = frozenset({
+    "serve", "served", "serves", "join", "joined", "joins", "work", "worked",
+    "works", "fight", "fought", "fights",
+})
+
+GROUP_MEMBERSHIP_PREPOSITIONS: frozenset[str] = frozenset({
+    "with", "under", "for",
+})
+
+_BASE_GROUP_LEADERSHIP_NOUNS: frozenset[str] = frozenset({
+    "leader", "head", "chief", "captain", "director", "commander",
+})
+
+_BASE_GROUP_COLLECTIVE_VERBS: frozenset[str] = frozenset({
+    "govern", "governed", "governs", "deploy", "deployed", "deploys",
+    "meet", "met", "meets", "rule", "ruled", "rules", "found", "founded",
+    "founds", "command", "commanded", "commands", "forbid", "forbade",
+    "forbids",
+})
+
+
+def _regular_verb_inflections(lemma: str) -> set[str]:
+    """Generate simple present/past inflections for a base verb lemma."""
+    forms = {lemma}
+
+    if lemma.endswith("y") and len(lemma) > 1 and lemma[-2] not in "aeiou":
+        forms.add(f"{lemma[:-1]}ies")
+        forms.add(f"{lemma[:-1]}ied")
+    elif lemma.endswith(("s", "sh", "ch", "x", "z", "o")):
+        forms.add(f"{lemma}es")
+        forms.add(f"{lemma}ed")
+    elif lemma.endswith("e"):
+        forms.add(f"{lemma}s")
+        forms.add(f"{lemma}d")
+    else:
+        forms.add(f"{lemma}s")
+        forms.add(f"{lemma}ed")
+
+    return forms
+
+
+_IRREGULAR_VERB_FORMS: dict[str, frozenset[str]] = {
+    "fight": frozenset({"fight", "fights", "fought"}),
+    "meet": frozenset({"meet", "meets", "met"}),
+    "forbid": frozenset({"forbid", "forbids", "forbade"}),
+    "lead": frozenset({"lead", "leads", "led"}),
+}
+
+
+def _expand_group_verbs(
+    seed_synset_names: tuple[str, ...],
+    fallback: frozenset[str],
+    blacklist: set[str],
+) -> frozenset[str]:
+    """Build a conservative verb inventory for group-context detection."""
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return fallback
+
+    try:
+        verbs = set(fallback)
+        for synset_name in seed_synset_names:
+            synset = wn.synset(synset_name)
+            candidate_synsets = [synset] + synset.hyponyms()
+            for candidate in candidate_synsets:
+                for lemma in candidate.lemmas():
+                    word = lemma.name().lower()
+                    if "_" in word or not word.isalpha():
+                        continue
+                    if len(word) < 3 or word in blacklist:
+                        continue
+                    verbs.update(_IRREGULAR_VERB_FORMS.get(word, _regular_verb_inflections(word)))
+        return frozenset(verbs)
+    except Exception:
+        return fallback
+
+
+def _load_group_membership_verbs() -> frozenset[str]:
+    """Build a narrow affiliation/membership verb set for group detection."""
+    blacklist = {
+        "busy", "whore", "wait", "waits", "waited", "waitress", "minister",
+        "page", "pages", "paged", "occupy", "occupies", "occupied",
+        "carpenter", "carpenters", "carpentered", "clerk", "clerks",
+        "clerked", "monkey", "monkeys", "monkeyed", "putter", "putters",
+        "puttered", "potter", "potters", "pottered", "beaver", "beavers",
+        "beavered", "boondoggle", "boondoggles", "boondoggled", "intern",
+        "interns", "interned",
+    }
+    return _expand_group_verbs(
+        ("join.v.01", "work.v.01", "fight.v.01"),
+        _BASE_GROUP_MEMBERSHIP_VERBS,
+        blacklist,
+    )
+
+
+def _load_group_leadership_nouns() -> frozenset[str]:
+    """Build a narrow leadership-role noun set for group framing."""
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return _BASE_GROUP_LEADERSHIP_NOUNS
+
+    blacklist = {
+        "hero", "superman", "model", "father", "guru", "guide", "politician",
+        "politico", "trainer", "caller", "cheerleader", "misleader",
+        "torchbearer", "lawgiver", "lawmaker", "imam", "imaum", "demigod",
+        "aristocrat", "patrician", "superior", "superordinate", "employer",
+    }
+
+    try:
+        nouns = set(_BASE_GROUP_LEADERSHIP_NOUNS)
+        for synset_name in ("leader.n.01", "director.n.01", "commander.n.01"):
+            synset = wn.synset(synset_name)
+            candidate_synsets = [synset] + synset.hyponyms()
+            for candidate in candidate_synsets:
+                for lemma in candidate.lemmas():
+                    word = lemma.name().lower()
+                    if "_" in word or not word.isalpha():
+                        continue
+                    if len(word) < 4 or word in blacklist:
+                        continue
+                    nouns.add(word)
+        return frozenset(nouns)
+    except Exception:
+        return _BASE_GROUP_LEADERSHIP_NOUNS
+
+
+def _load_group_collective_verbs() -> frozenset[str]:
+    """Build a narrow institutional action verb set for group behavior."""
+    blacklist = {
+        "play", "plays", "played", "see", "sees", "saw", "cross", "crosses",
+        "crossed", "intersect", "intersects", "intersected", "district",
+        "districts", "districted", "order", "orders", "ordered", "zone",
+        "zones", "zoned", "throne", "thrones", "throned",
+    }
+    return _expand_group_verbs(
+        ("govern.v.01", "rule.v.01", "command.v.01", "forbid.v.01"),
+        _BASE_GROUP_COLLECTIVE_VERBS,
+        blacklist,
+    )
+
+
+GROUP_MEMBERSHIP_VERBS: frozenset[str] = _load_group_membership_verbs()
+
+GROUP_LEADERSHIP_NOUNS: frozenset[str] = _load_group_leadership_nouns()
+
+GROUP_COLLECTIVE_VERBS: frozenset[str] = _load_group_collective_verbs()
+
+
+def _load_event_nouns() -> frozenset[str]:
+    """Build a conservative event-head noun set.
+
+    Event classification needs common event nouns such as "festival",
+    "procession", and "pageant", not a broad bag of abstract nouns. WordNet
+    is used as a lexical expansion source from the manual seed words, with
+    strict filtering and a hard fallback to the hand-curated list.
+
+    Returns:
+        A frozenset of lowercase single-token nouns that are plausible event
+        heads in local contexts such as "during the Festival".
+    """
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return _BASE_EVENT_NOUNS
+
+    blacklist = {
+        "event", "happening", "occurrence", "change", "activity", "act",
+        "process", "development", "move", "motion", "cause", "effect",
+        "experience", "case", "affair", "matter", "thing", "circumstance",
+        "ceremonial", "occasion",
+    }
+
+    try:
+        event_words = set(_BASE_EVENT_NOUNS)
+        for seed_word in _BASE_EVENT_NOUNS:
+            seed_synsets = [
+                synset for synset in wn.synsets(seed_word, pos=wn.NOUN)
+                if synset.lexname() == "noun.event"
+            ]
+            if not seed_synsets:
+                continue
+
+            seed_synset = seed_synsets[0]
+            candidate_synsets = [seed_synset] + seed_synset.hyponyms()
+            for candidate in candidate_synsets:
+                for lemma in candidate.lemmas():
+                    word = lemma.name().lower()
+                    if "_" in word or not word.isalpha():
+                        continue
+                    if len(word) < 3 or word in blacklist:
+                        continue
+                    event_words.add(word)
+
+        return frozenset(event_words)
+    except Exception:
+        return _BASE_EVENT_NOUNS
+
+
+EVENT_NOUNS: frozenset[str] = _load_event_nouns()
 
 
 def _load_place_descriptor_nouns() -> frozenset[str]:
@@ -160,6 +433,66 @@ def _load_place_descriptor_nouns() -> frozenset[str]:
 
 
 PLACE_DESCRIPTOR_NOUNS: frozenset[str] = _load_place_descriptor_nouns()
+
+
+def _load_place_possessive_context_nouns() -> frozenset[str]:
+    """Build a conservative place-owned feature noun set.
+
+    These nouns support patterns such as "Numazu's streets" and
+    "Sidhe's harbor". The set should include civic or terrain features that
+    plausibly belong to a place, but exclude indoor or personal-possession
+    nouns like "room" and "house".
+
+    Returns:
+        A frozenset of lowercase single-token place-feature nouns.
+    """
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return _BASE_PLACE_POSSESSIVE_CONTEXT_NOUNS
+
+    root_synset_names = (
+        "street.n.01",
+        "road.n.01",
+        "shore.n.01",
+        "sand.n.01",
+        "harbor.n.01",
+        "bay.n.01",
+        "beach.n.01",
+        "forest.n.01",
+        "garden.n.01",
+        "port.n.01",
+        "capital.n.03",
+    )
+    blacklist = {
+        "room", "house", "home", "building", "door", "window", "bed",
+        "desk", "office", "school", "campus", "yard", "field", "side",
+        "edge", "corner", "property", "estate", "farm",
+    }
+
+    try:
+        feature_words = set(_BASE_PLACE_POSSESSIVE_CONTEXT_NOUNS)
+        for name in root_synset_names:
+            synset = wn.synset(name)
+            candidate_synsets = [synset] + synset.hyponyms()
+            for candidate in candidate_synsets:
+                for lemma in candidate.lemmas():
+                    word = lemma.name().lower()
+                    if "_" in word or not word.isalpha():
+                        continue
+                    if len(word) < 3 or word in blacklist:
+                        continue
+                    feature_words.add(word)
+        return frozenset(feature_words)
+    except Exception:
+        return _BASE_PLACE_POSSESSIVE_CONTEXT_NOUNS
+
+
+PLACE_POSSESSIVE_CONTEXT_NOUNS: frozenset[str] = _load_place_possessive_context_nouns()
+
+PLACE_OF_CONTEXT_NOUNS: frozenset[str] = PLACE_DESCRIPTOR_NOUNS | frozenset({
+    "heart", "center", "centre", "core", "edge",
+})
 
 # ---------------------------------------------------------------------------
 # Faction suffixes
