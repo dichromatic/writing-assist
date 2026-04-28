@@ -109,6 +109,24 @@ class TestAttribution:
         records = attribute_dialogue(pre, clusters)
         assert any(r.speaker_key == "aldous" for r in records)
 
+    def test_expanded_dialogue_tag_verb_detected(self):
+        # Manuscripts use a broader tag vocabulary than "said" and
+        # "whispered". A verb like "interjects" should count as a speech tag
+        # so direct-quote lines keep their speaker evidence.
+        pre = parse_and_preprocess('"Go now," Aldous interjects.')
+        clusters = [make_cluster("aldous", ["Aldous"])]
+        records = attribute_dialogue(pre, clusters)
+        assert any(r.speaker_key == "aldous" for r in records)
+
+    def test_single_adverb_gap_between_speaker_and_verb_is_allowed(self):
+        # Fiction often inserts one adverb between the speaker and the speech
+        # verb. Without this narrow gap rule, lines like "Kohaku gently
+        # teases" silently lose attribution despite being explicit tags.
+        pre = parse_and_preprocess('"Go now," Aldous gently teases back.')
+        clusters = [make_cluster("aldous", ["Aldous"])]
+        records = attribute_dialogue(pre, clusters)
+        assert any(r.speaker_key == "aldous" for r in records)
+
     def test_post_quote_pattern_label(self):
         # The pattern field must be 'post_quote' for post-quote attribution.
         # A wrong label would corrupt pattern-specific statistics and prevent

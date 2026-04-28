@@ -18,6 +18,7 @@ from backend.nlp.harvesting.shared import (
     GROUP_MEMBERSHIP_VERBS,
     PLACE_DESCRIPTOR_NOUNS,
     PLACE_POSSESSIVE_CONTEXT_NOUNS,
+    RELATION_ROLE_NOUNS,
     TITLE_PREFIXES,
     is_stopword,
     normalize_surface,
@@ -178,6 +179,21 @@ class TestGroupCollectiveVerbs:
         # ambiguous roots like deploy or meet.
         assert "play" not in GROUP_COLLECTIVE_VERBS
         assert "see" not in GROUP_COLLECTIVE_VERBS
+
+
+class TestRelationRoleNouns:
+    def test_wordnet_expansion_adds_relation_role_nouns(self):
+        # Relation-role references should cover more than the narrow seed list
+        # so the semantic-review layer can preserve kinship language without
+        # hand-curating every family variant.
+        assert "auntie" in RELATION_ROLE_NOUNS
+        assert "grandaunt" in RELATION_ROLE_NOUNS
+
+    def test_wordnet_expansion_does_not_become_generic_social_noun_bag(self):
+        # This set is for kinship and relation-role references, not broad
+        # social nouns that would make bare-relation extraction noisy.
+        assert "hero" not in RELATION_ROLE_NOUNS
+        assert "friend" not in RELATION_ROLE_NOUNS
 
 
 # ---------------------------------------------------------------------------

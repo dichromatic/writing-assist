@@ -778,3 +778,180 @@ class CorpusReconciliationResult:
     """Output of the first corpus-level exact-key reconciliation stage."""
 
     canonical_entities: list[CorpusEntity]
+
+
+# ---------------------------------------------------------------------------
+# Semantic review stage output (semantic_review/*.py)
+# ---------------------------------------------------------------------------
+
+class ReferenceCandidateType(Enum):
+    """Subtype for deferred semantic reference candidates."""
+
+    BOUND_TITLE_ROLE = "bound_title_role"
+    BARE_TITLE_ROLE = "bare_title_role"
+    BOUND_RELATION_ROLE = "bound_relation_role"
+    BARE_RELATION_ROLE = "bare_relation_role"
+
+
+class ConflictSource(Enum):
+    """High-level explanation for why a corpus entity needs conflict review."""
+
+    COMPONENT_POLLUTION = "component_pollution"
+    SURFACE_LEVEL_DISAGREEMENT = "surface_level_disagreement"
+
+
+class ReviewTaskKind(Enum):
+    """Kinds of semantic-review tasks emitted for human or LLM review."""
+
+    TITLE_ROLE_ATTACHMENT = "title_role_attachment"
+    RELATION_ROLE_ATTACHMENT = "relation_role_attachment"
+    CATEGORY_CONFLICT = "category_conflict"
+
+
+@dataclass
+class ReferenceCandidate:
+    """A deferred semantic reference mention preserved for later review.
+
+    Reference candidates capture fiction-important mentions that are useful
+    semantic evidence but are too ambiguous to force into canonical entity
+    inventory during deterministic extraction.
+
+    Args:
+        document_anchor: Source document for this reference.
+        reference_type: Structural subtype for the reference mention.
+        surface: Exact mention surface from the document.
+        normalized: Lowercased lookup form for grouping and review.
+        anchor: Exact anchor for the reference mention.
+        context_before: Short left context for review displays.
+        context_after: Short right context for review displays.
+        in_quote: Whether the mention occurs inside quoted dialogue.
+        address_like: Whether the mention looks like direct address inside a
+            quote, such as "Captain, wait" or "yes, captain".
+        quote_speaker_key: Deterministic speaker attribution for the enclosing
+            quote, when one exists.
+        linked_entity_keys: Deterministic nearby entity candidates, if any.
+    """
+
+    document_anchor: DocumentAnchor
+    reference_type: ReferenceCandidateType
+    surface: str
+    normalized: str
+    anchor: SpanAnchor
+    context_before: str
+    context_after: str
+    in_quote: bool
+    address_like: bool
+    quote_speaker_key: Optional[str]
+    linked_entity_keys: list[str]
+
+
+@dataclass
+class ReferenceCluster:
+    """A grouped semantic reference candidate for later attachment review.
+
+    Repeated title or role mentions are more useful as one clustered review
+    object than as many independent mentions. This grouped form preserves the
+    original anchors while also exposing recurrence and candidate target counts.
+
+    Args:
+        document_anchor: Source document for this grouped reference.
+        reference_type: Structural subtype for the reference.
+        normalized: Lowercased lookup form shared by the grouped mentions.
+        surface_forms: Distinct surfaces observed for this reference.
+        occurrence_count: Total mention count in the document.
+        anchors: All exact anchors contributing to this grouped reference.
+        in_quote_count: Number of grouped mentions that occurred inside quotes.
+        address_like_count: Number of grouped mentions that look like direct
+            address inside dialogue.
+        speaker_entity_scores: Quote-speaker counts by character key for the
+            grouped mentions, when quote attribution was available.
+        candidate_entity_scores: Deterministic target counts by entity key.
+    """
+
+    document_anchor: DocumentAnchor
+    reference_type: ReferenceCandidateType
+    normalized: str
+    surface_forms: list[str]
+    occurrence_count: int
+    anchors: list[SpanAnchor]
+    in_quote_count: int
+    address_like_count: int
+    speaker_entity_scores: dict[str, int]
+    candidate_entity_scores: dict[str, int]
+
+
+@dataclass
+class ConflictRecord:
+    """A typed cross-category conflict surfaced for semantic review.
+
+    Args:
+        canonical_key: Corpus canonical key under review.
+        source: Coarse explanation of where the disagreement came from.
+        conflicting_categories: Resolved categories that disagree.
+        supporting_document_paths: Documents involved in the conflict.
+        reason: Human-readable explanation for reports and later review.
+    """
+
+    canonical_key: str
+    source: ConflictSource
+    conflicting_categories: list[LexiconCategory]
+    supporting_document_paths: list[str]
+    reason: str
+
+
+@dataclass
+class ReviewTask:
+    """A review prompt derived from structured semantic evidence.
+
+    Args:
+        task_id: Stable identifier for this review task.
+        kind: Review task family.
+        subject_key: Primary entity or reference under review.
+        prompt: Human-readable review question.
+        supporting_anchor_paths: Documents contributing to the question.
+    """
+
+    task_id: str
+    kind: ReviewTaskKind
+    subject_key: str
+    prompt: str
+    supporting_anchor_paths: list[str]
+
+
+@dataclass
+class CharacterSemanticSummary:
+    """A character-centric semantic review summary built from corpus evidence.
+
+    These summaries give the later semantic pass a stable per-character view of
+    aliases, title usage, and conflicts without forcing it to reconstruct those
+    signals from the raw corpus report.
+
+    Args:
+        canonical_key: Canonical character key being summarized.
+        alias_keys: Other merged keys that refer to the same character.
+        supporting_document_paths: Documents that support the canonical.
+        attached_title_counts: Title or role references that uniquely point to
+            this character across a grouped document-level reference cluster.
+        ambiguous_title_counts: Title or role references that include this
+            character among multiple plausible targets and therefore still need
+            attachment review.
+        attached_relation_counts: Relation-role references that uniquely point
+            to this character across a grouped document-level reference cluster.
+        ambiguous_relation_counts: Relation-role references that include this
+            character among multiple plausible targets and therefore still need
+            attachment review.
+        aggregate_attribution_count: Sum of document-level dialogue
+            attribution counts across the merged character records.
+        conflict_sources: Any typed semantic conflicts attached to this
+            character canonical.
+    """
+
+    canonical_key: str
+    alias_keys: list[str]
+    supporting_document_paths: list[str]
+    attached_title_counts: dict[str, int]
+    ambiguous_title_counts: dict[str, int]
+    attached_relation_counts: dict[str, int]
+    ambiguous_relation_counts: dict[str, int]
+    aggregate_attribution_count: int
+    conflict_sources: list[ConflictSource]

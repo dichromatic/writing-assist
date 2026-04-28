@@ -305,3 +305,186 @@ class TestCorpusReconciliation:
         entity = result.canonical_entities[0]
         assert entity.source_keys == ["hiroshi", "man hiroshi", "old man hiroshi"]
         assert "generic-leading character compounds deferred to stronger personal key" in entity.reasons
+
+    def test_resolved_group_compound_absorbs_shorter_head_alias(self):
+        # Institutional head nouns such as "institute" are often reused as a
+        # shorter reference to a fully named group. When the shorter head only
+        # appears inside the same document set, the full compound should be the
+        # canonical corpus key.
+        records = [
+            make_record("a.md", "norre institute", LexiconCategory.GROUP, confidence_score=0.60),
+            make_record("b.md", "norre institute", LexiconCategory.GROUP, confidence_score=0.65),
+            make_record("a.md", "institute", LexiconCategory.GROUP, confidence_score=0.40),
+            make_record("b.md", "institute", LexiconCategory.GROUP, confidence_score=0.35),
+        ]
+
+        result = reconcile_document_entities(records)
+
+        assert [entity.canonical_key for entity in result.canonical_entities] == ["norre institute"]
+        entity = result.canonical_entities[0]
+        assert entity.source_keys == ["institute", "norre institute"]
+        assert "resolved non-character compound absorbed its shorter head alias" in entity.reasons
+
+    def test_shared_non_character_head_does_not_merge_multiple_compounds(self):
+        # A generic head such as "council" can belong to several compounds.
+        # Reconciliation should keep the shorter key visible when it does not
+        # uniquely identify one stronger compound.
+        records = [
+            make_record("a.md", "council", LexiconCategory.GROUP, confidence_score=0.40),
+            make_record("a.md", "magical council", LexiconCategory.GROUP, confidence_score=0.45),
+            make_record("a.md", "recovery council", LexiconCategory.GROUP, confidence_score=0.45),
+        ]
+
+        result = reconcile_document_entities(records)
+
+        assert [entity.canonical_key for entity in result.canonical_entities] == [
+            "council",
+            "magical council",
+            "recovery council",
+        ]
+
+    def test_resolved_place_compound_absorbs_shorter_modifier_alias(self):
+        # A modifier-only place key such as "radiant" is often just a shorter
+        # surface for one stronger named place compound in the same document
+        # set. The resolved compound should become the canonical corpus key.
+        records = [
+            make_record("a.md", "radiant estuary", LexiconCategory.PLACE, confidence_score=0.55),
+            make_record("b.md", "radiant estuary", LexiconCategory.PLACE, confidence_score=0.60),
+            make_record("a.md", "radiant", LexiconCategory.PLACE, confidence_score=0.30),
+            make_record("b.md", "radiant", LexiconCategory.PLACE, confidence_score=0.28),
+        ]
+
+        result = reconcile_document_entities(records)
+
+        assert [entity.canonical_key for entity in result.canonical_entities] == ["radiant estuary"]
+        entity = result.canonical_entities[0]
+        assert entity.source_keys == ["radiant", "radiant estuary"]
+        assert "resolved non-character compound absorbed its shorter modifier alias" in entity.reasons
+
+    def test_shared_non_character_modifier_does_not_merge_multiple_compounds(self):
+        # A modifier such as "east" can prefix more than one place compound.
+        # Reconciliation should keep the shorter modifier key visible until the
+        # corpus provides a unique stronger target.
+        records = [
+            make_record("a.md", "east", LexiconCategory.PLACE, confidence_score=0.25),
+            make_record("a.md", "east lagoon", LexiconCategory.PLACE, confidence_score=0.35),
+            make_record("a.md", "east harbor", LexiconCategory.PLACE, confidence_score=0.35),
+        ]
+
+        result = reconcile_document_entities(records)
+
+        assert [entity.canonical_key for entity in result.canonical_entities] == [
+            "east",
+            "east harbor",
+            "east lagoon",
+        ]
+
+    def test_resolved_longer_place_compound_absorbs_shorter_contained_alias(self):
+        # A longer resolved place name should absorb a shorter contained alias
+        # when the corpus shows the shorter phrase only as the same place.
+        records = [
+            make_record(
+                "a.md",
+                "amerhinn remembrance gardens",
+                LexiconCategory.PLACE,
+                confidence_score=0.30,
+            ),
+            make_record(
+                "a.md",
+                "remembrance gardens",
+                LexiconCategory.PLACE,
+                confidence_score=0.20,
+            ),
+            make_record(
+                "a.md",
+                "remembrance",
+                LexiconCategory.PLACE,
+                confidence_score=0.20,
+            ),
+        ]
+
+        result = reconcile_document_entities(records)
+
+        assert [entity.canonical_key for entity in result.canonical_entities] == [
+            "amerhinn remembrance gardens",
+        ]
+        entity = result.canonical_entities[0]
+        assert entity.source_keys == [
+            "amerhinn remembrance gardens",
+            "remembrance",
+            "remembrance gardens",
+        ]
+        assert "resolved non-character compound absorbed its shorter contained alias" in entity.reasons
+
+    def test_shared_contained_alias_does_not_merge_multiple_longer_compounds(self):
+        # A shorter multi-token phrase such as "remembrance gardens" can still
+        # belong to more than one longer place compound. Reconciliation should
+        # keep the shorter alias visible until ownership is unique.
+        records = [
+            make_record("a.md", "remembrance gardens", LexiconCategory.PLACE, confidence_score=0.20),
+            make_record(
+                "a.md",
+                "amerhinn remembrance gardens",
+                LexiconCategory.PLACE,
+                confidence_score=0.30,
+            ),
+            make_record(
+                "a.md",
+                "uchiura remembrance gardens",
+                LexiconCategory.PLACE,
+                confidence_score=0.30,
+            ),
+        ]
+
+        result = reconcile_document_entities(records)
+
+        assert [entity.canonical_key for entity in result.canonical_entities] == [
+            "amerhinn remembrance gardens",
+            "remembrance gardens",
+            "uchiura remembrance gardens",
+        ]
+
+    def test_longer_unresolved_compound_defers_to_resolved_non_character_anchor(self):
+        # A weak longer unresolved phrase should disappear as its own canonical
+        # when the corpus already has one stronger resolved non-character anchor
+        # that owns the contained alias.
+        records = [
+            make_record("a.md", "east lagoon", LexiconCategory.PLACE, confidence_score=0.20),
+            make_record(
+                "a.md",
+                "east lagoon villa",
+                LexiconCategory.UNRESOLVED,
+                resolved=False,
+                confidence_score=0.20,
+            ),
+        ]
+
+        result = reconcile_document_entities(records)
+
+        assert [entity.canonical_key for entity in result.canonical_entities] == ["east lagoon"]
+        entity = result.canonical_entities[0]
+        assert entity.source_keys == ["east lagoon", "east lagoon villa"]
+        assert "longer unresolved compound deferred to stronger resolved non-character anchor" in entity.reasons
+
+    def test_longer_unresolved_compound_stays_separate_when_multiple_resolved_anchors_exist(self):
+        # A longer unresolved phrase should stay visible when both its prefix
+        # and suffix point to different resolved non-character anchors.
+        records = [
+            make_record("a.md", "east lagoon", LexiconCategory.PLACE, confidence_score=0.20),
+            make_record("a.md", "lagoon villa", LexiconCategory.PLACE, confidence_score=0.20),
+            make_record(
+                "a.md",
+                "east lagoon villa",
+                LexiconCategory.UNRESOLVED,
+                resolved=False,
+                confidence_score=0.20,
+            ),
+        ]
+
+        result = reconcile_document_entities(records)
+
+        assert [entity.canonical_key for entity in result.canonical_entities] == [
+            "east lagoon",
+            "east lagoon villa",
+            "lagoon villa",
+        ]

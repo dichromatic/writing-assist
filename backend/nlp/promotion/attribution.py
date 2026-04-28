@@ -34,6 +34,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from backend.nlp.classification.arbitration import classify_clusters
+from backend.nlp.harvesting.shared import SPEECH_VERB_LEMMAS
 from backend.nlp.types import (
     LexiconCategory,
     MentionCluster,
@@ -42,23 +43,6 @@ from backend.nlp.types import (
     SpanAnchor,
     Token,
 )
-
-# ---------------------------------------------------------------------------
-# Speech verb lemmas
-#
-# This set contains base-form (lemma) spellings only. All inflected forms
-# (said/says/saying, whispered/whispers/whispering, etc.) are reduced to their
-# lemma by _is_speech_verb before lookup, so each verb needs only one entry.
-# ---------------------------------------------------------------------------
-
-SPEECH_VERB_LEMMAS: frozenset[str] = frozenset({
-    'say', 'ask', 'reply', 'answer', 'call', 'shout',
-    'whisper', 'cry', 'murmur', 'declare', 'announce',
-    'tell', 'explain', 'continue', 'add', 'admit', 'agree',
-    'warn', 'suggest', 'insist', 'demand', 'plead',
-    'argue', 'laugh', 'sigh', 'mutter', 'think',
-    'respond', 'exclaim', 'state', 'note',
-})
 
 # Common inflected forms of the speech verbs above, used only when the
 # WordNetLemmatizer is unavailable (no network, corpus not downloaded).
@@ -157,6 +141,24 @@ def _is_speech_verb(word: str) -> bool:
     if _LEMMATIZER is not None:
         return _LEMMATIZER.lemmatize(word, pos='v') in SPEECH_VERB_LEMMAS
     return word in _SPEECH_VERB_FALLBACK
+
+
+def _is_permitted_gap_token(token_text: str) -> bool:
+    """Return True when a single intervening token still fits a dialogue tag.
+
+    Fiction often inserts one lowercase adverb or particle between the speaker
+    surface and the dialogue verb, as in "Kohaku gently teases back". Allowing
+    one such token improves attribution coverage without opening the matcher to
+    long-distance proximity noise.
+
+    Args:
+        token_text: Lowercased token text from the local quote window.
+
+    Returns:
+        True when the token is a simple lowercase word suitable as a narrow
+        gap inside a speech tag.
+    """
+    return token_text.isalpha() and token_text.islower() and token_text.endswith("ly")
 
 
 @dataclass(frozen=True)
@@ -326,6 +328,18 @@ def _find_speaker(
                 if any(surface_end == verb_pos - 1 for verb_pos in verb_positions):
                     return key
                 if any(surface_start == verb_pos + 1 for verb_pos in verb_positions):
+                    return key
+                if any(
+                    surface_end == verb_pos - 2
+                    and _is_permitted_gap_token(token_texts[verb_pos - 1])
+                    for verb_pos in verb_positions
+                ):
+                    return key
+                if any(
+                    surface_start == verb_pos + 2
+                    and _is_permitted_gap_token(token_texts[verb_pos + 1])
+                    for verb_pos in verb_positions
+                ):
                     return key
 
                 # Only consider the first occurrence of each surface in the

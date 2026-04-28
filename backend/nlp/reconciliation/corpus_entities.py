@@ -8,8 +8,12 @@ Cross-document entity reconciliation.
         B --> C[Summarise document support]
         C --> D[Build exact-key CorpusEntity list]
         D --> E[Merge safe character aliases]
-        E --> F[CorpusEntity list]
-        E --> F[CorpusReconciliationResult]
+        E --> F[Merge safe non-character head aliases]
+        F --> G[Merge safe non-character modifier aliases]
+        G --> H[Merge safe contained non-character aliases]
+        H --> I[Defer unresolved longer compounds to resolved anchors]
+        I --> J[CorpusEntity list]
+        I --> J[CorpusReconciliationResult]
 """
 
 from __future__ import annotations
@@ -325,6 +329,446 @@ def _merge_generic_leading_character_aliases(
     return merged_entities
 
 
+def _is_safe_non_character_head_component(
+    component: CorpusEntity,
+    compound_category: LexiconCategory,
+    supporting_document_paths: list[str],
+) -> bool:
+    """Return True when a trailing head key can defer to a stronger compound.
+
+    This pass is intentionally narrower than the character alias merger. It
+    only handles resolved non-character compounds whose trailing head key looks
+    like a shorter reference to the same entity in the same documents.
+
+    Args:
+        component: Corpus entity for the trailing head key.
+        compound_category: Resolved category of the longer compound.
+        supporting_document_paths: Documents where the longer compound appears.
+
+    Returns:
+        True when the trailing head key is category-compatible and does not
+        require cross-document guessing outside the compound's support set.
+    """
+    if component.review_required and component.dominant_category != compound_category:
+        return False
+    if component.dominant_category not in {compound_category, LexiconCategory.UNRESOLVED}:
+        return False
+    return set(component.supporting_document_paths).issubset(set(supporting_document_paths))
+
+
+def _merge_non_character_head_aliases(
+    entities: list[CorpusEntity],
+    all_records_by_key: dict[str, list[DocumentEntityRecord]],
+) -> list[CorpusEntity]:
+    """Defer shorter head keys to stronger resolved non-character compounds.
+
+    Compounds such as ``norre institute`` or ``polar north`` often surface as
+    both a full name and a shorter trailing head reference. When the trailing
+    head key only appears inside the same document set and points uniquely to
+    one stronger resolved compound, the longer surface is the better canonical
+    key for corpus reporting.
+
+    Args:
+        entities: Canonical entities after the character alias passes.
+        all_records_by_key: All document-local records, including suppressed
+            ones, keyed by exact normalized surface.
+
+    Returns:
+        Canonical entities with safe non-character head aliases merged into the
+        stronger compound key.
+    """
+    by_key = {entity.canonical_key: entity for entity in entities}
+    head_to_compounds: dict[str, set[str]] = defaultdict(set)
+    eligible_compounds: dict[str, tuple[str, list[DocumentEntityRecord]]] = {}
+
+    for key, anchor_records in all_records_by_key.items():
+        parts = key.split()
+        if len(parts) < 2:
+            continue
+
+        compound_entity = by_key.get(key)
+        if compound_entity is None:
+            continue
+        if compound_entity.review_required:
+            continue
+        if compound_entity.dominant_category in {LexiconCategory.CHARACTER, LexiconCategory.UNRESOLVED}:
+            continue
+
+        head = parts[-1]
+        head_entity = by_key.get(head)
+        if head_entity is None:
+            continue
+        if key in head_entity.source_keys:
+            continue
+
+        anchor_paths = sorted({record.document_anchor.path for record in anchor_records})
+        if not _is_safe_non_character_head_component(
+            head_entity,
+            compound_entity.dominant_category,
+            anchor_paths,
+        ):
+            continue
+
+        eligible_compounds[key] = (head, anchor_records)
+        head_to_compounds[head].add(key)
+
+    merge_targets: dict[str, list[tuple[str, list[DocumentEntityRecord], LexiconCategory]]] = defaultdict(list)
+    absorbed_keys: set[str] = set()
+    for key, (head, anchor_records) in sorted(eligible_compounds.items()):
+        if head_to_compounds[head] != {key}:
+            continue
+        compound_entity = by_key[key]
+        merge_targets[key].append((head, anchor_records, compound_entity.dominant_category))
+        absorbed_keys.add(head)
+
+    merged_entities: list[CorpusEntity] = []
+    emitted_compounds: set[str] = set()
+    for entity in sorted(entities, key=lambda item: item.canonical_key):
+        aliases = merge_targets.get(entity.canonical_key)
+        if aliases:
+            source_keys = set(entity.source_keys)
+            combined_records = list(entity.member_records)
+            for head, anchor_records, _category in aliases:
+                source_keys.add(head)
+                head_entity = by_key[head]
+                source_keys.update(head_entity.source_keys)
+                combined_records.extend(anchor_records)
+                combined_records.extend(head_entity.member_records)
+            combined_records = sorted(
+                combined_records,
+                key=lambda record: (record.document_anchor.path, record.normalized_key),
+            )
+            merged_entities.append(_build_corpus_entity(
+                canonical_key=entity.canonical_key,
+                source_keys=sorted(source_keys),
+                members=combined_records,
+                reasons=["resolved non-character compound absorbed its shorter head alias"],
+            ))
+            emitted_compounds.add(entity.canonical_key)
+            continue
+
+        if entity.canonical_key in absorbed_keys:
+            continue
+
+        if entity.canonical_key not in emitted_compounds:
+            merged_entities.append(entity)
+
+    return merged_entities
+
+
+def _merge_non_character_modifier_aliases(
+    entities: list[CorpusEntity],
+    all_records_by_key: dict[str, list[DocumentEntityRecord]],
+) -> list[CorpusEntity]:
+    """Defer shorter leading modifiers to stronger resolved compounds.
+
+    Some corpus noise now comes from modifier-only keys such as ``radiant``
+    surviving next to a stronger resolved compound like ``radiant estuary``.
+    This pass only merges when the modifier key points uniquely to one resolved
+    non-character compound of the same category within the same document set.
+
+    Args:
+        entities: Canonical entities after the head-alias merge pass.
+        all_records_by_key: All document-local records, including suppressed
+            ones, keyed by exact normalized surface.
+
+    Returns:
+        Canonical entities with safe modifier-only aliases folded into their
+        stronger resolved compounds.
+    """
+    by_key = {entity.canonical_key: entity for entity in entities}
+    modifier_to_compounds: dict[str, set[str]] = defaultdict(set)
+    eligible_compounds: dict[str, tuple[str, list[DocumentEntityRecord]]] = {}
+
+    for key, anchor_records in all_records_by_key.items():
+        parts = key.split()
+        if len(parts) < 2:
+            continue
+
+        compound_entity = by_key.get(key)
+        if compound_entity is None:
+            continue
+        if compound_entity.review_required:
+            continue
+        if compound_entity.dominant_category in {LexiconCategory.CHARACTER, LexiconCategory.UNRESOLVED}:
+            continue
+
+        modifier = parts[0]
+        modifier_entity = by_key.get(modifier)
+        if modifier_entity is None:
+            continue
+        if key in modifier_entity.source_keys:
+            continue
+        if modifier_entity.dominant_category not in {
+            compound_entity.dominant_category,
+            LexiconCategory.UNRESOLVED,
+        }:
+            continue
+        if modifier_entity.review_required and modifier_entity.dominant_category != compound_entity.dominant_category:
+            continue
+
+        anchor_paths = sorted({record.document_anchor.path for record in anchor_records})
+        if not set(modifier_entity.supporting_document_paths).issubset(set(anchor_paths)):
+            continue
+
+        eligible_compounds[key] = (modifier, anchor_records)
+        modifier_to_compounds[modifier].add(key)
+
+    merge_targets: dict[str, list[tuple[str, list[DocumentEntityRecord]]]] = defaultdict(list)
+    absorbed_keys: set[str] = set()
+    for key, (modifier, anchor_records) in sorted(eligible_compounds.items()):
+        if modifier_to_compounds[modifier] != {key}:
+            continue
+        merge_targets[key].append((modifier, anchor_records))
+        absorbed_keys.add(modifier)
+
+    merged_entities: list[CorpusEntity] = []
+    emitted_compounds: set[str] = set()
+    for entity in sorted(entities, key=lambda item: item.canonical_key):
+        aliases = merge_targets.get(entity.canonical_key)
+        if aliases:
+            source_keys = set(entity.source_keys)
+            combined_records = list(entity.member_records)
+            for modifier, anchor_records in aliases:
+                source_keys.add(modifier)
+                modifier_entity = by_key[modifier]
+                source_keys.update(modifier_entity.source_keys)
+                combined_records.extend(anchor_records)
+                combined_records.extend(modifier_entity.member_records)
+            combined_records = sorted(
+                combined_records,
+                key=lambda record: (record.document_anchor.path, record.normalized_key),
+            )
+            merged_entities.append(_build_corpus_entity(
+                canonical_key=entity.canonical_key,
+                source_keys=sorted(source_keys),
+                members=combined_records,
+                reasons=["resolved non-character compound absorbed its shorter modifier alias"],
+            ))
+            emitted_compounds.add(entity.canonical_key)
+            continue
+
+        if entity.canonical_key in absorbed_keys:
+            continue
+
+        if entity.canonical_key not in emitted_compounds:
+            merged_entities.append(entity)
+
+    return merged_entities
+
+
+def _merge_non_character_contained_aliases(
+    entities: list[CorpusEntity],
+    all_records_by_key: dict[str, list[DocumentEntityRecord]],
+) -> list[CorpusEntity]:
+    """Defer shorter contained compounds to stronger resolved compounds.
+
+    Some remaining corpus noise comes from longer resolved compounds and their
+    shorter contained aliases surviving side by side, for example
+    ``amerhinn remembrance gardens`` next to ``remembrance gardens``. This
+    pass only merges contained aliases when the shorter phrase is multi-token,
+    category-compatible, document-subset compatible, and uniquely owned by one
+    stronger resolved compound.
+
+    Args:
+        entities: Canonical entities after the simpler alias passes.
+        all_records_by_key: All document-local records, including suppressed
+            ones, keyed by exact normalized surface.
+
+    Returns:
+        Canonical entities with safe contained multi-token aliases folded into
+        their stronger resolved compounds.
+    """
+    by_key = {entity.canonical_key: entity for entity in entities}
+    alias_to_compounds: dict[str, set[str]] = defaultdict(set)
+    eligible_compounds: dict[str, list[tuple[str, list[DocumentEntityRecord]]]] = defaultdict(list)
+
+    for key, anchor_records in all_records_by_key.items():
+        parts = key.split()
+        if len(parts) < 3:
+            continue
+
+        compound_entity = by_key.get(key)
+        if compound_entity is None:
+            continue
+        if compound_entity.review_required:
+            continue
+        if compound_entity.dominant_category in {LexiconCategory.CHARACTER, LexiconCategory.UNRESOLVED}:
+            continue
+
+        anchor_paths = sorted({record.document_anchor.path for record in anchor_records})
+        candidate_aliases = {
+            " ".join(parts[1:]),
+            " ".join(parts[:-1]),
+        }
+        for alias_key in candidate_aliases:
+            alias_parts = alias_key.split()
+            if len(alias_parts) < 2:
+                continue
+
+            alias_entity = by_key.get(alias_key)
+            if alias_entity is None:
+                continue
+            if key in alias_entity.source_keys:
+                continue
+            if alias_entity.dominant_category not in {
+                compound_entity.dominant_category,
+                LexiconCategory.UNRESOLVED,
+            }:
+                continue
+            if alias_entity.review_required and alias_entity.dominant_category != compound_entity.dominant_category:
+                continue
+            if not set(alias_entity.supporting_document_paths).issubset(set(anchor_paths)):
+                continue
+
+            eligible_compounds[key].append((alias_key, anchor_records))
+            alias_to_compounds[alias_key].add(key)
+
+    merge_targets: dict[str, list[tuple[str, list[DocumentEntityRecord]]]] = defaultdict(list)
+    absorbed_keys: set[str] = set()
+    for key, alias_entries in sorted(eligible_compounds.items()):
+        for alias_key, anchor_records in alias_entries:
+            if alias_to_compounds[alias_key] != {key}:
+                continue
+            merge_targets[key].append((alias_key, anchor_records))
+            absorbed_keys.add(alias_key)
+
+    merged_entities: list[CorpusEntity] = []
+    emitted_compounds: set[str] = set()
+    for entity in sorted(entities, key=lambda item: item.canonical_key):
+        aliases = merge_targets.get(entity.canonical_key)
+        if aliases:
+            source_keys = set(entity.source_keys)
+            combined_records = list(entity.member_records)
+            for alias_key, anchor_records in aliases:
+                source_keys.add(alias_key)
+                alias_entity = by_key[alias_key]
+                source_keys.update(alias_entity.source_keys)
+                combined_records.extend(anchor_records)
+                combined_records.extend(alias_entity.member_records)
+            combined_records = sorted(
+                combined_records,
+                key=lambda record: (record.document_anchor.path, record.normalized_key),
+            )
+            merged_entities.append(_build_corpus_entity(
+                canonical_key=entity.canonical_key,
+                source_keys=sorted(source_keys),
+                members=combined_records,
+                reasons=["resolved non-character compound absorbed its shorter contained alias"],
+            ))
+            emitted_compounds.add(entity.canonical_key)
+            continue
+
+        if entity.canonical_key in absorbed_keys:
+            continue
+
+        if entity.canonical_key not in emitted_compounds:
+            merged_entities.append(entity)
+
+    return merged_entities
+
+
+def _defer_unresolved_longer_compounds_to_resolved_anchors(
+    entities: list[CorpusEntity],
+    all_records_by_key: dict[str, list[DocumentEntityRecord]],
+) -> list[CorpusEntity]:
+    """Defer weak longer unresolved compounds to stronger resolved anchors.
+
+    Some longer compounds still survive as unresolved canonicals even though a
+    shorter contained alias already resolves cleanly elsewhere in the corpus.
+    This pass only folds those longer unresolved phrases into one uniquely
+    matched resolved non-character anchor when the relationship is already
+    visible through exact surfaces or absorbed source keys.
+
+    Args:
+        entities: Canonical entities after the resolved non-character passes.
+        all_records_by_key: All document-local records, including suppressed
+            ones, keyed by exact normalized surface.
+
+    Returns:
+        Canonical entities with safe longer unresolved compounds folded into
+        stronger resolved non-character anchors.
+    """
+    by_key = {entity.canonical_key: entity for entity in entities}
+    source_key_index: dict[str, list[CorpusEntity]] = defaultdict(list)
+    for entity in entities:
+        for key in entity.source_keys:
+            source_key_index[key].append(entity)
+
+    def _resolved_targets(alias_key: str) -> list[CorpusEntity]:
+        return [
+            entity for entity in source_key_index.get(alias_key, [])
+            if not entity.review_required
+            and entity.dominant_category not in {LexiconCategory.CHARACTER, LexiconCategory.UNRESOLVED}
+        ]
+
+    defer_targets: dict[str, str] = {}
+    deferred_anchor_records: dict[str, list[DocumentEntityRecord]] = {}
+    deferred_children: set[str] = set()
+    target_to_children: dict[str, list[str]] = defaultdict(list)
+
+    for entity in entities:
+        if entity.dominant_category != LexiconCategory.UNRESOLVED:
+            continue
+
+        parts = entity.canonical_key.split()
+        if len(parts) < 3:
+            continue
+
+        alias_candidates = {
+            " ".join(parts[1:]),
+            " ".join(parts[:-1]),
+        }
+        resolved_targets = {
+            target.canonical_key: target
+            for alias_key in alias_candidates
+            for target in _resolved_targets(alias_key)
+            if set(entity.supporting_document_paths).issubset(set(target.supporting_document_paths))
+        }
+        if len(resolved_targets) != 1:
+            continue
+
+        target_key = next(iter(resolved_targets))
+        defer_targets[entity.canonical_key] = target_key
+        deferred_anchor_records[entity.canonical_key] = all_records_by_key.get(entity.canonical_key, entity.member_records)
+        deferred_children.add(entity.canonical_key)
+        target_to_children[target_key].append(entity.canonical_key)
+
+    merged_entities: list[CorpusEntity] = []
+    emitted_targets: set[str] = set()
+    for entity in sorted(entities, key=lambda item: item.canonical_key):
+        child_keys = target_to_children.get(entity.canonical_key)
+        if child_keys:
+            source_keys = set(entity.source_keys)
+            combined_records = list(entity.member_records)
+            for child_key in child_keys:
+                child_entity = by_key[child_key]
+                source_keys.update(child_entity.source_keys)
+                source_keys.add(child_key)
+                combined_records.extend(child_entity.member_records)
+                combined_records.extend(deferred_anchor_records[child_key])
+            combined_records = sorted(
+                combined_records,
+                key=lambda record: (record.document_anchor.path, record.normalized_key),
+            )
+            merged_entities.append(_build_corpus_entity(
+                canonical_key=entity.canonical_key,
+                source_keys=sorted(source_keys),
+                members=combined_records,
+                reasons=["longer unresolved compound deferred to stronger resolved non-character anchor"],
+            ))
+            emitted_targets.add(entity.canonical_key)
+            continue
+
+        if entity.canonical_key in deferred_children:
+            continue
+
+        if entity.canonical_key not in emitted_targets:
+            merged_entities.append(entity)
+
+    return merged_entities
+
+
 def reconcile_document_entities(
     records: list[DocumentEntityRecord],
     *,
@@ -367,6 +811,10 @@ def reconcile_document_entities(
 
     canonical_entities = _merge_character_compound_aliases(exact_entities, all_grouped)
     canonical_entities = _merge_generic_leading_character_aliases(canonical_entities, all_grouped)
+    canonical_entities = _merge_non_character_head_aliases(canonical_entities, all_grouped)
+    canonical_entities = _merge_non_character_modifier_aliases(canonical_entities, all_grouped)
+    canonical_entities = _merge_non_character_contained_aliases(canonical_entities, all_grouped)
+    canonical_entities = _defer_unresolved_longer_compounds_to_resolved_anchors(canonical_entities, all_grouped)
     return CorpusReconciliationResult(
         canonical_entities=sorted(canonical_entities, key=lambda entity: entity.canonical_key)
     )

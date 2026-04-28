@@ -39,6 +39,21 @@ TITLE_PREFIXES: frozenset[str] = frozenset({
 })
 
 # ---------------------------------------------------------------------------
+# Relation-role nouns
+#
+# These nouns behave like deferred character references rather than stable
+# canonicals in fiction prose. They are extracted for later semantic review so
+# that kinship and role language such as "mother" or "mentor" is preserved
+# even when it does not appear as a proper name.
+# ---------------------------------------------------------------------------
+_BASE_RELATION_ROLE_NOUNS: frozenset[str] = frozenset({
+    "father", "mother", "parent", "sibling", "child", "spouse",
+    "brother", "sister", "son", "daughter", "aunt", "uncle", "cousin",
+    "mentor", "benefactor", "patron", "guardian", "ward", "master",
+    "apprentice",
+})
+
+# ---------------------------------------------------------------------------
 # Locative prepositions
 #
 # Used during harvesting to detect when a bare-capitalized token appears in a
@@ -176,6 +191,25 @@ _BASE_GROUP_COLLECTIVE_VERBS: frozenset[str] = frozenset({
     "forbids",
 })
 
+# ---------------------------------------------------------------------------
+# Dialogue attribution speech verbs
+#
+# Quote attribution needs a wider set than the original dialogue-tag list to
+# catch common fiction verbs such as "interjects", "deadpans", and "teases".
+# This still stays conservative because it runs inside small quote windows and
+# should not drift into general communication verbs.
+# ---------------------------------------------------------------------------
+_BASE_SPEECH_VERB_LEMMAS: frozenset[str] = frozenset({
+    "say", "ask", "reply", "answer", "call", "shout",
+    "whisper", "cry", "murmur", "declare", "announce",
+    "tell", "explain", "continue", "add", "admit", "agree",
+    "warn", "suggest", "insist", "demand", "plead",
+    "argue", "laugh", "sigh", "mutter", "think",
+    "respond", "exclaim", "state", "note",
+    "interject", "deadpan", "tease", "observe", "muse",
+    "remark", "counter", "begin",
+})
+
 
 def _regular_verb_inflections(lemma: str) -> set[str]:
     """Generate simple present/past inflections for a base verb lemma."""
@@ -229,6 +263,35 @@ def _expand_group_verbs(
                     if len(word) < 3 or word in blacklist:
                         continue
                     verbs.update(_IRREGULAR_VERB_FORMS.get(word, _regular_verb_inflections(word)))
+        return frozenset(verbs)
+    except Exception:
+        return fallback
+
+
+def _expand_seeded_verbs(
+    seed_synset_names: tuple[str, ...],
+    fallback: frozenset[str],
+    blacklist: set[str],
+) -> frozenset[str]:
+    """Build a conservative lemma inventory from seed synsets plus hyponyms."""
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return fallback
+
+    try:
+        verbs = set(fallback)
+        for synset_name in seed_synset_names:
+            synset = wn.synset(synset_name)
+            candidate_synsets = [synset] + synset.hyponyms()
+            for candidate in candidate_synsets:
+                for lemma in candidate.lemmas():
+                    word = lemma.name().lower()
+                    if "_" in word or not word.isalpha():
+                        continue
+                    if len(word) < 3 or word in blacklist:
+                        continue
+                    verbs.add(word)
         return frozenset(verbs)
     except Exception:
         return fallback
@@ -299,11 +362,93 @@ def _load_group_collective_verbs() -> frozenset[str]:
     )
 
 
+def _load_speech_verb_lemmas() -> frozenset[str]:
+    """Build a narrow dialogue-tag verb set for quote attribution.
+
+    The blacklist trims broader communication verbs whose common senses would
+    make attribution too permissive. The fallback still includes the full
+    manual seed set, so environments without WordNet keep stable behavior.
+    """
+    blacklist = {
+        "communicate", "inform", "mention", "report", "broadcast",
+        "phone", "sing", "chant", "read", "write",
+    }
+    return _expand_seeded_verbs(
+        (
+            "say.v.01",
+            "ask.v.01",
+            "whisper.v.01",
+            "exclaim.v.01",
+            "interject.v.01",
+            "remark.v.01",
+        ),
+        _BASE_SPEECH_VERB_LEMMAS,
+        blacklist,
+    )
+
+
 GROUP_MEMBERSHIP_VERBS: frozenset[str] = _load_group_membership_verbs()
 
 GROUP_LEADERSHIP_NOUNS: frozenset[str] = _load_group_leadership_nouns()
 
 GROUP_COLLECTIVE_VERBS: frozenset[str] = _load_group_collective_verbs()
+
+SPEECH_VERB_LEMMAS: frozenset[str] = _load_speech_verb_lemmas()
+
+
+def _load_relation_role_nouns() -> frozenset[str]:
+    """Build a conservative kinship and relation-role noun set.
+
+    The semantic-review layer needs recurring relation nouns such as
+    "mother", "uncle", and "mentor", but not a broad bag of generic social
+    nouns. WordNet is used as a narrow expansion source around kinship and
+    guidance roots, with strict filtering and a hard fallback to the manual
+    seed set.
+
+    Returns:
+        A frozenset of lowercase single-token relation-role nouns.
+    """
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return _BASE_RELATION_ROLE_NOUNS
+
+    root_synset_names = (
+        "father.n.01",
+        "mother.n.01",
+        "parent.n.01",
+        "sibling.n.01",
+        "child.n.02",
+        "spouse.n.01",
+        "aunt.n.01",
+        "uncle.n.01",
+        "cousin.n.01",
+    )
+    blacklist = {
+        "ancestor", "descendant", "kin", "relative", "relation", "family",
+        "associate", "supporter", "friend", "lover", "mate", "hero",
+        "guide", "teacher", "politician", "leader",
+    }
+
+    try:
+        relation_words = set(_BASE_RELATION_ROLE_NOUNS)
+        for name in root_synset_names:
+            synset = wn.synset(name)
+            candidate_synsets = [synset] + synset.hyponyms()
+            for candidate in candidate_synsets:
+                for lemma in candidate.lemmas():
+                    word = lemma.name().lower()
+                    if "_" in word or not word.isalpha():
+                        continue
+                    if len(word) < 3 or word in blacklist:
+                        continue
+                    relation_words.add(word)
+        return frozenset(relation_words)
+    except Exception:
+        return _BASE_RELATION_ROLE_NOUNS
+
+
+RELATION_ROLE_NOUNS: frozenset[str] = _load_relation_role_nouns()
 
 
 def _load_event_nouns() -> frozenset[str]:
