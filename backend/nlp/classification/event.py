@@ -12,6 +12,8 @@ Event classification evidence.
 
 from __future__ import annotations
 
+from backend.nlp.classification.compound_shapes import compound_head
+from backend.nlp.classification.token_context import iter_anchor_token_starts
 from backend.nlp.classification.types import ClassEvidence
 from backend.nlp.harvesting.shared import (
     EVENT_INSTANCE_MARKERS,
@@ -22,22 +24,9 @@ from backend.nlp.harvesting.shared import (
 from backend.nlp.types import LexiconCategory, MentionCluster, PreprocessedDocument
 
 
-def _token_for_anchor(cluster: MentionCluster, pre: PreprocessedDocument | None):
-    """Yield the span token list and token index for each anchor in the cluster."""
-    if pre is None:
-        return
-
-    for anchor in cluster.anchors:
-        tokens = pre.tokens_by_span.get(anchor.span_ordinal, [])
-        for index, token in enumerate(tokens):
-            if token.start_char == anchor.start_char and token.end_char == anchor.end_char:
-                yield tokens, index
-                break
-
-
 def _has_temporal_framing(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when the cluster appears in explicit event-time framing."""
-    for tokens, index in _token_for_anchor(cluster, pre):
+    for tokens, index in iter_anchor_token_starts(cluster, pre):
         if index >= 1 and tokens[index - 1].text.lower() in EVENT_TEMPORAL_PREPOSITIONS:
             return True
         if (
@@ -51,7 +40,7 @@ def _has_temporal_framing(cluster: MentionCluster, pre: PreprocessedDocument | N
 
 def _has_instance_marker(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when nearby modifiers frame the cluster as a recurring event."""
-    for tokens, index in _token_for_anchor(cluster, pre):
+    for tokens, index in iter_anchor_token_starts(cluster, pre):
         if index >= 1 and tokens[index - 1].text.lower() in EVENT_INSTANCE_MARKERS:
             return True
         if (
@@ -65,7 +54,7 @@ def _has_instance_marker(cluster: MentionCluster, pre: PreprocessedDocument | No
 
 def _has_occurrence_verb(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when nearby verbs describe the event as happening or being held."""
-    for tokens, index in _token_for_anchor(cluster, pre):
+    for tokens, index in iter_anchor_token_starts(cluster, pre):
         right_window = tokens[index + 1:index + 4]
         left_window = tokens[max(0, index - 3):index]
         if any(token.text.lower() in EVENT_OCCURRENCE_VERBS for token in right_window):
@@ -92,9 +81,14 @@ def score_event_evidence(
     reasons: list[str] = []
     vetoes: list[str] = []
 
+    head = compound_head(cluster)
+
     if cluster.normalized_key in EVENT_NOUNS:
         score += 0.35
         reasons.append("normalized key is an event-like noun")
+    elif head in EVENT_NOUNS:
+        score += 0.65
+        reasons.append("compound head is an event-like noun")
 
     if _has_temporal_framing(cluster, pre):
         score += 0.35

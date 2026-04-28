@@ -11,6 +11,8 @@ Place classification evidence.
 
 from __future__ import annotations
 
+from backend.nlp.classification.compound_shapes import compound_head
+from backend.nlp.classification.token_context import iter_anchor_token_starts
 from backend.nlp.classification.types import ClassEvidence
 from backend.nlp.harvesting.shared import (
     DEMONYM_SUFFIXES,
@@ -23,18 +25,10 @@ from backend.nlp.harvesting.shared import (
 )
 from backend.nlp.types import LexiconCategory, MentionCluster, PreprocessedDocument
 
-
-def _token_for_anchor(cluster: MentionCluster, pre: PreprocessedDocument | None):
-    """Yield the span token list and token index for each anchor in the cluster."""
-    if pre is None:
-        return
-
-    for anchor in cluster.anchors:
-        tokens = pre.tokens_by_span.get(anchor.span_ordinal, [])
-        for index, token in enumerate(tokens):
-            if token.start_char == anchor.start_char and token.end_char == anchor.end_char:
-                yield tokens, index
-                break
+# Compass directions are treated as a closed structural set rather than a
+# coverage lexicon. They behave like place heads in compounds such as
+# "Polar North", and WordNet expansion would add more ambiguity than value.
+_COMPASS_PLACE_HEADS: frozenset[str] = frozenset({"north", "south", "east", "west"})
 
 
 def _is_capitalized_word(text: str) -> bool:
@@ -44,7 +38,7 @@ def _is_capitalized_word(text: str) -> bool:
 
 def _place_descriptor_support(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when local context names the cluster as a geographic place."""
-    for tokens, index in _token_for_anchor(cluster, pre):
+    for tokens, index in iter_anchor_token_starts(cluster, pre):
         if index >= 2:
             if (
                 tokens[index - 1].text.lower() == "of"
@@ -72,7 +66,7 @@ def _possessive_place_support(cluster: MentionCluster, pre: PreprocessedDocument
     if pre is None or not cluster.has_possessive_support:
         return False
 
-    for tokens, index in _token_for_anchor(cluster, pre):
+    for tokens, index in iter_anchor_token_starts(cluster, pre):
         next_token = tokens[index + 1].text.lower() if index + 1 < len(tokens) else ""
         next_next = tokens[index + 2].text.lower() if index + 2 < len(tokens) else ""
 
@@ -84,7 +78,7 @@ def _possessive_place_support(cluster: MentionCluster, pre: PreprocessedDocument
 
 def _resident_place_support(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when resident nouns frame the cluster as a place."""
-    for tokens, index in _token_for_anchor(cluster, pre):
+    for tokens, index in iter_anchor_token_starts(cluster, pre):
         if index + 1 < len(tokens) and tokens[index + 1].text.lower() in PLACE_RESIDENT_NOUNS:
             return True
 
@@ -100,7 +94,7 @@ def _locative_strength(cluster: MentionCluster, pre: PreprocessedDocument | None
     weak_hits = 0
     weak_compound_hits = 0
 
-    for tokens, index in _token_for_anchor(cluster, pre):
+    for tokens, index in iter_anchor_token_starts(cluster, pre):
         if index == 0:
             continue
 
@@ -166,6 +160,14 @@ def score_place_evidence(
     if _resident_place_support(cluster, pre):
         score += 0.60
         reasons.append("appears with resident or civic framing")
+
+    head = compound_head(cluster)
+    if head in PLACE_DESCRIPTOR_NOUNS:
+        score += 0.65
+        reasons.append("compound head is a place-like descriptor")
+    elif head in _COMPASS_PLACE_HEADS:
+        score += 0.65
+        reasons.append("compound head is a directional place noun")
 
     if (
         cluster.normalized_key.endswith(tuple(DEMONYM_SUFFIXES))

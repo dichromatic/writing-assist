@@ -19,6 +19,7 @@ buckets and constructs the PromotedEvidenceBundle for downstream stages.
 from __future__ import annotations
 
 from backend.nlp.classification.arbitration import classify_clusters
+from backend.nlp.classification.compound_shapes import compound_parts
 from backend.nlp.types import (
     BootstrappedLexiconEntry,
     DocumentAnchor,
@@ -34,7 +35,12 @@ from backend.nlp.types import (
     SuppressReason,
     SuppressedCandidate,
 )
-from backend.nlp.harvesting.shared import is_stopword, TITLE_PREFIXES
+from backend.nlp.harvesting.shared import (
+    TITLE_PREFIXES,
+    has_generic_modifier_profile,
+    has_generic_verb_sense,
+    is_stopword,
+)
 from backend.nlp.promotion.attribution import AttributionRecord
 from backend.nlp.promotion.scoring import PROMOTE_THRESHOLD, SUPPRESS_THRESHOLD, score_all
 
@@ -50,6 +56,100 @@ _CONTEXT_RADIUS = 150
 # referred to only by title - but they are ambiguous enough that a human reviewer
 # should confirm them before they enter the promoted bucket.
 _BARE_TITLE_KEYS: frozenset[str] = frozenset(t.lower() for t in TITLE_PREFIXES)
+
+
+def _should_suppress_generic_verb_noise(
+    cluster: MentionCluster,
+    classification,
+    signals,
+) -> bool:
+    """Return True when a weak single-token cluster is ordinary verb noise.
+
+    This guard runs late in promotion rather than at harvest time so real
+    entities still have a chance to accumulate title, possessive, attribution,
+    or reference-note support first. Only unresolved bare single tokens with
+    no structural backing are eligible.
+    """
+    return (
+        " " not in cluster.normalized_key
+        and classification.winning_category == LexiconCategory.UNRESOLVED
+        and signals.rule_tier <= 2
+        and signals.attribution_count == 0
+        and not cluster.has_title_support
+        and not cluster.linked_fields
+        and not cluster.linked_definitions
+        and not cluster.linked_seeds
+        and has_generic_verb_sense(cluster.normalized_key)
+    )
+
+
+def _has_fully_covering_longer_compound(
+    cluster: MentionCluster,
+    clusters: list[MentionCluster],
+    classifications: dict[str, object],
+) -> bool:
+    """Return True when every anchor is covered by a longer accepted compound.
+
+    This is a structural overlap check used to suppress weak component-only
+    survivors such as ``old`` beneath ``old man hiroshi``. A longer compound
+    only counts when it has at least accepted entityhood so arbitrary overlaps
+    do not suppress shorter clusters.
+    """
+    cluster_parts = compound_parts(cluster)
+    for anchor in cluster.anchors:
+        covered = False
+        for other in clusters:
+            if other.cluster_id == cluster.cluster_id:
+                continue
+            other_parts = compound_parts(other)
+            if len(other_parts) <= len(cluster_parts):
+                continue
+            other_decision = classifications[other.normalized_key]
+            if not other_decision.entityhood.accepted:
+                continue
+            if not any(
+                other_anchor.span_ordinal == anchor.span_ordinal
+                and other_anchor.start_char <= anchor.start_char
+                and other_anchor.end_char >= anchor.end_char
+                for other_anchor in other.anchors
+            ):
+                continue
+            covered = True
+            break
+        if not covered:
+            return False
+    return bool(cluster.anchors)
+
+
+def _should_suppress_component_overlap_noise(
+    cluster: MentionCluster,
+    clusters: list[MentionCluster],
+    classifications: dict[str, object],
+    signals,
+) -> bool:
+    """Return True for generic component-only clusters covered by compounds.
+
+    This is intentionally narrow. The shorter cluster must be generic-looking,
+    must have no independent structural backing, and must be fully explained by
+    overlap with a longer accepted compound. Specific name components such as
+    ``tsushima`` and ``yoshiko`` stay available for later alias reconciliation.
+    """
+    parts = compound_parts(cluster)
+    if not parts:
+        return False
+
+    if cluster.has_title_support or cluster.linked_fields or cluster.linked_definitions or cluster.linked_seeds:
+        return False
+    if signals.attribution_count > 0:
+        return False
+    if not _has_fully_covering_longer_compound(cluster, clusters, classifications):
+        return False
+
+    decision = classifications[cluster.normalized_key]
+    if decision.winning_score > 0.65:
+        return False
+
+    return has_generic_modifier_profile(parts[0])
 
 
 def _should_promote_place(
@@ -244,6 +344,33 @@ def promote(
 
         signals, score = scores[cluster.normalized_key]
         classification = classifications[cluster.normalized_key]
+
+        if _should_suppress_component_overlap_noise(
+            cluster,
+            clusters,
+            classifications,
+            signals,
+        ):
+            suppressed.append(SuppressedCandidate(
+                cluster=cluster,
+                reason=SuppressReason.COMPONENT_OVERLAP_NOISE,
+                detail=(
+                    f"'{cluster.normalized_key}' is fully covered by a longer "
+                    f"compound and has no independent entity support"
+                ),
+            ))
+            continue
+
+        if _should_suppress_generic_verb_noise(cluster, classification, signals):
+            suppressed.append(SuppressedCandidate(
+                cluster=cluster,
+                reason=SuppressReason.GENERIC_LEXICAL_NOISE,
+                detail=(
+                    f"'{cluster.normalized_key}' behaves like an ordinary verb "
+                    f"lemma without entity support"
+                ),
+            ))
+            continue
 
         # Weak unresolved clusters are usually capitalized noise that survived
         # harvesting through recurrence or scene dispersion alone. Keep

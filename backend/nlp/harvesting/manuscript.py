@@ -1,7 +1,7 @@
 """
 Manuscript harvester - extracts MentionCandidate records from prose spans.
 
-Three extraction passes run per span, in priority order. Tokens consumed by a
+Four extraction passes run per span, in priority order. Tokens consumed by a
 higher-priority pass are excluded from lower-priority passes so the same name
 does not produce duplicate candidates at different granularities.
 
@@ -19,10 +19,11 @@ proper name - the capital is explained entirely by sentence position.
         C --> D[Pass 1: title-prefixed phrases\nTitle + Name words]
         D --> E[Pass 2: possessive tokens\ntoken ending apostrophe-s]
         E --> E2[Pass 2b: two-token possessives\nbase ending s + bare apostrophe\nquote-close filtered]
-        E2 --> F[Pass 3: bare capitalised names\nnot stopword, not consumed]
-        F --> G[All raw MentionCandidates]
-        G --> H[Global suppression\nall-sentence-initial keys]
-        H --> I[Filtered MentionCandidates]
+        E2 --> F[Pass 2c: two-token compounds\nadjacent capitalised words]
+        F --> G[Pass 3: bare capitalised names\nnot stopword, not consumed]
+        G --> H[All raw MentionCandidates]
+        H --> I[Global suppression\nall-sentence-initial keys]
+        I --> J[Filtered MentionCandidates]
 """
 
 from __future__ import annotations
@@ -211,6 +212,42 @@ def _extract_from_span(
         consumed.add(i + 1)
 
     # ------------------------------------------------------------------
+    # Pass 2c: adjacent multi-token capitalized compounds
+    # "Tsushima Yoshiko", "Old Man Hiroshi", "Norre Institute"
+    #
+    # This pass intentionally does not consume tokens. Single-token and
+    # compound candidates are allowed to overlap so later stages can
+    # deterministically decide whether the compound or its components are
+    # canonical.
+    # ------------------------------------------------------------------
+    for compound_length in (2, 3):
+        for i in range(len(tokens) - compound_length + 1):
+            phrase_tokens = tokens[i:i + compound_length]
+
+            if any(token.text in TITLE_PREFIXES for token in phrase_tokens):
+                continue
+            if not all(_is_name_word(token) for token in phrase_tokens):
+                continue
+            if any(is_stopword(token.text) for token in phrase_tokens):
+                continue
+            if any(not token.text.replace("'", "").isalpha() for token in phrase_tokens):
+                continue
+
+            surface = " ".join(token.text for token in phrase_tokens)
+            preceding_is_locative = (
+                i > 0 and tokens[i - 1].text.lower() in LOCATIVE_PREPOSITIONS
+            )
+            candidates.append(make_candidate(
+                surface=surface,
+                start_char=phrase_tokens[0].start_char,
+                end_char=phrase_tokens[-1].end_char,
+                has_title_prefix=False,
+                has_possessive=surface.endswith("'s") or surface.endswith("s'"),
+                rule_source='compound_capitalized',
+                has_location_context=preceding_is_locative,
+            ))
+
+    # ------------------------------------------------------------------
     # Pass 3: bare capitalised names (not stopword, not yet consumed)
     # "Aldous", "Rhea", "Vayne"
     # ------------------------------------------------------------------
@@ -282,11 +319,23 @@ def _suppress_sentence_initial_only(
         and c.anchor.start_char not in sentence_initial_chars
     }
 
+    # Compound participation is also structural support. If a bare-cap token
+    # only appears sentence-initially but is repeatedly seen as part of a
+    # coherent compound candidate ("Tsushima Yoshiko"), keep it so later
+    # alias/canonicalization stages can decide how the component relates to
+    # the compound.
+    keys_with_compound_support: set[str] = set()
+    for candidate in candidates:
+        if candidate.rule_source != 'compound_capitalized':
+            continue
+        keys_with_compound_support.update(candidate.normalized.split())
+
     result: list[MentionCandidate] = []
     for c in candidates:
         if (
             c.rule_source == 'bare_capitalized'
             and c.normalized not in keys_with_mid_sentence
+            and c.normalized not in keys_with_compound_support
         ):
             continue
         result.append(c)

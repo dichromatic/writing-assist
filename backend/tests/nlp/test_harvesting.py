@@ -322,6 +322,43 @@ class TestBareCapitalized:
         rhea_cands = [c for c in candidates if c.normalized == "rhea"]
         assert len(rhea_cands) >= 1
 
+    def test_two_token_person_name_produces_compound_candidate(self):
+        # Adjacent capitalized tokens should produce a multi-token compound
+        # candidate in addition to their single-token candidates so later
+        # stages can deterministically decide canonical identity.
+        candidates = pipeline("Tsushima Yoshiko arrived.")
+        surfaces = {c.surface for c in candidates}
+        normalized = {c.normalized for c in candidates}
+        assert "Tsushima Yoshiko" in surfaces
+        assert "tsushima yoshiko" in normalized
+        assert "tsushima" in normalized
+        assert "yoshiko" in normalized
+
+    def test_two_token_group_name_produces_compound_candidate(self):
+        # Institutional compounds such as "Norre Institute" should be
+        # harvested as coherent surfaces, not only as isolated tokens.
+        candidates = pipeline("The Norre Institute reopened.")
+        assert any(
+            c.surface == "Norre Institute" and c.rule_source == "compound_capitalized"
+            for c in candidates
+        )
+
+    def test_three_token_name_produces_compound_candidate(self):
+        # Longer contiguous capitalized phrases should survive as one compound
+        # candidate so later overlap resolution can prefer the full surface
+        # over generic fragments like "Old Man" or "Man Hiroshi".
+        candidates = pipeline("Old Man Hiroshi's shop smelled of dust.")
+        assert any(
+            c.normalized == "old man hiroshi" and c.rule_source == "compound_capitalized"
+            for c in candidates
+        )
+
+    def test_compound_candidates_do_not_cross_punctuation_boundaries(self):
+        # Compound harvesting must stay within contiguous token spans.
+        # Punctuation-separated title-case tokens are too ambiguous to join.
+        candidates = pipeline("Tsushima, Yoshiko arrived.")
+        assert not any(c.surface == "Tsushima Yoshiko" for c in candidates)
+
 
 # ---------------------------------------------------------------------------
 # Anchor and provenance

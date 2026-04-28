@@ -554,6 +554,8 @@ class SuppressReason(Enum):
     FIELD_LABEL_POSITION = "field_label_position"
     HEADING_ONLY_SINGLETON = "heading_only_singleton"
     DIALOGUE_INTERNAL = "dialogue_internal"
+    GENERIC_LEXICAL_NOISE = "generic_lexical_noise"
+    COMPONENT_OVERLAP_NOISE = "component_overlap_noise"
     LOW_ENTITYHOOD = "low_entityhood"
     LOW_CONFIDENCE = "low_confidence"
 
@@ -680,3 +682,99 @@ class PromotedEvidenceBundle:
     review_only: list[ReviewOnlyCandidate]
     suppressed: list[SuppressedCandidate]
     evidence_windows: list[EvidenceWindow]
+
+
+# ---------------------------------------------------------------------------
+# Corpus reconciliation stage output (reconciliation/*.py)
+# ---------------------------------------------------------------------------
+
+class DocumentEntityBucket(Enum):
+    """Document-local status for one entity after promotion."""
+
+    PROMOTED = "promoted"
+    REVIEW_ONLY = "review_only"
+    SUPPRESSED = "suppressed"
+
+
+@dataclass
+class DocumentEntityRecord:
+    """Stable per-document entity summary for corpus reconciliation.
+
+    This record captures the document pipeline's local decision for one
+    cluster so later corpus-level stages can refine across documents without
+    rerunning harvest or promotion logic as if no knowledge had been gained.
+
+    Args:
+        document_anchor: Source document for this record.
+        normalized_key: Document-local normalized cluster key.
+        surface_forms: Distinct surface forms seen for the cluster.
+        winning_category: Final document-local top-level category.
+        resolved: Whether the document-local category was resolved.
+        entityhood_score: Deterministic entityhood score in [0.0, 1.0].
+        entityhood_accepted: Whether unresolved entities were accepted as
+            plausible enough to survive review.
+        confidence_score: Document-local confidence score from promotion.
+        bucket: Document-local output bucket.
+        bucket_detail: Human-readable reason for review or suppression.
+        occurrence_count: Number of supporting mentions in the document.
+        rule_tier: Highest structural tier seen in the cluster.
+        scene_count: Number of distinct scenes containing the cluster.
+        attribution_count: Number of dialogue attribution records for the key.
+        has_title_support: Whether any mention had a title prefix.
+        has_possessive_support: Whether any mention was possessive.
+        anchors: Mention anchors contributing to this record.
+        evidence_windows: Entity-centric context windows for later review.
+    """
+
+    document_anchor: DocumentAnchor
+    normalized_key: str
+    surface_forms: list[str]
+    winning_category: LexiconCategory
+    resolved: bool
+    entityhood_score: float
+    entityhood_accepted: bool
+    confidence_score: float
+    bucket: DocumentEntityBucket
+    bucket_detail: str
+    occurrence_count: int
+    rule_tier: int
+    scene_count: int
+    attribution_count: int
+    has_title_support: bool
+    has_possessive_support: bool
+    anchors: list[SpanAnchor]
+    evidence_windows: list[EvidenceWindow]
+
+
+@dataclass
+class CorpusEntity:
+    """Cross-document canonical entity candidate built from document records.
+
+    Args:
+        canonical_key: Cross-document key used to group member records.
+        source_keys: Exact document keys merged into this canonical entity.
+        member_records: All document-local records merged into this entity.
+        supporting_document_paths: Distinct document paths that support it.
+        dominant_category: Best current corpus-level category.
+        aggregate_confidence: Conservative corpus confidence summary.
+        conflicting_categories: Resolved categories that disagree across docs.
+        review_required: Whether the corpus entity needs manual review.
+        reasons: Human-readable explanation of merge/review decisions.
+    """
+
+    canonical_key: str
+    source_keys: list[str]
+    member_records: list[DocumentEntityRecord]
+    supporting_document_paths: list[str]
+    dominant_category: LexiconCategory
+    aggregate_confidence: float
+    conflicting_categories: list[LexiconCategory]
+    review_required: bool
+    reasons: list[str]
+
+
+@dataclass
+class CorpusReconciliationResult:
+    """Output of the first corpus-level exact-key reconciliation stage."""
+
+    canonical_entities: list[CorpusEntity]

@@ -10,6 +10,8 @@ copies of these constants.
 
 from __future__ import annotations
 
+from functools import lru_cache
+
 from backend.nlp.types import stable_hash_id  # noqa: F401 - re-exported for harvesters
 
 # ---------------------------------------------------------------------------
@@ -574,8 +576,6 @@ def _load_stopwords() -> frozenset[str]:
     except Exception:
         pass
 
-    # Minimal fallback: covers the words most likely to appear sentence-initial
-    # and be mistaken for proper names when capitalised.
     return frozenset({
         'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to',
         'for', 'of', 'with', 'by', 'from', 'is', 'was', 'are', 'were',
@@ -604,6 +604,77 @@ def is_stopword(text: str) -> bool:
         True if the lowercased text appears in the stopword set.
     """
     return text.lower() in STOPWORDS
+
+
+@lru_cache(maxsize=2048)
+def has_generic_verb_sense(text: str) -> bool:
+    """Return True when a lowercase token behaves like a generic verb lemma.
+
+    This helper exists for late-stage suppression, not harvesting. Some words
+    that survive NLTK stopwords are still ordinary prose verbs rather than
+    plausible entity names. A word is treated as generic verb noise only when
+    its WordNet verb inventory clearly outweighs its noun inventory. This
+    keeps ambiguous name-like words such as "mark", "will", and "hope" out of
+    the suppression bucket while still catching prose verbs such as "let",
+    "tell", and "think".
+
+    Args:
+        text: Lowercase candidate token to inspect.
+
+    Returns:
+        True when the word has several verb senses and those senses dominate
+        the noun inventory in WordNet.
+    """
+    word = text.lower()
+    if not word.isalpha():
+        return False
+
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return False
+
+    try:
+        verb_synsets = wn.synsets(word, pos=wn.VERB)
+        noun_synsets = wn.synsets(word, pos=wn.NOUN)
+    except Exception:
+        return False
+
+    return len(verb_synsets) >= 3 and len(verb_synsets) > len(noun_synsets)
+
+
+@lru_cache(maxsize=2048)
+def has_generic_modifier_profile(text: str) -> bool:
+    """Return True when a lowercase token behaves like a common modifier word.
+
+    This helper is used only for late overlap suppression. A token counts as a
+    generic modifier when WordNet treats it as an ordinary adjective or common
+    noun with several broad senses. Proper-name-like tokens tend to have few or
+    no such senses, which keeps person-name components such as "tsushima" from
+    being collapsed just because they overlap with a longer compound.
+
+    Args:
+        text: Lowercase candidate token to inspect.
+
+    Returns:
+        True when the token looks like a broad adjective or common noun.
+    """
+    word = text.lower()
+    if not word.isalpha():
+        return False
+
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return False
+
+    try:
+        adjective_synsets = wn.synsets(word, pos=wn.ADJ)
+        noun_synsets = wn.synsets(word, pos=wn.NOUN)
+    except Exception:
+        return False
+
+    return len(adjective_synsets) >= 3 or len(noun_synsets) >= 3
 
 
 def normalize_surface(surface: str) -> str:

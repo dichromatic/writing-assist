@@ -233,6 +233,38 @@ class TestPromotion:
         suppressed_reasons = {sc.reason for sc in bundle.suppressed}
         assert SuppressReason.LOW_ENTITYHOOD in suppressed_reasons
 
+    def test_generic_verb_noise_is_suppressed_before_review(self):
+        # Quote-initial contractions such as "Let's" currently normalize to
+        # the verb lemma "let", which can survive recurrence with weak
+        # possessive-like support. They should still be suppressed when no
+        # real entity evidence ever develops around them.
+        bundle = run_promote("\"Let's go home.\" \"Let us think about this later.\"")
+        by_key = {candidate.cluster.normalized_key: candidate for candidate in bundle.suppressed}
+        assert "let" in by_key
+        assert by_key["let"].reason == SuppressReason.GENERIC_LEXICAL_NOISE
+
+    def test_titled_name_is_not_suppressed_as_generic_verb_noise(self):
+        # The generic-verb suppression rule must stay late and conservative.
+        # A real titled character name that happens to look like a verb in
+        # lowercase must still survive because the title is stronger evidence.
+        bundle = run_promote("Captain Hope arrived. Captain Hope waved.")
+        promoted_keys = {candidate.cluster.normalized_key for candidate in bundle.promoted}
+        assert "hope" in promoted_keys
+
+    def test_generic_component_overlap_is_suppressed_beneath_longer_compound(self):
+        # When a generic-looking fragment appears only as a covered component
+        # of a longer compound, the shorter fragment should not survive into
+        # review on its own. This locks in the overlap-cleanup boundary for
+        # phrases like "Old Man Hiroshi".
+        bundle = run_promote("Old Man Hiroshi's shop smelled of dust.")
+        suppressed = {candidate.cluster.normalized_key: candidate for candidate in bundle.suppressed}
+        review_keys = {candidate.cluster.normalized_key for candidate in bundle.review_only}
+        assert "old" in suppressed
+        assert suppressed["old"].reason == SuppressReason.COMPONENT_OVERLAP_NOISE
+        assert "old man" in suppressed
+        assert suppressed["old man"].reason == SuppressReason.COMPONENT_OVERLAP_NOISE
+        assert "old man hiroshi" in review_keys
+
     def test_suppressed_candidate_has_non_empty_detail(self):
         # Every SuppressedCandidate must carry a non-empty detail string so the
         # suppression reason is traceable without re-running the pipeline. An

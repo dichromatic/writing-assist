@@ -132,6 +132,70 @@ class TestClassification:
         assert decision.winning_category == LexiconCategory.GROUP
         assert decision.resolved is True
 
+    def test_compound_person_name_resolves_character(self):
+        # A recurring adjacent two-token personal name should resolve as a
+        # character compound, not remain trapped as two unrelated singles.
+        text = "Tsushima Yoshiko arrived. Tsushima Yoshiko nodded."
+        pre, clusters = harvest_and_cluster(text)
+        yoshiko = next(c for c in clusters if c.normalized_key == "tsushima yoshiko")
+        decision = classify_cluster(yoshiko, pre, [])
+        assert decision.winning_category == LexiconCategory.CHARACTER
+        assert decision.resolved is True
+
+    def test_compound_group_name_resolves_group(self):
+        # A compound institutional name should carry its suffix semantics as a
+        # whole surface, not only through the head noun token in isolation.
+        text = "The Norre Institute reopened. Norre Institute deployed scouts."
+        pre, clusters = harvest_and_cluster(text)
+        institute = next(c for c in clusters if c.normalized_key == "norre institute")
+        decision = classify_cluster(institute, pre, [])
+        assert decision.winning_category == LexiconCategory.GROUP
+        assert decision.resolved is True
+
+    def test_compound_event_name_resolves_event(self):
+        # Event compounds should resolve from the full surface when temporal
+        # framing and occurrence verbs support them.
+        text = (
+            "The Lantern Festival began at dusk. During the Lantern Festival, bells rang."
+        )
+        pre, clusters = harvest_and_cluster(text)
+        festival = next(c for c in clusters if c.normalized_key == "lantern festival")
+        decision = classify_cluster(festival, pre, [])
+        assert decision.winning_category == LexiconCategory.EVENT
+        assert decision.resolved is True
+
+    def test_place_descriptor_compound_resolves_place(self):
+        # A compound whose head is a geographic descriptor should resolve as a
+        # place even when the descriptor is internal to the entity span rather
+        # than appearing in surrounding prose.
+        text = "East Lagoon shimmered at dawn. East Lagoon slept by noon."
+        pre, clusters = harvest_and_cluster(text)
+        lagoon = next(c for c in clusters if c.normalized_key == "east lagoon")
+        decision = classify_cluster(lagoon, pre, [])
+        assert decision.winning_category == LexiconCategory.PLACE
+        assert decision.resolved is True
+
+    def test_directional_compound_resolves_place(self):
+        # Directional compounds like "Polar North" are place-like as complete
+        # names even when they do not appear after locative prepositions.
+        text = "Polar North glittered at dawn. The Polar North darkened again."
+        pre, clusters = harvest_and_cluster(text)
+        north = next(c for c in clusters if c.normalized_key == "polar north")
+        decision = classify_cluster(north, pre, [])
+        assert decision.winning_category == LexiconCategory.PLACE
+        assert decision.resolved is True
+
+    def test_compound_event_head_resolves_event(self):
+        # Named event compounds should gain event evidence from their head noun
+        # rather than waiting for separate temporal framing every time.
+        text = "Lantern Festival returned at dusk. The Lantern Festival filled the harbor."
+        pre, clusters = harvest_and_cluster(text)
+        festival = next(c for c in clusters if c.normalized_key == "lantern festival")
+        decision = classify_cluster(festival, pre, [])
+        assert decision.winning_category == LexiconCategory.EVENT
+        assert decision.resolved is True
+        assert decision.entityhood.accepted is True
+
     def test_wordnet_expanded_group_terms_resolve_group(self):
         # NLTK-backed group lexicons should drive real classification behavior,
         # not just expand constants on paper. "collaborated with" and
@@ -220,6 +284,16 @@ class TestClassification:
         pre, clusters = harvest_and_cluster(text)
         leva = next(c for c in clusters if c.normalized_key == "leva")
         decision = classify_cluster(leva, pre, [])
+        assert decision.winning_category == LexiconCategory.CONCEPT
+        assert decision.resolved is True
+
+    def test_compound_concept_head_resolves_concept(self):
+        # A compound with an explicitly abstract head noun such as "Protocol"
+        # should resolve as a concept even without separate glossary syntax.
+        text = "Leva Protocol failed at dusk. The Leva Protocol destabilized the chamber."
+        pre, clusters = harvest_and_cluster(text)
+        protocol = next(c for c in clusters if c.normalized_key == "leva protocol")
+        decision = classify_cluster(protocol, pre, [])
         assert decision.winning_category == LexiconCategory.CONCEPT
         assert decision.resolved is True
 

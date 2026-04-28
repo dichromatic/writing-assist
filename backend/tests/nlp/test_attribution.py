@@ -155,3 +155,42 @@ class TestAttribution:
         clusters = [make_cluster("institute", ["Institute"])]
         records = attribute_dialogue(pre, clusters)
         assert records == []
+
+    def test_later_quote_opening_word_not_mistaken_for_previous_speaker(self):
+        # When one sentence contains two quotes, the attribution window for the
+        # first quote must stop before the next quote opens. Without this, a
+        # later quote opener like "Last" can be incorrectly linked as the
+        # speaker of the earlier quote.
+        pre = parse_and_preprocess('"We bought what we needed," she says. "Last time was worse."')
+        clusters = [make_cluster("last", ["Last"])]
+        records = attribute_dialogue(pre, clusters)
+        assert records == []
+
+    def test_interrupted_quote_opening_word_not_mistaken_for_resumed_speaker(self):
+        # Split dialogue tags like '"Tell them," she says, "that..."' must not
+        # let the first quote's opening verb leak into the pre-window for the
+        # resumed fragment. Without this boundary, "Tell" becomes a false
+        # speaker candidate for the second quote.
+        pre = parse_and_preprocess('"Tell them," she says, "that I am grateful."')
+        clusters = [make_cluster("tell", ["Tell"])]
+        records = attribute_dialogue(pre, clusters)
+        assert records == []
+
+    def test_post_quote_noun_phrase_after_pronoun_tag_not_treated_as_speaker(self):
+        # In '"Ah," she says, one hand rising', the only actual speech tag is
+        # the pronoun phrase "she says". A later capitalized noun phrase must
+        # not be backfilled into speaker position just because it appears near
+        # the speech verb.
+        pre = parse_and_preprocess('"Ah," she says, One hand rising.')
+        clusters = [make_cluster("one", ["One"])]
+        records = attribute_dialogue(pre, clusters)
+        assert records == []
+
+    def test_post_quote_trailing_adverb_not_treated_as_speaker(self):
+        # In '"Hello," she says at Last.', the word after the preposition is an
+        # adverbial tail, not a deferred speaker surface. This guards against
+        # distance-only matching that would promote "Last" into a character.
+        pre = parse_and_preprocess('"Hello," she says at Last.')
+        clusters = [make_cluster("last", ["Last"])]
+        records = attribute_dialogue(pre, clusters)
+        assert records == []

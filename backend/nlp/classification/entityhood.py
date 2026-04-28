@@ -66,6 +66,15 @@ def assess_entityhood(
         score += 0.80
         reasons.append("is attributed as an acting speaker")
 
+    for category, label in (
+        (LexiconCategory.GROUP, "group"),
+        (LexiconCategory.EVENT, "event"),
+        (LexiconCategory.CONCEPT, "concept"),
+    ):
+        if evidence_by_category[category].score >= 0.60:
+            score += 0.45
+            reasons.append(f"has strong {label}-classification evidence")
+
     if cluster.linked_fields:
         score += 0.45
         reasons.append("is referenced by structured fields")

@@ -102,12 +102,6 @@ _SPEECH_VERB_FALLBACK: frozenset[str] = SPEECH_VERB_LEMMAS | frozenset({
 # Maximum number of tokens to examine on either side of a quote boundary.
 _WINDOW_SIZE = 10
 
-# Maximum token distance allowed between the matched surface and the speech
-# verb. This keeps attribution tied to local speech tags rather than to any
-# capitalized token elsewhere in the sentence window.
-_MAX_SPEAKER_DISTANCE = 3
-
-
 def _init_lemmatizer():
     """Return an NLTK WordNetLemmatizer, downloading wordnet if needed.
 
@@ -234,17 +228,41 @@ def attribute_dialogue(
     records: list[AttributionRecord] = []
 
     for sentence in pre.sentences:
-        span_quotes = quotes_by_span.get(sentence.span_ordinal, [])
+        span_quotes = sorted(
+            quotes_by_span.get(sentence.span_ordinal, []),
+            key=lambda quote: quote.start_char,
+        )
 
-        for quote in span_quotes:
+        for index, quote in enumerate(span_quotes):
             # Skip quotes that fall outside this sentence's character range.
             # A span can contain multiple sentences, so we must filter by char
             # position rather than span_ordinal alone.
             if not (sentence.start_char <= quote.start_char < sentence.end_char):
                 continue
 
-            pre_tokens = [t for t in sentence.tokens if t.end_char <= quote.start_char]
-            post_tokens = [t for t in sentence.tokens if t.start_char >= quote.end_char]
+            # Quote-local windows must stop at neighboring quotes in the same
+            # sentence. Without this, the opening word of a later quote can be
+            # mistaken for the speaker of an earlier quote, and the first word
+            # of an interrupted quote can be mistaken for the speaker of the
+            # resumed fragment.
+            previous_quote_end = sentence.start_char
+            if index > 0:
+                previous_quote_end = max(previous_quote_end, span_quotes[index - 1].end_char)
+
+            next_quote_start = sentence.end_char
+            if index + 1 < len(span_quotes):
+                next_quote_start = min(next_quote_start, span_quotes[index + 1].start_char)
+
+            pre_tokens = [
+                token
+                for token in sentence.tokens
+                if previous_quote_end <= token.start_char and token.end_char <= quote.start_char
+            ]
+            post_tokens = [
+                token
+                for token in sentence.tokens
+                if quote.end_char <= token.start_char and token.end_char <= next_quote_start
+            ]
 
             # Post-quote pattern: "..." Speaker said.
             # Checked first because it is the more common English pattern and a
@@ -274,17 +292,14 @@ def _find_speaker(
     tokens: list[Token],
     surface_to_key: dict[str, str],
 ) -> Optional[str]:
-    """Return the normalized_key of the speaker cluster nearest to the speech verb.
+    """Return the normalized_key of the speaker cluster in a local speech tag.
 
     Requires both a speech verb (in any inflected form) and a known cluster
-    surface in the token window. When multiple cluster surfaces are present,
-    the one whose closest token is nearest (in token distance) to any speech
-    verb in the window wins. This correctly handles sentences where an observer
-    appears before the actual speaker, e.g. "As Aldous watched, Mary said, '...'".
-
-    Distance is measured from the nearest token within the surface to the
-    nearest speech verb, so a multi-word surface like "Captain Marsh" at
-    positions [2, 3] with "said" at position 4 has distance 1, not 2.
+    surface in the token window. A surface only qualifies when it forms a
+    local speech-tag shape with the verb: either "Speaker said" or
+    "said Speaker". This keeps attribution tied to actual speaker tags rather
+    than to any nearby capitalized fragment inside adverbial tails, quote
+    continuations, or descriptive noun phrases.
 
     Args:
         tokens: The pre-quote or post-quote token window, already size-limited.
@@ -296,32 +311,26 @@ def _find_speaker(
     token_texts = [t.text.lower() for t in tokens]
 
     # Collect all speech verb positions so multi-verb windows are handled
-    # correctly (e.g. "asked and replied"). Distance is measured to the nearest.
+    # correctly (e.g. "asked and replied").
     verb_positions = [i for i, t in enumerate(token_texts) if _is_speech_verb(t)]
     if not verb_positions:
         return None
-
-    best_key: Optional[str] = None
-    best_distance: float = float('inf')
 
     for surface, key in surface_to_key.items():
         words = surface.split()
         for i in range(len(token_texts) - len(words) + 1):
             if token_texts[i:i + len(words)] == words:
-                # Use the surface token closest to any verb; this gives
-                # multi-word surfaces a fair comparison with single-word ones.
-                distance = min(
-                    abs(surface_pos - verb_pos)
-                    for surface_pos in range(i, i + len(words))
-                    for verb_pos in verb_positions
-                )
-                if distance > _MAX_SPEAKER_DISTANCE:
-                    break
-                if distance < best_distance:
-                    best_distance = distance
-                    best_key = key
+                surface_start = i
+                surface_end = i + len(words) - 1
+
+                if any(surface_end == verb_pos - 1 for verb_pos in verb_positions):
+                    return key
+                if any(surface_start == verb_pos + 1 for verb_pos in verb_positions):
+                    return key
+
                 # Only consider the first occurrence of each surface in the
-                # window; a repeated name does not change the speaker.
+                # window; a repeated non-adjacent name does not become a
+                # speaker unless it participates directly in a speech tag.
                 break
 
-    return best_key
+    return None

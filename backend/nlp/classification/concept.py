@@ -12,6 +12,8 @@ Concept classification evidence.
 
 from __future__ import annotations
 
+from backend.nlp.classification.compound_shapes import compound_head
+from backend.nlp.classification.token_context import iter_anchor_token_starts
 from backend.nlp.classification.types import ClassEvidence
 from backend.nlp.harvesting.shared import (
     CONCEPT_DESCRIPTOR_NOUNS,
@@ -19,22 +21,9 @@ from backend.nlp.harvesting.shared import (
 from backend.nlp.types import LexiconCategory, MentionCluster, PreprocessedDocument
 
 
-def _token_for_anchor(cluster: MentionCluster, pre: PreprocessedDocument | None):
-    """Yield the span token list and token index for each anchor in the cluster."""
-    if pre is None:
-        return
-
-    for anchor in cluster.anchors:
-        tokens = pre.tokens_by_span.get(anchor.span_ordinal, [])
-        for index, token in enumerate(tokens):
-            if token.start_char == anchor.start_char and token.end_char == anchor.end_char:
-                yield tokens, index
-                break
-
-
 def _has_definition_syntax(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when local context defines the cluster as a named concept."""
-    for tokens, index in _token_for_anchor(cluster, pre):
+    for tokens, index in iter_anchor_token_starts(cluster, pre):
         right_window = [token.text.lower() for token in tokens[index + 1:index + 6]]
         if not right_window:
             continue
@@ -59,7 +48,7 @@ def _has_definition_syntax(cluster: MentionCluster, pre: PreprocessedDocument | 
 
 def _has_concept_descriptor(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when nearby nouns frame the cluster as an abstract system or term."""
-    for tokens, index in _token_for_anchor(cluster, pre):
+    for tokens, index in iter_anchor_token_starts(cluster, pre):
         right_window = [token.text.lower() for token in tokens[index + 1:index + 8]]
         if any(word in CONCEPT_DESCRIPTOR_NOUNS for word in right_window):
             return True
@@ -87,10 +76,15 @@ def score_concept_evidence(
     score = 0.0
     reasons: list[str] = []
     vetoes: list[str] = []
+    head = compound_head(cluster)
 
     if cluster.linked_definitions:
         score += 0.80
         reasons.append("is referenced by definition-style notes")
+
+    if head in CONCEPT_DESCRIPTOR_NOUNS:
+        score += 0.60
+        reasons.append("compound head is an abstract descriptor noun")
 
     if _has_definition_syntax(cluster, pre):
         score += 0.40
