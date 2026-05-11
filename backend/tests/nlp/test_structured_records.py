@@ -1,13 +1,13 @@
-"""Tests for the phase-1 structured-record dossier experiment."""
+"""Tests for the structured-record review experiment."""
 
 from pathlib import Path
 
-from backend.nlp.experiments.dossier_review.cli import run_dossier_review_experiment
-from backend.nlp.experiments.dossier_review.llm_pass import (
+from backend.nlp.experiments.structured_review.cli import run_structured_review_experiment
+from backend.nlp.experiments.structured_review.llm_pass import (
     _extract_json_object_text,
-    run_dossier_llm_pass,
+    run_structured_llm_pass,
 )
-from backend.nlp.experiments.dossier_review.review_bundle import build_dossier_review_bundles
+from backend.nlp.experiments.structured_review.review_bundle import build_structured_review_bundles
 from backend.nlp.lexicon.bootstrap import bootstrap
 from backend.nlp.parsing.document_parser import parse
 from backend.nlp.parsing.preprocessing import preprocess
@@ -125,14 +125,14 @@ def test_world_context_file_builds_reference_section_bundles():
     doc, entity_records, reference_candidates = _document_outputs(path)
     records = segment_structured_records(doc)
 
-    bundles, diagnostics = build_dossier_review_bundles(
+    bundles, diagnostics = build_structured_review_bundles(
         records,
         entity_records,
         reference_candidates,
     )
 
     assert bundles
-    assert diagnostics.reason_no_dossier_bundles == ""
+    assert diagnostics.reason_no_review_bundles == ""
     assert diagnostics.candidate_record_counts["reference_section"] > 0
     assert any(bundle.record_type == StructuredRecordType.REFERENCE_SECTION for bundle in bundles)
 
@@ -208,7 +208,7 @@ def test_review_bundle_includes_loose_records_as_supported_family():
     doc, entity_records, reference_candidates = _document_outputs(path)
     records = segment_structured_records(doc)
 
-    bundles, diagnostics = build_dossier_review_bundles(
+    bundles, diagnostics = build_structured_review_bundles(
         records,
         entity_records,
         reference_candidates,
@@ -277,7 +277,7 @@ def test_experiment_writes_not_run_yet_placeholders(tmp_path):
     # The first experiment is deliberately pre-LLM. The persisted scaffold must
     # still expose explicit placeholder slots so the next phase can fill them
     # without redesigning the bundle shape.
-    json_path, report_path, llm_report_path = run_dossier_review_experiment(
+    json_path, report_path, llm_report_path = run_structured_review_experiment(
         "examples/story planning/prologue crew summaries.txt",
         str(tmp_path),
         max_report_records=2,
@@ -304,14 +304,14 @@ def test_experiment_writes_not_run_yet_placeholders(tmp_path):
 def test_review_bundle_includes_explicit_llm_prompt_packet_with_weak_hints():
     # The next phase should plug a model into a frozen handoff contract, not
     # redesign the bundle. The prompt packet therefore needs to preserve the
-    # narrow dossier task plus the full deterministic seed inventory,
+    # narrow structured task plus the full deterministic seed inventory,
     # including suppressed hints that manuscript-biased filtering would
     # otherwise hide.
     path = "examples/story planning/estuary crew summaries.txt"
     doc, entity_records, reference_candidates = _document_outputs(path)
     records = segment_structured_records(doc)
 
-    bundles, _diagnostics = build_dossier_review_bundles(
+    bundles, _diagnostics = build_structured_review_bundles(
         records,
         entity_records,
         reference_candidates,
@@ -350,7 +350,7 @@ def test_llm_pass_fills_completed_payloads_and_comparison_fields():
     path = "examples/story planning/estuary crew summaries.txt"
     doc, entity_records, reference_candidates = _document_outputs(path)
     records = segment_structured_records(doc)
-    bundles, _diagnostics = build_dossier_review_bundles(
+    bundles, _diagnostics = build_structured_review_bundles(
         records,
         entity_records,
         reference_candidates,
@@ -387,7 +387,7 @@ def test_llm_pass_fills_completed_payloads_and_comparison_fields():
             "open_questions": ["Should 'Pioneer-Admiral (O‑9)' be stored as a second rank entry?"],
         }, "resp_test_123")
 
-    updated_bundle = run_dossier_llm_pass(
+    updated_bundle = run_structured_llm_pass(
         first_bundle,
         model="gpt-4o-mini",
         responder=fake_responder,
@@ -424,10 +424,10 @@ Here is the extracted JSON:
 
 
 def test_deterministic_report_excludes_llm_details_but_llm_report_keeps_them(tmp_path):
-    # The dossier scaffold now writes two text logs. The main report should stay
+    # The structured scaffold writes two text logs. The main report should stay
     # focused on deterministic record structure, while the separate LLM log
     # carries model status, comparisons, and review questions.
-    json_path, report_path, llm_report_path = run_dossier_review_experiment(
+    json_path, report_path, llm_report_path = run_structured_review_experiment(
         "examples/story planning/estuary crew summaries.txt",
         str(tmp_path),
         max_report_records=1,

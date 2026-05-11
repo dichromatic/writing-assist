@@ -488,14 +488,14 @@ class StructuredDocumentDiagnostics:
         heading_count: Total detected heading spans in the parsed document.
         candidate_record_counts: Counts by segmented record family.
         sample_heading_texts: Small sample of opening heading texts.
-        reason_no_dossier_bundles: Why no dossier bundles were built, if any.
+        reason_no_review_bundles: Why no review bundles were built, if any.
     """
 
     document_path: str
     heading_count: int
     candidate_record_counts: dict[str, int]
     sample_heading_texts: list[str]
-    reason_no_dossier_bundles: str = ""
+    reason_no_review_bundles: str = ""
 
 
 # ---------------------------------------------------------------------------
