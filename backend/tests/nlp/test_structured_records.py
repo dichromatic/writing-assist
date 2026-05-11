@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from backend.nlp.experiments.structured_review.claim_units import build_claim_units_from_review_bundles
 from backend.nlp.experiments.structured_review.cli import run_structured_review_experiment
 from backend.nlp.experiments.structured_review.llm_pass import (
     _extract_json_object_text,
@@ -15,8 +16,8 @@ from backend.nlp.promotion.attribution import attribute_dialogue
 from backend.nlp.promotion.promotion import promote
 from backend.nlp.reconciliation.document_entities import summarize_document_entities
 from backend.nlp.semantic_review import extract_reference_candidates
-from backend.nlp.structured_records import build_dossier_seed_bundle, build_record_seed_bundle, segment_structured_records
-from backend.nlp.types import StructuredFieldLineType, StructuredRecordType
+from backend.nlp.structured_records import build_record_seed_bundle, segment_structured_records
+from backend.nlp.types import ClaimKind, StructuredFieldLineType, StructuredRecordType
 
 
 def _document_outputs(path: str):
@@ -94,7 +95,7 @@ def test_dossier_seed_bundle_preserves_header_fields_and_subject_guess():
         and record.heading_text.startswith("🌊 WATANABE YŌ")
     )
 
-    seed_bundle, subject_guess, fact_candidates = build_dossier_seed_bundle(
+    seed_bundle, subject_guess, fact_candidates = build_record_seed_bundle(
         dossier_record,
         entity_records,
         reference_candidates,
@@ -218,6 +219,119 @@ def test_review_bundle_includes_loose_records_as_supported_family():
     assert any(bundle.record_type == StructuredRecordType.LOOSE_RECORD for bundle in bundles)
     loose_bundle = next(bundle for bundle in bundles if bundle.record_type == StructuredRecordType.LOOSE_RECORD)
     assert loose_bundle.llm_prompt_packet.task_name == "loose_record_explicit_context"
+
+
+def test_claim_units_project_deterministic_facts_as_atomic_retrieval_units():
+    # The retrieval handoff needs one small claim per deterministic fact
+    # candidate. Bundling an entire record into one claim would make ranking,
+    # citation, and later review too coarse.
+    path = "examples/story planning/estuary crew summaries.txt"
+    doc, entity_records, reference_candidates = _document_outputs(path)
+    records = segment_structured_records(doc)
+    bundles, _diagnostics = build_structured_review_bundles(
+        records,
+        entity_records,
+        reference_candidates,
+    )
+    first_bundle = next(
+        bundle for bundle in bundles
+        if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
+        and bundle.deterministic_seed_bundle.header_line.startswith("🌊 WATANABE YŌ")
+    )
+
+    claim_units = [
+        claim_unit
+        for claim_unit in build_claim_units_from_review_bundles([first_bundle])
+        if claim_unit.claim_label == "Role"
+    ]
+
+    assert len(claim_units) == 1
+    claim_unit = claim_units[0]
+    assert claim_unit.claim_kind == ClaimKind.FACT
+    assert claim_unit.primary_subject_guess == "Watanabe Yō"
+    assert claim_unit.claim_value == "Commanding Officer, Radiant Estuary"
+    assert claim_unit.source_record_id == first_bundle.record_id
+    assert claim_unit.source_family == "dossier_entry"
+    assert claim_unit.source_authority == "planning_dossier"
+    assert claim_unit.proposal_state.value == "deterministic_proposal"
+    assert claim_unit.review_state.value == "unreviewed"
+    assert claim_unit.primary_evidence.quote == "Commanding Officer, Radiant Estuary"
+
+
+def test_claim_units_group_same_source_line_neighbors():
+    # Claim groups are local to a source record and preserve authored grouping
+    # without forcing multiple facts into one blob. Header rank claims share a
+    # field bundle and should point at each other as neighbors.
+    path = "examples/story planning/estuary crew summaries.txt"
+    doc, entity_records, reference_candidates = _document_outputs(path)
+    records = segment_structured_records(doc)
+    bundles, _diagnostics = build_structured_review_bundles(
+        records,
+        entity_records,
+        reference_candidates,
+    )
+    first_bundle = next(
+        bundle for bundle in bundles
+        if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
+        and bundle.deterministic_seed_bundle.header_line.startswith("🌊 WATANABE YŌ")
+    )
+
+    rank_claims = [
+        claim_unit
+        for claim_unit in build_claim_units_from_review_bundles([first_bundle])
+        if claim_unit.claim_label == "header_rank"
+    ]
+
+    assert len(rank_claims) == 2
+    assert rank_claims[0].claim_group is not None
+    assert rank_claims[1].claim_group is not None
+    assert rank_claims[0].claim_group.claim_group_id == rank_claims[1].claim_group.claim_group_id
+    assert rank_claims[0].claim_group.group_kind == "field_bundle"
+    assert rank_claims[0].neighbor_claim_ids == [rank_claims[1].claim_id]
+    assert rank_claims[1].neighbor_claim_ids == [rank_claims[0].claim_id]
+
+
+def test_loose_record_claim_units_are_low_structure_fallback_claims():
+    # Loose records should reach retrieval as claim units, but with lower
+    # structure quality and no invented subject. That preserves usefulness
+    # without overstating confidence.
+    path = "examples/world context/human history.txt"
+    doc, entity_records, reference_candidates = _document_outputs(path)
+    records = segment_structured_records(doc)
+    bundles, _diagnostics = build_structured_review_bundles(
+        records,
+        entity_records,
+        reference_candidates,
+    )
+    loose_bundle = next(bundle for bundle in bundles if bundle.record_type == StructuredRecordType.LOOSE_RECORD)
+
+    claim_units = build_claim_units_from_review_bundles([loose_bundle])
+
+    assert len(claim_units) == 1
+    assert claim_units[0].primary_subject_guess == ""
+    assert claim_units[0].claim_group is not None
+    assert claim_units[0].claim_group.group_kind == "prose_bundle"
+    assert claim_units[0].source_family == "loose_record"
+    assert claim_units[0].structure_quality < 0.5
+    assert "literal_local" in claim_units[0].retrieval_channel_tags
+
+
+def test_structured_review_artifact_includes_claim_units(tmp_path):
+    # The JSON artifact is the bridge toward database insertion. It must carry
+    # claim units alongside review bundles so later persistence work does not
+    # need to rederive retrieval-shaped output from text reports.
+    json_path, report_path, _llm_report_path = run_structured_review_experiment(
+        "examples/world context/human history.txt",
+        str(tmp_path),
+        max_report_records=1,
+    )
+
+    json_text = json_path.read_text(encoding="utf-8")
+    report_text = report_path.read_text(encoding="utf-8")
+
+    assert '"claim_units"' in json_text
+    assert '"result_level": "claim_unit"' in json_text
+    assert "CLAIM UNIT SUMMARY" in report_text
 
 
 def test_outline_beat_seed_bundle_preserves_heading_and_bullets():

@@ -250,6 +250,40 @@ class StructuredFieldLineType(Enum):
     PROSE = "prose"
 
 
+class ClaimKind(Enum):
+    """Coarse kind for one retrieval-shaped claim unit."""
+
+    FACT = "fact"
+    RELATION = "relation"
+    ALIAS = "alias"
+    EVENT = "event"
+
+
+class RetrievalResultLevel(Enum):
+    """How structured one retrieval result is."""
+
+    CLAIM_UNIT = "claim_unit"
+    SOURCE_RECORD = "source_record"
+    RAW_PASSAGE = "raw_passage"
+
+
+class ClaimReviewState(Enum):
+    """Review state for a claim-like output."""
+
+    UNREVIEWED = "unreviewed"
+    REVIEW_REQUIRED = "review_required"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class ClaimProposalState(Enum):
+    """Authority state for a claim-like output."""
+
+    DETERMINISTIC_PROPOSAL = "deterministic_proposal"
+    LLM_PROPOSAL = "llm_proposal"
+    CANONICAL = "canonical"
+
+
 @dataclass
 class StructuredRecord:
     """One deterministic record-sized unit cut from a non-manuscript document.
@@ -349,6 +383,103 @@ class DeterministicFactCandidate:
     reason: str
     supporting_anchor: SpanAnchor
     line_index: int = -1
+
+
+@dataclass
+class ClaimEvidence:
+    """Evidence span and quote supporting one retrieval-shaped claim.
+
+    Args:
+        anchor: Source anchor for the evidence.
+        quote: Exact or best available quote for the evidence.
+        source_snippet: Wider readable context when available.
+        evidence_role: Why this evidence is attached to the claim.
+    """
+
+    anchor: SpanAnchor
+    quote: str
+    source_snippet: str = ""
+    evidence_role: str = "primary"
+
+
+@dataclass
+class ClaimGroup:
+    """Local grouping for related claim units from one source record.
+
+    Args:
+        claim_group_id: Stable local group identifier.
+        source_record_id: Structured record that owns the group.
+        group_kind: Coarse local group kind.
+        group_label: Display label for the group.
+        group_summary: Optional later summary of the group.
+        primary_evidence_id: Stable id of the group's primary evidence.
+    """
+
+    claim_group_id: str
+    source_record_id: str
+    group_kind: str
+    group_label: str
+    group_summary: str = ""
+    primary_evidence_id: str = ""
+
+
+@dataclass
+class ClaimUnit:
+    """One atomic retrieval-shaped claim derived from extraction output.
+
+    Args:
+        claim_id: Stable identifier for this claim proposal.
+        claim_kind: Coarse claim kind.
+        primary_subject_guess: Best available subject guess, if any.
+        alternate_subject_candidates: Other plausible subject strings.
+        claim_label: Field or relation label.
+        claim_value: Cleaned retrieval-friendly claim value.
+        readable_summary: Human-readable summary for UI or chat packing.
+        raw_claim_payload: Raw extraction payload that produced the claim.
+        source_record_id: Structured record identifier.
+        source_document_id: Source document identifier.
+        source_family: Source record family.
+        source_status: Document status metadata, when available.
+        source_authority: Source authority label from the prompt packet.
+        primary_evidence: Direct evidence supporting the claim.
+        supporting_evidence: Additional supporting evidence.
+        retrieval_channel_tags: Retrieval channels this claim can support.
+        retrieval_reasons: Reasons this claim exists or may be retrieved.
+        primary_retrieval_reason: Main reason to show in UI.
+        review_state: Review state for the claim proposal.
+        proposal_state: Whether this is deterministic, LLM, or canonical.
+        claim_group: Local source-record group, when present.
+        neighbor_claim_ids: Other claim ids in the same local group.
+        result_level: Retrieval result level for this object.
+        structure_label: Human-readable structure label.
+        structure_quality: Internal structure-quality score.
+    """
+
+    claim_id: str
+    claim_kind: ClaimKind
+    primary_subject_guess: str
+    alternate_subject_candidates: list[str]
+    claim_label: str
+    claim_value: str
+    readable_summary: str
+    raw_claim_payload: dict[str, Any]
+    source_record_id: str
+    source_document_id: str
+    source_family: str
+    source_status: str
+    source_authority: str
+    primary_evidence: ClaimEvidence
+    supporting_evidence: list[ClaimEvidence]
+    retrieval_channel_tags: list[str]
+    retrieval_reasons: list[str]
+    primary_retrieval_reason: str
+    review_state: ClaimReviewState
+    proposal_state: ClaimProposalState
+    claim_group: Optional[ClaimGroup] = None
+    neighbor_claim_ids: list[str] = field(default_factory=list)
+    result_level: RetrievalResultLevel = RetrievalResultLevel.CLAIM_UNIT
+    structure_label: str = "Extracted claim"
+    structure_quality: float = 0.0
 
 
 @dataclass

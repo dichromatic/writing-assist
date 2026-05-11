@@ -146,26 +146,3 @@ def build_record_prompt_packet(
         deterministic_seed_bundle=sanitized_seed_bundle,
         deterministic_fact_candidates=sanitized_fact_candidates,
     )
-
-
-def build_dossier_prompt_packet(
-    record: StructuredRecord,
-    seed_bundle: DeterministicSeedBundle,
-    fact_candidates: list[DeterministicFactCandidate],
-) -> LLMRecordPromptPacket:
-    """Build the future LLM input packet for one dossier record.
-
-    This wrapper preserves the original entrypoint while the structured-note
-    experiment broadens beyond dossier records.
-
-    Args:
-        record: Structured dossier record being reviewed.
-        seed_bundle: Deterministic seed evidence for the same record.
-        fact_candidates: Shallow deterministic fact-like candidates preserved
-            before any model call.
-
-    Returns:
-        Structured packet that freezes the task boundary and deterministic
-        evidence for later model-assisted interpretation.
-    """
-    return build_record_prompt_packet(record, seed_bundle, fact_candidates)

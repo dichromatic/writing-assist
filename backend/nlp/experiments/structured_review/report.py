@@ -13,6 +13,7 @@ Structured review report renderer - prints deterministic and LLM review logs.
 
 from __future__ import annotations
 
+from backend.nlp.experiments.structured_review.claim_units import build_claim_units_from_review_bundles
 from backend.nlp.text_filtering import strip_emoji
 from backend.nlp.types import RecordReviewBundle, StructuredDocumentDiagnostics
 
@@ -67,6 +68,17 @@ def render_structured_review_report(
         lines.append("  None.")
         lines.append(_hr())
         return "\n".join(lines) + "\n"
+
+    claim_units = build_claim_units_from_review_bundles(bundles)
+    lines.append(_hr("CLAIM UNIT SUMMARY"))
+    lines.append(f"  claim_unit_count: {len(claim_units)}")
+    for claim_unit in claim_units[:max_records * 4]:
+        group_label = claim_unit.claim_group.group_label if claim_unit.claim_group else "-"
+        lines.append(
+            f"  - {claim_unit.claim_kind.value} {claim_unit.claim_label}: {claim_unit.claim_value}"
+            f" source={claim_unit.source_family}"
+            f" group={group_label}"
+        )
 
     lines.append(_hr("STRUCTURED REVIEW BUNDLES"))
     for bundle in bundles[:max_records]:
@@ -136,30 +148,6 @@ def render_structured_review_report(
 
     lines.append(_hr())
     return strip_emoji("\n".join(lines) + "\n")
-
-
-def render_dossier_review_report(
-    diagnostics: StructuredDocumentDiagnostics,
-    bundles: list[RecordReviewBundle],
-    *,
-    max_records: int = 5,
-) -> str:
-    """Compatibility wrapper for the earlier dossier-specific report name.
-
-    Args:
-        diagnostics: Structural summary for the source document.
-        bundles: Deterministic structured-note review bundles.
-        max_records: Maximum number of full record blocks to print.
-
-    Returns:
-        Report text for manual inspection.
-    """
-    return render_structured_review_report(
-        diagnostics,
-        bundles,
-        max_records=max_records,
-    )
-
 
 def render_structured_llm_report(
     diagnostics: StructuredDocumentDiagnostics,
@@ -254,27 +242,3 @@ def render_structured_llm_report(
 
     lines.append(_hr())
     return strip_emoji("\n".join(lines) + "\n")
-
-
-def render_dossier_llm_report(
-    diagnostics: StructuredDocumentDiagnostics,
-    bundles: list[RecordReviewBundle],
-    *,
-    max_records: int = 5,
-) -> str:
-    """Compatibility wrapper for the earlier dossier-specific LLM report name.
-
-    Args:
-        diagnostics: Structural summary for the source document.
-        bundles: Structured-note review bundles, including deterministic and
-            LLM slots.
-        max_records: Maximum number of full record blocks to print.
-
-    Returns:
-        LLM-focused report text for manual inspection.
-    """
-    return render_structured_llm_report(
-        diagnostics,
-        bundles,
-        max_records=max_records,
-    )

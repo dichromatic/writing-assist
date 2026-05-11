@@ -94,22 +94,3 @@ def build_structured_review_bundles(
         ))
 
     return bundles, diagnostics
-
-
-def build_dossier_review_bundles(
-    records: list[StructuredRecord],
-    entity_records: list[DocumentEntityRecord],
-    reference_candidates: list[ReferenceCandidate],
-) -> tuple[list[RecordReviewBundle], StructuredDocumentDiagnostics]:
-    """Compatibility wrapper for the earlier dossier-specific function name.
-
-    Args:
-        records: Structured records segmented from one note document.
-        entity_records: Whole-document entity summaries used as weak hints.
-        reference_candidates: Whole-document deferred references used as weak
-            hints.
-
-    Returns:
-        Review bundles plus structural diagnostics for the document.
-    """
-    return build_structured_review_bundles(records, entity_records, reference_candidates)

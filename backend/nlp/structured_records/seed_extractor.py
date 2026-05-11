@@ -466,22 +466,3 @@ def build_record_seed_bundle(
         structural_flags=list(record.structural_flags),
     )
     return bundle, subject_guess, fact_candidates
-
-
-def build_dossier_seed_bundle(
-    record: StructuredRecord,
-    entity_records: list[DocumentEntityRecord],
-    reference_candidates: list[ReferenceCandidate],
-) -> tuple[DeterministicSeedBundle, DeterministicGuess | None, list[DeterministicFactCandidate]]:
-    """Build the deterministic dossier seed packet for one structured record.
-
-    Args:
-        record: Structured record to seed.
-        entity_records: Whole-document entity summaries used as weak hints.
-        reference_candidates: Whole-document deferred references used as weak
-            hints.
-
-    Returns:
-        The deterministic seed bundle, subject guess, and fact candidates.
-    """
-    return build_record_seed_bundle(record, entity_records, reference_candidates)

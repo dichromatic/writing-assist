@@ -20,6 +20,7 @@ import json
 import os
 from pathlib import Path
 
+from backend.nlp.experiments.structured_review.claim_units import build_claim_units_from_review_bundles
 from backend.nlp.experiments.structured_review.llm_pass import run_structured_llm_passes
 from backend.nlp.experiments.structured_review.report import (
     render_structured_llm_report,
@@ -83,6 +84,7 @@ def run_structured_review_experiment(
             max_records=max_llm_records,
             timeout_seconds=llm_timeout_seconds,
         )
+    claim_units = build_claim_units_from_review_bundles(review_bundles)
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
@@ -96,6 +98,7 @@ def run_structured_review_experiment(
         "diagnostics": to_llm_safe_jsonable(diagnostics),
         "structured_records": to_llm_safe_jsonable(structured_records),
         "review_bundles": to_llm_safe_jsonable(review_bundles),
+        "claim_units": to_llm_safe_jsonable(claim_units),
     }
     json_path.write_text(json.dumps(artifact, indent=2, ensure_ascii=False), encoding="utf-8")
     report_path.write_text(
@@ -107,41 +110,6 @@ def run_structured_review_experiment(
         encoding="utf-8",
     )
     return json_path, report_path, llm_report_path
-
-
-def run_dossier_review_experiment(
-    input_path: str,
-    output_dir: str,
-    *,
-    max_report_records: int,
-    run_llm: bool = False,
-    llm_model: str = "gpt-4o-mini",
-    max_llm_records: int | None = None,
-    llm_timeout_seconds: float = 60.0,
-) -> tuple[Path, Path, Path]:
-    """Compatibility wrapper for the earlier dossier-specific experiment name.
-
-    Args:
-        input_path: Source .txt file path.
-        output_dir: Directory that will receive JSON and text artifacts.
-        max_report_records: Maximum full record blocks printed in the report.
-        run_llm: Whether to run the first constrained LLM pass.
-        llm_model: Model name to use for the live LLM pass.
-        max_llm_records: Optional cap on how many bundles to send to the LLM.
-        llm_timeout_seconds: Timeout for each live LLM request.
-
-    Returns:
-        Paths to the JSON artifact, deterministic text report, and LLM text report.
-    """
-    return run_structured_review_experiment(
-        input_path,
-        output_dir,
-        max_report_records=max_report_records,
-        run_llm=run_llm,
-        llm_model=llm_model,
-        max_llm_records=max_llm_records,
-        llm_timeout_seconds=llm_timeout_seconds,
-    )
 
 
 def build_parser() -> argparse.ArgumentParser:
