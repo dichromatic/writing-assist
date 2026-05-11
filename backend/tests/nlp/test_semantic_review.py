@@ -14,6 +14,7 @@ from backend.nlp.types import (
     ReferenceCluster,
     ReviewTaskKind,
     SpanAnchor,
+    SuppressReason,
 )
 from backend.nlp.lexicon.bootstrap import bootstrap
 from backend.nlp.parsing.markdown_parser import parse
@@ -25,6 +26,7 @@ from backend.nlp.semantic_review import (
     build_character_summaries,
     build_reference_clusters,
     build_conflict_records,
+    build_semantic_proposals,
     build_review_tasks,
     extract_reference_candidates,
     extract_title_role_candidates,
@@ -61,6 +63,7 @@ def _make_record(
     resolved: bool = True,
     confidence_score: float = 0.6,
     bucket: DocumentEntityBucket = DocumentEntityBucket.REVIEW_ONLY,
+    suppression_reason: SuppressReason | None = None,
 ) -> DocumentEntityRecord:
     """Build a minimal document entity record for semantic-review tests."""
     return DocumentEntityRecord(
@@ -73,6 +76,7 @@ def _make_record(
         entityhood_accepted=True,
         confidence_score=confidence_score,
         bucket=bucket,
+        suppression_reason=suppression_reason,
         bucket_detail="",
         occurrence_count=2,
         rule_tier=2,
@@ -124,7 +128,7 @@ class TestReferenceCandidates:
         )
 
         candidates = extract_title_role_candidates(pre, records, [])
-        clusters = build_reference_clusters(candidates)
+        clusters = build_reference_clusters(candidates, records)
         bare_captain = next(
             cluster for cluster in clusters
             if cluster.reference_type.value == "bare_title_role"
@@ -144,7 +148,7 @@ class TestReferenceCandidates:
         )
 
         candidates = extract_title_role_candidates(pre, records, [])
-        clusters = build_reference_clusters(candidates)
+        clusters = build_reference_clusters(candidates, records)
         bare_captain = next(
             cluster for cluster in clusters
             if cluster.reference_type.value == "bare_title_role"
@@ -160,7 +164,7 @@ class TestReferenceCandidates:
         pre, records = _document_records("The captain waited in silence.")
 
         candidates = extract_title_role_candidates(pre, records, [])
-        tasks = build_review_tasks(build_reference_clusters(candidates), [])
+        tasks = build_review_tasks(build_reference_clusters(candidates, records), [])
 
         assert any(task.kind == ReviewTaskKind.TITLE_ROLE_ATTACHMENT for task in tasks)
 
@@ -176,7 +180,7 @@ class TestReferenceCandidates:
             if candidate.reference_type == ReferenceCandidateType.BARE_RELATION_ROLE
             and candidate.normalized == "mother"
         ]
-        tasks = build_review_tasks(build_reference_clusters(candidates), [])
+        tasks = build_review_tasks(build_reference_clusters(candidates, records), [])
 
         assert relation_candidates
         assert any(task.kind == ReviewTaskKind.RELATION_ROLE_ATTACHMENT for task in tasks)
@@ -231,6 +235,44 @@ class TestReferenceCandidates:
         )
 
         assert child.linked_entity_keys == ["hiroshi"]
+
+    def test_reference_cluster_preserves_nearby_suppressed_orbit_evidence(self):
+        # Later semantic review needs to see useful suppressed fragments in the
+        # orbit of a surviving reference instead of losing them to a flat
+        # document-level suppression pile.
+        records = [
+            _make_record("doc.md", "hiroshi", LexiconCategory.CHARACTER, confidence_score=0.80),
+            _make_record(
+                "doc.md",
+                "old man hiroshi",
+                LexiconCategory.CHARACTER,
+                confidence_score=0.20,
+                bucket=DocumentEntityBucket.SUPPRESSED,
+                suppression_reason=SuppressReason.COMPONENT_OVERLAP_NOISE,
+            ),
+        ]
+        records[0].anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=22, end_char=29)]
+        records[1].anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=14, end_char=29)]
+        clusters = build_reference_clusters([
+            ReferenceCandidate(
+                document_anchor=DocumentAnchor(path="doc.md"),
+                reference_type=ReferenceCandidateType.BARE_RELATION_ROLE,
+                surface="child",
+                normalized="child",
+                anchor=SpanAnchor(path="doc.md", span_ordinal=0, start_char=4, end_char=9),
+                context_before="The ",
+                context_after=" saw old man Hiroshi.",
+                in_quote=False,
+                address_like=False,
+                quote_speaker_key=None,
+                linked_entity_keys=["hiroshi"],
+            ),
+        ], records)
+
+        child = next(cluster for cluster in clusters if cluster.normalized == "child")
+        assert [evidence.normalized_key for evidence in child.suppressed_related_evidence] == [
+            "old man hiroshi"
+        ]
 
     def test_bare_title_inside_quote_vocative_is_marked_address_like(self):
         # Direct-address title uses are a different semantic problem than
@@ -494,6 +536,65 @@ class TestReferenceCandidates:
         assert "most likely refer to watanabe yō" in captain_task.prompt
         assert "tsushima yoshiko" not in captain_task.prompt
 
+    def test_review_task_preserves_ranked_alternatives_and_speaker_context(self):
+        # The manuscript handoff should preserve ranked alternatives and
+        # speaker context as structured task fields. Otherwise a later
+        # semantic pass would need to reverse-engineer ranking decisions from
+        # prompt wording alone.
+        clusters = build_reference_clusters([
+            ReferenceCandidate(
+                document_anchor=DocumentAnchor(path="doc.md"),
+                reference_type=ReferenceCandidateType.BARE_TITLE_ROLE,
+                surface="Captain",
+                normalized="captain",
+                anchor=SpanAnchor(path="doc.md", span_ordinal=0, start_char=1, end_char=8),
+                context_before="\"",
+                context_after=", wait,\" Kohaku said to Yo.",
+                in_quote=True,
+                address_like=True,
+                quote_speaker_key="kohaku",
+                linked_entity_keys=["kohaku", "yō"],
+            ),
+        ])
+        tasks = build_review_tasks(
+            clusters,
+            [],
+            [
+                CharacterSemanticSummary(
+                    canonical_key="watanabe yō",
+                    alias_keys=["yō"],
+                    supporting_document_paths=["doc.md"],
+                    attached_title_counts={"captain": 4},
+                    ambiguous_title_counts={},
+                    attached_relation_counts={},
+                    ambiguous_relation_counts={},
+                    aggregate_attribution_count=0,
+                    conflict_sources=[],
+                ),
+                CharacterSemanticSummary(
+                    canonical_key="kohaku",
+                    alias_keys=[],
+                    supporting_document_paths=["doc.md"],
+                    attached_title_counts={},
+                    ambiguous_title_counts={},
+                    attached_relation_counts={},
+                    ambiguous_relation_counts={},
+                    aggregate_attribution_count=1,
+                    conflict_sources=[],
+                ),
+            ],
+        )
+        captain_task = next(
+            task for task in tasks
+            if task.kind == ReviewTaskKind.TITLE_ROLE_ATTACHMENT
+            and task.subject_key == "captain"
+        )
+
+        assert captain_task.ranked_candidate_keys == ["watanabe yō", "kohaku"]
+        assert captain_task.ranked_speaker_keys == ["kohaku"]
+        assert captain_task.corpus_owner_keys == ["watanabe yō"]
+        assert "address-like usage lowers speaker priority" in captain_task.evidence_note
+
     def test_relation_prompt_uses_canonical_character_keys(self):
         # Local relation prompts should collapse alias-like candidates to their
         # canonical character keys before they reach review output.
@@ -666,6 +767,106 @@ class TestConflictTyping:
         assert conflicts[0].source == ConflictSource.SURFACE_LEVEL_DISAGREEMENT
 
 
+class TestSemanticProposals:
+    def test_single_local_relation_target_emits_local_context_proposal(self):
+        # A grouped relation with one canonical local target should become a
+        # structured proposal, not only a text prompt.
+        proposals = build_semantic_proposals(
+            [
+                ReferenceCluster(
+                    document_anchor=DocumentAnchor(path="doc.md"),
+                    reference_type=ReferenceCandidateType.BARE_RELATION_ROLE,
+                    normalized="father",
+                    surface_forms=["father"],
+                    occurrence_count=2,
+                    anchors=[SpanAnchor(path="doc.md", span_ordinal=0, start_char=1, end_char=7)],
+                    in_quote_count=0,
+                    address_like_count=0,
+                    speaker_entity_scores={},
+                    candidate_entity_scores={"yō": 2},
+                )
+            ],
+            [
+                CharacterSemanticSummary(
+                    canonical_key="watanabe yō",
+                    alias_keys=["yō"],
+                    supporting_document_paths=["doc.md"],
+                    attached_title_counts={},
+                    ambiguous_title_counts={},
+                    attached_relation_counts={},
+                    ambiguous_relation_counts={},
+                    aggregate_attribution_count=0,
+                    conflict_sources=[],
+                )
+            ],
+        )
+
+        assert len(proposals) == 1
+        assert proposals[0].proposed_target_key == "watanabe yō"
+        assert proposals[0].source.value == "local_context"
+
+    def test_address_like_title_emits_dominant_owner_proposal(self):
+        # Address-like title references with a dominant corpus owner should
+        # become machine-readable proposals, not only stronger prompt text.
+        clusters = build_reference_clusters([
+            ReferenceCandidate(
+                document_anchor=DocumentAnchor(path="a.md"),
+                reference_type=ReferenceCandidateType.BARE_TITLE_ROLE,
+                surface="Captain",
+                normalized="captain",
+                anchor=SpanAnchor(path="a.md", span_ordinal=0, start_char=1, end_char=8),
+                context_before="\"",
+                context_after=", wait,\" Kohaku said.",
+                in_quote=True,
+                address_like=True,
+                quote_speaker_key="kohaku",
+                linked_entity_keys=["kohaku"],
+            ),
+        ])
+        proposals = build_semantic_proposals(
+            clusters,
+            [
+                CharacterSemanticSummary(
+                    canonical_key="kohaku",
+                    alias_keys=[],
+                    supporting_document_paths=["a.md"],
+                    attached_title_counts={"captain": 20},
+                    ambiguous_title_counts={},
+                    attached_relation_counts={},
+                    ambiguous_relation_counts={},
+                    aggregate_attribution_count=0,
+                    conflict_sources=[],
+                ),
+                CharacterSemanticSummary(
+                    canonical_key="watanabe yō",
+                    alias_keys=["watanabe", "yō"],
+                    supporting_document_paths=["b.md"],
+                    attached_title_counts={"captain": 10},
+                    ambiguous_title_counts={},
+                    attached_relation_counts={},
+                    ambiguous_relation_counts={},
+                    aggregate_attribution_count=0,
+                    conflict_sources=[],
+                ),
+                CharacterSemanticSummary(
+                    canonical_key="tsushima yoshiko",
+                    alias_keys=["tsushima", "yoshiko"],
+                    supporting_document_paths=["c.md"],
+                    attached_title_counts={"captain": 5},
+                    ambiguous_title_counts={},
+                    attached_relation_counts={},
+                    ambiguous_relation_counts={},
+                    aggregate_attribution_count=0,
+                    conflict_sources=[],
+                ),
+            ],
+        )
+
+        assert len(proposals) == 1
+        assert proposals[0].proposed_target_key == "watanabe yō"
+        assert proposals[0].source.value == "dominant_owner"
+
+
 class TestCharacterSummaries:
     def test_unique_title_cluster_attaches_to_one_character_summary(self):
         # A grouped title mention that points to one canonical character should
@@ -699,6 +900,9 @@ class TestCharacterSummaries:
         watanabe_summary = next(summary for summary in summaries if summary.canonical_key == "watanabe yō")
         assert watanabe_summary.attached_title_counts == {"admiral": 3}
         assert watanabe_summary.ambiguous_title_counts == {}
+        assert watanabe_summary.canonical_surface_forms == ["Watanabe Yō"]
+        assert watanabe_summary.absorbed_surface_forms == ["Watanabe", "Yō"]
+        assert "character compound merged with its single-token alias components" in watanabe_summary.merge_reasons
 
     def test_ambiguous_title_cluster_stays_ambiguous_in_character_summaries(self):
         # Shared titles are common in fiction. If a grouped title still points

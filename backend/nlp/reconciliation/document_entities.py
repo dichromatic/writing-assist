@@ -23,7 +23,103 @@ from backend.nlp.types import (
     MentionCluster,
     PreprocessedDocument,
     PromotedEvidenceBundle,
+    SpanAnchor,
+    SuppressedEvidence,
 )
+
+
+def _anchors_overlap(left: SpanAnchor, right: SpanAnchor) -> bool:
+    """Return True when two anchors overlap in the same span."""
+    return (
+        left.path == right.path
+        and left.span_ordinal == right.span_ordinal
+        and left.start_char < right.end_char
+        and right.start_char < left.end_char
+    )
+
+
+def _anchor_contains(outer: SpanAnchor, inner: SpanAnchor) -> bool:
+    """Return True when one anchor fully contains the other in the same span."""
+    return (
+        outer.path == inner.path
+        and outer.span_ordinal == inner.span_ordinal
+        and outer.start_char <= inner.start_char
+        and inner.end_char <= outer.end_char
+    )
+
+
+def _build_suppressed_evidence(record: DocumentEntityRecord) -> SuppressedEvidence:
+    """Convert a suppressed document entity record into retained evidence."""
+    assert record.suppression_reason is not None
+    return SuppressedEvidence(
+        document_anchor=record.document_anchor,
+        normalized_key=record.normalized_key,
+        surface_forms=list(record.surface_forms),
+        winning_category=record.winning_category,
+        confidence_score=record.confidence_score,
+        reason=record.suppression_reason,
+        detail=record.bucket_detail,
+        anchors=list(record.anchors),
+    )
+
+
+def _attach_suppressed_evidence_to_records(
+    records: list[DocumentEntityRecord],
+) -> None:
+    """Attach suppressed records beneath stronger overlapping local entities.
+
+    The later semantic pass should still be able to inspect weak fragments,
+    title-like debris, and overlap noise, but not as a flat document-wide pile.
+    This helper keeps the attachment rule intentionally simple and auditable:
+    a suppressed record only attaches to a non-suppressed record when their
+    anchors overlap in the same span, with full containment preferred over
+    partial overlap.
+
+    Args:
+        records: Document-local entity records to enrich in place.
+    """
+    survivors = [
+        record for record in records
+        if record.bucket != DocumentEntityBucket.SUPPRESSED
+    ]
+    suppressed = [
+        record for record in records
+        if record.bucket == DocumentEntityBucket.SUPPRESSED
+    ]
+
+    for suppressed_record in suppressed:
+        best_target: DocumentEntityRecord | None = None
+        best_score: tuple[int, int, float, int, str] | None = None
+        for target in survivors:
+            containment_count = 0
+            overlap_count = 0
+            for suppressed_anchor in suppressed_record.anchors:
+                for target_anchor in target.anchors:
+                    if not _anchors_overlap(suppressed_anchor, target_anchor):
+                        continue
+                    overlap_count += 1
+                    if _anchor_contains(target_anchor, suppressed_anchor):
+                        containment_count += 1
+            if overlap_count == 0:
+                continue
+
+            score = (
+                containment_count,
+                overlap_count,
+                target.confidence_score,
+                target.occurrence_count,
+                target.normalized_key,
+            )
+            if best_score is None or score > best_score:
+                best_score = score
+                best_target = target
+
+        if best_target is None:
+            continue
+
+        best_target.suppressed_related_evidence.append(
+            _build_suppressed_evidence(suppressed_record)
+        )
 
 
 def summarize_document_entities(
@@ -94,6 +190,7 @@ def summarize_document_entities(
             entityhood_accepted=classification.entityhood.accepted,
             confidence_score=score,
             bucket=bucket,
+            suppression_reason=suppressed_by_key[key].reason if bucket == DocumentEntityBucket.SUPPRESSED else None,
             bucket_detail=bucket_detail,
             occurrence_count=cluster.occurrence_count,
             rule_tier=signals.rule_tier,
@@ -104,5 +201,7 @@ def summarize_document_entities(
             anchors=list(cluster.anchors),
             evidence_windows=windows_by_key.get(key, []),
         ))
+
+    _attach_suppressed_evidence_to_records(records)
 
     return records

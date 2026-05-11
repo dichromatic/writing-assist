@@ -5,6 +5,8 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile.dev
+    env_file:
+      - .env.llm
     working_dir: /workspace
     command: sleep infinity
     volumes:

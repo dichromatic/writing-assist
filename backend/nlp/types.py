@@ -13,7 +13,7 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 
 # Bumped when any field name or type changes in a breaking way. Intended for
@@ -226,6 +226,276 @@ class ParsedMarkdownDocument:
     scene_breaks: list[SceneBreak]
     sections: list[Section]
     scenes: list[Scene]
+
+
+# ---------------------------------------------------------------------------
+# Structured-record experiment output (structured_records/*.py)
+# ---------------------------------------------------------------------------
+
+class StructuredRecordType(Enum):
+    """High-level family for one segmented non-manuscript record."""
+
+    REFERENCE_SECTION = "reference_section"
+    DOSSIER_ENTRY = "dossier_entry"
+    OUTLINE_BEAT = "outline_beat"
+    LOOSE_RECORD = "loose_record"
+
+
+class StructuredFieldLineType(Enum):
+    """Shallow field classification inside one structured record."""
+
+    LABEL_VALUE = "label_value"
+    STANDALONE_SUBHEAD = "standalone_subhead"
+    BULLET = "bullet"
+    PROSE = "prose"
+
+
+@dataclass
+class StructuredRecord:
+    """One deterministic record-sized unit cut from a non-manuscript document.
+
+    Args:
+        record_id: Stable identifier for the segmented unit.
+        document_path: Source document path.
+        record_type: Dominant structural family for the unit.
+        anchor: Source anchor for the segmented record boundary.
+        start_char: Inclusive start offset in the source text.
+        end_char: Exclusive end offset in the source text.
+        heading_text: Heading or header text that opened the record, when any.
+        label_text: Alternate label text when the record is not heading-led.
+        raw_text: Full raw text of the record.
+        source_span_ordinals: Shared span-model ordinals that fall inside the
+            record boundary.
+        structural_flags: Deterministic structure cues preserved for later
+            review and prompt construction.
+        parent_heading: Nearest higher-level heading for banner context.
+        ordinal_within_document: Stable document-order position of this record.
+        field_lines: Raw non-heading lines kept for seed extraction.
+        suspected_subject_line: Header line most likely to name the dossier
+            subject, when one exists.
+    """
+
+    record_id: str
+    document_path: str
+    record_type: StructuredRecordType
+    anchor: SpanAnchor
+    start_char: int
+    end_char: int
+    heading_text: str = ""
+    label_text: str = ""
+    raw_text: str = ""
+    source_span_ordinals: list[int] = field(default_factory=list)
+    structural_flags: list[str] = field(default_factory=list)
+    parent_heading: str = ""
+    ordinal_within_document: int = 0
+    field_lines: list[str] = field(default_factory=list)
+    suspected_subject_line: str = ""
+
+
+@dataclass
+class StructuredFieldLine:
+    """A shallow field-like line recovered from a structured record.
+
+    Args:
+        line_index: 0-based line index within the record body.
+        line_type: Deterministic structural classification for the line.
+        raw_text: Original line text.
+        label: Left-side label for label-value lines.
+        value: Right-side value for label-value lines.
+    """
+
+    line_index: int
+    line_type: StructuredFieldLineType
+    raw_text: str
+    label: str = ""
+    value: str = ""
+
+
+@dataclass
+class DeterministicGuess:
+    """A non-final deterministic semantic guess with preserved alternatives.
+
+    Args:
+        guess_type: Short guess family such as ``subject``.
+        primary_guess: Current best deterministic guess.
+        alternative_guesses: Other plausible deterministic alternatives.
+        reason: Short explanation of why the guess exists.
+        supporting_anchor: Source anchor for the evidence that produced it.
+        not_final: Always True for this experiment's deterministic handoff.
+    """
+
+    guess_type: str
+    primary_guess: str
+    alternative_guesses: list[str]
+    reason: str
+    supporting_anchor: SpanAnchor
+    not_final: bool = True
+
+
+@dataclass
+class DeterministicFactCandidate:
+    """A shallow fact-like candidate preserved from one structured record.
+
+    Args:
+        label: Deterministic field label or source kind.
+        value: Raw value text preserved from the record.
+        reason: Why this was treated as a fact-like candidate.
+        supporting_anchor: Source anchor for the record that contained it.
+        line_index: Line index within the record body when available.
+    """
+
+    label: str
+    value: str
+    reason: str
+    supporting_anchor: SpanAnchor
+    line_index: int = -1
+
+
+@dataclass
+class DeterministicSeedBundle:
+    """The deterministic packet later sent alongside raw record text.
+
+    Args:
+        record_id: Structured record identifier this seed belongs to.
+        header_line: Raw header line preserved from the record.
+        suspected_subject_guess: Non-final subject guess when available.
+        candidate_rank_texts: Header-derived titles, ranks, or role phrases.
+        field_lines: Shallow grouped field lines from the record body.
+        entity_candidates: Overlapping document-level entity records treated as
+            weak hints only.
+        reference_candidates: Overlapping deferred references treated as weak
+            hints only.
+        known_canon_matches: Deterministic known-canon matches surfaced from
+            the same local record orbit.
+        structural_flags: Record-level structure cues preserved for later use.
+    """
+
+    record_id: str
+    header_line: str
+    suspected_subject_guess: Optional[DeterministicGuess]
+    candidate_rank_texts: list[str]
+    field_lines: list[StructuredFieldLine]
+    entity_candidates: list["DocumentEntityRecord"]
+    reference_candidates: list["ReferenceCandidate"]
+    known_canon_matches: list[str]
+    structural_flags: list[str]
+
+
+@dataclass
+class PendingLLMResponse:
+    """Placeholder slot for a future LLM-side review result.
+
+    Args:
+        status: Current execution state for the slot.
+        payload: Structured response payload for completed calls.
+        error: Error detail when the LLM call fails.
+        model: Model name used for the call, when one was attempted.
+        response_id: Provider response identifier when one is available.
+    """
+
+    status: str
+    payload: dict[str, Any] = field(default_factory=dict)
+    error: str = ""
+    model: str = ""
+    response_id: str = ""
+
+
+@dataclass
+class LLMRecordPromptPacket:
+    """Structured LLM input packet for one non-manuscript review record.
+
+    This packet freezes the exact handoff contract between deterministic
+    segmentation and later model-assisted interpretation. It carries both the
+    raw record text and the full deterministic seed evidence so later phases
+    can change prompts without changing what evidence survives.
+
+    Args:
+        record_id: Structured record identifier.
+        record_type: Record family under review.
+        document_path: Source document path.
+        source_authority: Document-family authority label for later proposal
+            review. This belongs to the source, not to the model.
+        task_name: Stable narrow task name for the future LLM call.
+        task_goal: Short factual statement of what the model is allowed to do.
+        task_constraints: Explicit constraints that bound the future model
+            output and prevent overreach.
+        raw_record_text: Raw text of the structured record.
+        header_line: Header text that opened the record, when any.
+        parent_heading: Higher-level banner context for the record.
+        deterministic_seed_bundle: Full deterministic seed evidence packet.
+        deterministic_fact_candidates: Shallow fact-like candidates preserved
+            before any model call.
+    """
+
+    record_id: str
+    record_type: StructuredRecordType
+    document_path: str
+    source_authority: str
+    task_name: str
+    task_goal: str
+    task_constraints: list[str]
+    raw_record_text: str
+    header_line: str
+    parent_heading: str
+    deterministic_seed_bundle: DeterministicSeedBundle
+    deterministic_fact_candidates: list[DeterministicFactCandidate]
+
+
+@dataclass
+class RecordReviewBundle:
+    """Side-by-side deterministic and pending-LLM review packet for one record.
+
+    Args:
+        record_id: Structured record identifier.
+        record_type: Record family for this bundle.
+        document_path: Source document path.
+        raw_text: Raw record text.
+        llm_prompt_packet: Explicit future LLM input packet for this record.
+        deterministic_seed_bundle: Deterministic structure and candidate packet.
+        deterministic_subject_guess: Best non-final subject guess.
+        deterministic_fact_candidates: Shallow fact-like candidates from the
+            record.
+        llm_subject_proposal: Placeholder for future LLM subject extraction.
+        llm_fact_proposals: Placeholder for future LLM fact extraction.
+        agreement_items: Reserved side-by-side comparison output.
+        deterministic_only_items: Reserved side-by-side comparison output.
+        llm_only_items: Reserved side-by-side comparison output.
+        open_questions: Reserved review questions attached to the record.
+    """
+
+    record_id: str
+    record_type: StructuredRecordType
+    document_path: str
+    raw_text: str
+    llm_prompt_packet: LLMRecordPromptPacket
+    deterministic_seed_bundle: DeterministicSeedBundle
+    deterministic_subject_guess: Optional[DeterministicGuess]
+    deterministic_fact_candidates: list[DeterministicFactCandidate]
+    llm_subject_proposal: PendingLLMResponse
+    llm_fact_proposals: PendingLLMResponse
+    agreement_items: list[str] = field(default_factory=list)
+    deterministic_only_items: list[str] = field(default_factory=list)
+    llm_only_items: list[str] = field(default_factory=list)
+    open_questions: list[str] = field(default_factory=list)
+
+
+@dataclass
+class StructuredDocumentDiagnostics:
+    """Structural summary for one non-manuscript experiment run.
+
+    Args:
+        document_path: Source document path.
+        heading_count: Total detected heading spans in the parsed document.
+        candidate_record_counts: Counts by segmented record family.
+        sample_heading_texts: Small sample of opening heading texts.
+        reason_no_dossier_bundles: Why no dossier bundles were built, if any.
+    """
+
+    document_path: str
+    heading_count: int
+    candidate_record_counts: dict[str, int]
+    sample_heading_texts: list[str]
+    reason_no_dossier_bundles: str = ""
 
 
 # ---------------------------------------------------------------------------
@@ -636,6 +906,36 @@ class SuppressedCandidate:
 
 
 @dataclass
+class SuppressedEvidence:
+    """A suppressed cluster retained as secondary semantic evidence.
+
+    Suppression controls foreground presentation, not deletion from later
+    semantic review. This record preserves the suppressed cluster together
+    with the rule that hid it so later stages can inspect weak evidence in
+    the orbit of a stronger local container.
+
+    Args:
+        document_anchor: Source document for the suppressed evidence.
+        normalized_key: Document-local normalized key for the suppressed item.
+        surface_forms: Distinct observed surfaces for the suppressed cluster.
+        winning_category: Document-local category hint for the cluster.
+        confidence_score: Deterministic promotion score before suppression.
+        reason: The structural rule that caused suppression.
+        detail: Human-readable explanation of the suppression.
+        anchors: Mention anchors contributing to the suppressed evidence.
+    """
+
+    document_anchor: DocumentAnchor
+    normalized_key: str
+    surface_forms: list[str]
+    winning_category: LexiconCategory
+    confidence_score: float
+    reason: SuppressReason
+    detail: str
+    anchors: list[SpanAnchor]
+
+
+@dataclass
 class EvidenceWindow:
     """An entity-centric context slice intended for the retrieval interface.
 
@@ -689,7 +989,13 @@ class PromotedEvidenceBundle:
 # ---------------------------------------------------------------------------
 
 class DocumentEntityBucket(Enum):
-    """Document-local status for one entity after promotion."""
+    """Document-local presentation tier for one entity after promotion.
+
+    These buckets are visibility decisions for the current deterministic
+    report layer, not claims about semantic truth. Suppressed records are
+    hidden from primary presentation, but they still remain available for
+    later semantic review.
+    """
 
     PROMOTED = "promoted"
     REVIEW_ONLY = "review_only"
@@ -715,6 +1021,8 @@ class DocumentEntityRecord:
             plausible enough to survive review.
         confidence_score: Document-local confidence score from promotion.
         bucket: Document-local output bucket.
+        suppression_reason: Structured suppression rule when this record was
+            hidden from the primary presentation layer.
         bucket_detail: Human-readable reason for review or suppression.
         occurrence_count: Number of supporting mentions in the document.
         rule_tier: Highest structural tier seen in the cluster.
@@ -724,6 +1032,8 @@ class DocumentEntityRecord:
         has_possessive_support: Whether any mention was possessive.
         anchors: Mention anchors contributing to this record.
         evidence_windows: Entity-centric context windows for later review.
+        suppressed_related_evidence: Suppressed document-local clusters whose
+            anchors overlap or nest beneath this stronger local entity record.
     """
 
     document_anchor: DocumentAnchor
@@ -735,6 +1045,7 @@ class DocumentEntityRecord:
     entityhood_accepted: bool
     confidence_score: float
     bucket: DocumentEntityBucket
+    suppression_reason: Optional[SuppressReason]
     bucket_detail: str
     occurrence_count: int
     rule_tier: int
@@ -744,6 +1055,7 @@ class DocumentEntityRecord:
     has_possessive_support: bool
     anchors: list[SpanAnchor]
     evidence_windows: list[EvidenceWindow]
+    suppressed_related_evidence: list[SuppressedEvidence] = field(default_factory=list)
 
 
 @dataclass
@@ -753,6 +1065,10 @@ class CorpusEntity:
     Args:
         canonical_key: Cross-document key used to group member records.
         source_keys: Exact document keys merged into this canonical entity.
+        canonical_surface_forms: Observed surface forms that directly support
+            the chosen canonical key.
+        absorbed_surface_forms: Observed surface forms preserved from absorbed
+            aliases, compounds, or deferred variants.
         member_records: All document-local records merged into this entity.
         supporting_document_paths: Distinct document paths that support it.
         dominant_category: Best current corpus-level category.
@@ -771,6 +1087,8 @@ class CorpusEntity:
     conflicting_categories: list[LexiconCategory]
     review_required: bool
     reasons: list[str]
+    canonical_surface_forms: list[str] = field(default_factory=list)
+    absorbed_surface_forms: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -806,6 +1124,20 @@ class ReviewTaskKind(Enum):
     TITLE_ROLE_ATTACHMENT = "title_role_attachment"
     RELATION_ROLE_ATTACHMENT = "relation_role_attachment"
     CATEGORY_CONFLICT = "category_conflict"
+
+
+class SemanticProposalSource(Enum):
+    """Evidence source for a structured semantic-review proposal."""
+
+    LOCAL_CONTEXT = "local_context"
+    ADDRESS_LOCAL_CONTEXT = "address_local_context"
+    DOMINANT_OWNER = "dominant_owner"
+
+
+class SemanticProposalConfidence(Enum):
+    """Coarse confidence tier for a semantic-review proposal."""
+
+    LIKELY = "likely"
 
 
 @dataclass
@@ -866,6 +1198,9 @@ class ReferenceCluster:
         speaker_entity_scores: Quote-speaker counts by character key for the
             grouped mentions, when quote attribution was available.
         candidate_entity_scores: Deterministic target counts by entity key.
+        suppressed_related_evidence: Suppressed document-local clusters that
+            occur in the same local orbit as this grouped reference, kept for
+            later semantic review rather than discarded.
     """
 
     document_anchor: DocumentAnchor
@@ -878,6 +1213,7 @@ class ReferenceCluster:
     address_like_count: int
     speaker_entity_scores: dict[str, int]
     candidate_entity_scores: dict[str, int]
+    suppressed_related_evidence: list[SuppressedEvidence] = field(default_factory=list)
 
 
 @dataclass
@@ -909,6 +1245,14 @@ class ReviewTask:
         subject_key: Primary entity or reference under review.
         prompt: Human-readable review question.
         supporting_anchor_paths: Documents contributing to the question.
+        ranked_candidate_keys: Ranked plausible attachment targets when the
+            task concerns a deferred reference.
+        ranked_speaker_keys: Ranked quote-speaker identities contributing to
+            the task, when known.
+        corpus_owner_keys: Ranked recurring corpus owners for the same
+            normalized title or relation, excluding speakers where applicable.
+        evidence_note: Short structured note explaining why this ranking was
+            preserved. This is for later semantic handoff, not final truth.
     """
 
     task_id: str
@@ -916,6 +1260,41 @@ class ReviewTask:
     subject_key: str
     prompt: str
     supporting_anchor_paths: list[str]
+    ranked_candidate_keys: list[str] = field(default_factory=list)
+    ranked_speaker_keys: list[str] = field(default_factory=list)
+    corpus_owner_keys: list[str] = field(default_factory=list)
+    evidence_note: str = ""
+
+
+@dataclass
+class SemanticProposal:
+    """A structured likely attachment suggested by semantic review.
+
+    Proposals preserve the same evidence that drives review prompts, but in a
+    machine-readable shape that later human or LLM passes can sort, accept,
+    reject, or compare against other evidence.
+
+    Args:
+        proposal_id: Stable identifier for the proposal.
+        reference_type: Reference family that produced the proposal.
+        subject_key: Normalized title or relation under review.
+        document_anchor: Source document for the grouped reference.
+        proposed_target_key: Canonical character key suggested by the evidence.
+        source: High-level reason the proposal exists.
+        confidence: Coarse proposal confidence tier.
+        supporting_anchors: Exact grouped mention anchors behind the proposal.
+        rationale: Human-readable explanation for reports.
+    """
+
+    proposal_id: str
+    reference_type: ReferenceCandidateType
+    subject_key: str
+    document_anchor: DocumentAnchor
+    proposed_target_key: str
+    source: SemanticProposalSource
+    confidence: SemanticProposalConfidence
+    supporting_anchors: list[SpanAnchor]
+    rationale: str
 
 
 @dataclass
@@ -929,6 +1308,9 @@ class CharacterSemanticSummary:
     Args:
         canonical_key: Canonical character key being summarized.
         alias_keys: Other merged keys that refer to the same character.
+        canonical_surface_forms: Observed surface forms for the canonical key.
+        absorbed_surface_forms: Observed absorbed or aliased surface forms
+            that still belong to this character handoff object.
         supporting_document_paths: Documents that support the canonical.
         attached_title_counts: Title or role references that uniquely point to
             this character across a grouped document-level reference cluster.
@@ -944,6 +1326,9 @@ class CharacterSemanticSummary:
             attribution counts across the merged character records.
         conflict_sources: Any typed semantic conflicts attached to this
             character canonical.
+        merge_reasons: Merge and deferral reasons preserved from corpus
+            reconciliation so later semantic review can see why aliases were
+            folded into this canonical.
     """
 
     canonical_key: str
@@ -955,3 +1340,39 @@ class CharacterSemanticSummary:
     ambiguous_relation_counts: dict[str, int]
     aggregate_attribution_count: int
     conflict_sources: list[ConflictSource]
+    canonical_surface_forms: list[str] = field(default_factory=list)
+    absorbed_surface_forms: list[str] = field(default_factory=list)
+    merge_reasons: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ManuscriptReviewBundle:
+    """Persisted manuscript handoff artifact for later semantic review.
+
+    The manuscript pipeline already has document-local entities, reference
+    clusters, conflict records, and review questions. This bundle makes that
+    handoff explicit in one machine-readable object so later semantic review
+    can consume the same structured evidence that the human-readable report
+    shows.
+
+    Args:
+        document_paths: Source documents included in the corpus run.
+        entity_records: All document-local entity summaries, including
+            suppressed records that still remain available as handoff evidence.
+        canonical_entities: Corpus-level canonical entities after
+            reconciliation.
+        reference_candidates: Raw deferred semantic reference mentions.
+        reference_clusters: Grouped reference-review objects.
+        conflict_records: Typed cross-category conflicts preserved for review.
+        character_summaries: Character-centric semantic summaries.
+        review_tasks: Final question-first semantic review tasks.
+    """
+
+    document_paths: list[str]
+    entity_records: list[DocumentEntityRecord]
+    canonical_entities: list[CorpusEntity]
+    reference_candidates: list[ReferenceCandidate]
+    reference_clusters: list[ReferenceCluster]
+    conflict_records: list[ConflictRecord]
+    character_summaries: list[CharacterSemanticSummary]
+    review_tasks: list[ReviewTask]

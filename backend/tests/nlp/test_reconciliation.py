@@ -5,6 +5,8 @@ These tests lock in the first corpus-refinement stage: stable per-document
 entity snapshots plus conservative exact-key cross-document reconciliation.
 """
 
+from pathlib import Path
+
 from backend.nlp.classification import classify_clusters
 from backend.nlp.lexicon.bootstrap import bootstrap
 from backend.nlp.parsing.markdown_parser import parse
@@ -20,6 +22,7 @@ from backend.nlp.types import (
     EvidenceWindow,
     LexiconCategory,
     SpanAnchor,
+    SuppressReason,
 )
 
 
@@ -41,6 +44,7 @@ def make_record(
     resolved: bool = True,
     confidence_score: float = 0.6,
     bucket: DocumentEntityBucket = DocumentEntityBucket.REVIEW_ONLY,
+    suppression_reason: SuppressReason | None = None,
 ) -> DocumentEntityRecord:
     """Build a minimal document entity record for reconciliation tests."""
     return DocumentEntityRecord(
@@ -53,6 +57,7 @@ def make_record(
         entityhood_accepted=True,
         confidence_score=confidence_score,
         bucket=bucket,
+        suppression_reason=suppression_reason,
         bucket_detail="",
         occurrence_count=2,
         rule_tier=2,
@@ -92,6 +97,22 @@ class TestDocumentEntitySummaries:
 
         assert by_key["sidhe"].bucket == DocumentEntityBucket.REVIEW_ONLY
         assert by_key["sidhe"].winning_category == LexiconCategory.PLACE
+
+    def test_suppressed_overlap_attaches_to_stronger_local_entity_record(self):
+        # Suppressed overlap fragments should not disappear entirely before the
+        # later semantic pass. When they sit beneath a stronger local entity,
+        # they should travel with that entity as retained secondary evidence.
+        path = "examples/4. Tairngire.md"
+        records = run_document_entities(Path(path).read_text(encoding="utf-8"), path)
+        by_key = {record.normalized_key: record for record in records}
+
+        assert "lantern festival" in by_key
+        attached_keys = {
+            evidence.normalized_key
+            for evidence in by_key["lantern festival"].suppressed_related_evidence
+        }
+        assert "lantern" in attached_keys
+        assert "festival" in attached_keys
 
 
 class TestCorpusReconciliation:
@@ -167,6 +188,8 @@ class TestCorpusReconciliation:
         assert [entity.canonical_key for entity in result.canonical_entities] == ["tsushima yoshiko"]
         entity = result.canonical_entities[0]
         assert entity.source_keys == ["tsushima", "tsushima yoshiko", "yoshiko"]
+        assert entity.canonical_surface_forms == ["Tsushima Yoshiko"]
+        assert entity.absorbed_surface_forms == ["Tsushima", "Yoshiko"]
         assert entity.supporting_document_paths == ["a.md", "b.md"]
         assert len(entity.member_records) == 4
         assert "character compound merged with its single-token alias components" in entity.reasons

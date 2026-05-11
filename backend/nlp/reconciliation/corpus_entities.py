@@ -86,9 +86,24 @@ def _build_corpus_entity(
     elif dominant_category == LexiconCategory.UNRESOLVED:
         final_reasons.append("no resolved category agreement yet across documents")
 
+    canonical_surface_forms = sorted({
+        surface
+        for record in members
+        if record.normalized_key == canonical_key
+        for surface in record.surface_forms
+    })
+    absorbed_surface_forms = sorted({
+        surface
+        for record in members
+        if record.normalized_key != canonical_key
+        for surface in record.surface_forms
+    })
+
     return CorpusEntity(
         canonical_key=canonical_key,
         source_keys=sorted(source_keys),
+        canonical_surface_forms=canonical_surface_forms,
+        absorbed_surface_forms=absorbed_surface_forms,
         member_records=members,
         supporting_document_paths=sorted({record.document_anchor.path for record in members}),
         dominant_category=dominant_category,

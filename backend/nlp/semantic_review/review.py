@@ -29,6 +29,10 @@ from backend.nlp.types import (
     ReferenceCandidate,
     ReferenceCluster,
     ReferenceCandidateType,
+    SemanticProposal,
+    SemanticProposalConfidence,
+    SemanticProposalSource,
+    SuppressedEvidence,
     ReviewTask,
     ReviewTaskKind,
     SpanAnchor,
@@ -37,6 +41,7 @@ from backend.nlp.types import (
 _TITLE_PREFIXES_NORMALIZED = frozenset(title.lower() for title in TITLE_PREFIXES)
 _RELATION_ROLE_NOUNS_NORMALIZED = frozenset(noun.lower() for noun in RELATION_ROLE_NOUNS)
 _CONTEXT_WINDOW_CHARS = 60
+_REFERENCE_SUPPRESSED_ORBIT_CHARS = 40
 
 
 def _context_slice(raw_text: str, anchor: SpanAnchor) -> tuple[str, str]:
@@ -290,6 +295,93 @@ def _rank_cluster_candidate_scores(
     return dict(ranked_items)
 
 
+def _suppressed_reference_distance(
+    reference_anchor: SpanAnchor,
+    suppressed_anchor: SpanAnchor,
+) -> int | None:
+    """Return local orbit distance for a reference and suppressed anchor.
+
+    A suppressed item belongs in a reference cluster's orbit only when the two
+    anchors live in the same span. Overlap counts as distance zero; otherwise
+    the gap between the anchor boundaries is used.
+
+    Args:
+        reference_anchor: Anchor from a grouped semantic reference.
+        suppressed_anchor: Anchor from a suppressed document-local record.
+
+    Returns:
+        The character gap between the anchors, or None when they are in
+        different spans or documents.
+    """
+    if (
+        reference_anchor.path != suppressed_anchor.path
+        or reference_anchor.span_ordinal != suppressed_anchor.span_ordinal
+    ):
+        return None
+    if reference_anchor.start_char < suppressed_anchor.end_char and suppressed_anchor.start_char < reference_anchor.end_char:
+        return 0
+    if suppressed_anchor.end_char <= reference_anchor.start_char:
+        return reference_anchor.start_char - suppressed_anchor.end_char
+    return suppressed_anchor.start_char - reference_anchor.end_char
+
+
+def _attach_suppressed_evidence_to_reference_clusters(
+    reference_clusters: list[ReferenceCluster],
+    records: list[DocumentEntityRecord],
+) -> None:
+    """Attach nearby suppressed evidence to grouped reference clusters.
+
+    Later semantic review benefits from seeing weak lexical debris, compound
+    fragments, and suppressed title-like surfaces in the orbit of the
+    reference they surrounded. This helper keeps that orbit rule narrow and
+    deterministic by requiring same-span proximity.
+
+    Args:
+        reference_clusters: Grouped reference clusters to enrich in place.
+        records: Document-local entity records for the same corpus slice.
+    """
+    suppressed_by_path: dict[str, list[DocumentEntityRecord]] = defaultdict(list)
+    for record in records:
+        if record.bucket == DocumentEntityBucket.SUPPRESSED:
+            suppressed_by_path[record.document_anchor.path].append(record)
+
+    for cluster in reference_clusters:
+        nearby: list[tuple[int, SuppressedEvidence]] = []
+        seen_keys: set[str] = set()
+        for suppressed_record in suppressed_by_path.get(cluster.document_anchor.path, []):
+            assert suppressed_record.suppression_reason is not None
+            best_distance: int | None = None
+            for reference_anchor in cluster.anchors:
+                for suppressed_anchor in suppressed_record.anchors:
+                    distance = _suppressed_reference_distance(reference_anchor, suppressed_anchor)
+                    if distance is None or distance > _REFERENCE_SUPPRESSED_ORBIT_CHARS:
+                        continue
+                    if best_distance is None or distance < best_distance:
+                        best_distance = distance
+            if best_distance is None:
+                continue
+            if suppressed_record.normalized_key in seen_keys:
+                continue
+            seen_keys.add(suppressed_record.normalized_key)
+            nearby.append((best_distance, SuppressedEvidence(
+                document_anchor=suppressed_record.document_anchor,
+                normalized_key=suppressed_record.normalized_key,
+                surface_forms=list(suppressed_record.surface_forms),
+                winning_category=suppressed_record.winning_category,
+                confidence_score=suppressed_record.confidence_score,
+                reason=suppressed_record.suppression_reason,
+                detail=suppressed_record.bucket_detail,
+                anchors=list(suppressed_record.anchors),
+            )))
+
+        cluster.suppressed_related_evidence = [
+            evidence for _distance, evidence in sorted(
+                nearby,
+                key=lambda item: (item[0], item[1].normalized_key),
+            )
+        ]
+
+
 def _extract_reference_candidates_for_lexicon(
     pre: PreprocessedDocument,
     records: list[DocumentEntityRecord],
@@ -527,12 +619,17 @@ def build_conflict_records(entities: list[CorpusEntity]) -> list[ConflictRecord]
     return conflicts
 
 
-def build_reference_clusters(references: list[ReferenceCandidate]) -> list[ReferenceCluster]:
+def build_reference_clusters(
+    references: list[ReferenceCandidate],
+    records: list[DocumentEntityRecord] | None = None,
+) -> list[ReferenceCluster]:
     """Group repeated reference candidates into stable document-level clusters.
 
     Args:
         references: Raw reference candidates extracted from one or more
             documents.
+        records: Optional document-local entity records used to attach nearby
+            suppressed evidence to the grouped reference orbit.
 
     Returns:
         Grouped reference clusters in document and subtype order.
@@ -593,6 +690,9 @@ def build_reference_clusters(references: list[ReferenceCandidate]) -> list[Refer
             speaker_entity_scores=ranked_speaker_scores,
             candidate_entity_scores=ranked_candidate_scores,
         ))
+
+    if records is not None:
+        _attach_suppressed_evidence_to_reference_clusters(clusters, records)
 
     return clusters
 
@@ -669,6 +769,8 @@ def build_character_summaries(
         summaries.append(CharacterSemanticSummary(
             canonical_key=entity.canonical_key,
             alias_keys=[key for key in entity.source_keys if key != entity.canonical_key],
+            canonical_surface_forms=entity.canonical_surface_forms,
+            absorbed_surface_forms=entity.absorbed_surface_forms,
             supporting_document_paths=entity.supporting_document_paths,
             attached_title_counts=dict(sorted(
                 attached_title_counts[entity.canonical_key].items(),
@@ -693,6 +795,7 @@ def build_character_summaries(
                 conflicts_by_key[entity.canonical_key],
                 key=lambda source: source.value,
             ),
+            merge_reasons=list(entity.reasons),
         ))
 
     return summaries
@@ -859,6 +962,194 @@ def _canonicalize_ranked_keys(
     return canonical_keys
 
 
+def _reference_resolution_context(
+    reference: ReferenceCluster,
+    title_owner_scores: dict[str, dict[str, int]],
+    relation_owner_scores: dict[str, dict[str, int]],
+    canonical_map: dict[str, str],
+) -> dict[str, object]:
+    """Compute ranked local and corpus owner evidence for one reference."""
+    ranked_entity_keys = _canonicalize_ranked_keys(
+        list(reference.candidate_entity_scores.keys()),
+        canonical_map,
+    )
+    ranked_speaker_keys = _canonicalize_ranked_keys(
+        list(reference.speaker_entity_scores.keys()),
+        canonical_map,
+    )
+    non_speaker_entity_keys = [
+        key for key in ranked_entity_keys
+        if key not in ranked_speaker_keys
+    ]
+
+    corpus_owner_keys: list[str] = []
+    dominant_owner_key: str | None = None
+    if reference.reference_type == ReferenceCandidateType.BARE_TITLE_ROLE:
+        non_speaker_owner_scores = {
+            key: score
+            for key, score in title_owner_scores.get(reference.normalized, {}).items()
+            if key not in ranked_speaker_keys
+        }
+        corpus_owner_keys = _strong_owner_keys(non_speaker_owner_scores)
+        dominant_owner_key = _dominant_owner_key(non_speaker_owner_scores)
+    elif reference.reference_type == ReferenceCandidateType.BARE_RELATION_ROLE:
+        non_speaker_owner_scores = {
+            key: score
+            for key, score in relation_owner_scores.get(reference.normalized, {}).items()
+            if key not in ranked_speaker_keys
+        }
+        corpus_owner_keys = _strong_owner_keys(non_speaker_owner_scores)
+        dominant_owner_key = _dominant_owner_key(non_speaker_owner_scores)
+
+    return {
+        "ranked_entity_keys": ranked_entity_keys,
+        "ranked_speaker_keys": ranked_speaker_keys,
+        "non_speaker_entity_keys": non_speaker_entity_keys,
+        "corpus_owner_keys": corpus_owner_keys,
+        "dominant_owner_key": dominant_owner_key,
+    }
+
+
+def _reference_evidence_note(
+    reference: ReferenceCluster,
+    ranked_entity_keys: list[str],
+    ranked_speaker_keys: list[str],
+    corpus_owner_keys: list[str],
+    dominant_owner_key: str | None,
+) -> str:
+    """Summarize why one reference keeps ranked alternatives in handoff.
+
+    The manuscript handoff should preserve how deterministic ranking was
+    formed without pretending the ranking is semantic truth. A short structured
+    note keeps later review grounded in evidence type rather than only reading
+    the generated prompt text.
+
+    Args:
+        reference: Grouped semantic reference under review.
+        ranked_entity_keys: Ranked local deterministic candidates.
+        ranked_speaker_keys: Ranked quote speakers for the grouped mentions.
+        corpus_owner_keys: Strong recurring corpus owners for the same label.
+        dominant_owner_key: One clearly dominant owner, when corpus evidence
+            strongly favors it.
+
+    Returns:
+        A short explanation of the retained ranking evidence.
+    """
+    evidence_parts: list[str] = []
+    if ranked_entity_keys:
+        evidence_parts.append("local candidates preserved")
+    if ranked_speaker_keys:
+        evidence_parts.append("quote speakers preserved")
+    if reference.address_like_count:
+        evidence_parts.append("address-like usage lowers speaker priority")
+    if dominant_owner_key is not None:
+        evidence_parts.append("one dominant corpus owner preserved")
+    elif corpus_owner_keys:
+        evidence_parts.append("strong corpus owners preserved")
+    if not evidence_parts:
+        evidence_parts.append("no deterministic target ranking available")
+    return "; ".join(evidence_parts)
+
+
+def build_semantic_proposals(
+    reference_clusters: list[ReferenceCluster],
+    character_summaries: list[CharacterSemanticSummary] | None = None,
+) -> list[SemanticProposal]:
+    """Build narrow structured proposals from strong semantic-review evidence.
+
+    This pass only emits proposals when the current deterministic and
+    corpus-backed evidence already points to one likely target. Ambiguous
+    references remain review tasks only.
+    """
+    title_owner_scores = (
+        _build_canonical_title_owner_scores(character_summaries)
+        if character_summaries is not None
+        else _build_title_owner_scores(reference_clusters)
+    )
+    relation_owner_scores = (
+        _build_canonical_relation_owner_scores(character_summaries)
+        if character_summaries is not None
+        else {}
+    )
+    canonical_map = (
+        _build_character_canonical_map(character_summaries)
+        if character_summaries is not None
+        else {}
+    )
+
+    proposals: list[SemanticProposal] = []
+    for reference in reference_clusters:
+        if reference.reference_type not in {
+            ReferenceCandidateType.BARE_TITLE_ROLE,
+            ReferenceCandidateType.BARE_RELATION_ROLE,
+        }:
+            continue
+
+        context = _reference_resolution_context(
+            reference,
+            title_owner_scores,
+            relation_owner_scores,
+            canonical_map,
+        )
+        ranked_speaker_keys = context["ranked_speaker_keys"]
+        ranked_entity_keys = context["ranked_entity_keys"]
+        non_speaker_entity_keys = context["non_speaker_entity_keys"]
+        dominant_owner_key = context["dominant_owner_key"]
+
+        proposed_target_key: str | None = None
+        source: SemanticProposalSource | None = None
+        rationale: str | None = None
+        if reference.address_like_count and ranked_speaker_keys and len(non_speaker_entity_keys) == 1:
+            proposed_target_key = non_speaker_entity_keys[0]
+            source = SemanticProposalSource.ADDRESS_LOCAL_CONTEXT
+            rationale = (
+                f"address-like reference spoken by {', '.join(ranked_speaker_keys)} "
+                f"has one non-speaker local target"
+            )
+        elif reference.address_like_count and ranked_speaker_keys and dominant_owner_key is not None:
+            proposed_target_key = dominant_owner_key
+            source = SemanticProposalSource.DOMINANT_OWNER
+            rationale = (
+                f"address-like reference spoken by {', '.join(ranked_speaker_keys)} "
+                f"has one dominant corpus owner"
+            )
+        elif len(ranked_entity_keys) == 1:
+            proposed_target_key = ranked_entity_keys[0]
+            source = SemanticProposalSource.LOCAL_CONTEXT
+            rationale = "local deterministic evidence points to one canonical target"
+
+        if proposed_target_key is None or source is None or rationale is None:
+            continue
+
+        proposals.append(SemanticProposal(
+            proposal_id=stable_hash_id(
+                reference.document_anchor.path,
+                reference.reference_type.value,
+                reference.normalized,
+                proposed_target_key,
+                source.value,
+            ),
+            reference_type=reference.reference_type,
+            subject_key=reference.normalized,
+            document_anchor=reference.document_anchor,
+            proposed_target_key=proposed_target_key,
+            source=source,
+            confidence=SemanticProposalConfidence.LIKELY,
+            supporting_anchors=reference.anchors,
+            rationale=rationale,
+        ))
+
+    return sorted(
+        proposals,
+        key=lambda proposal: (
+            proposal.reference_type.value,
+            proposal.document_anchor.path,
+            proposal.subject_key,
+            proposal.proposed_target_key,
+        ),
+    )
+
+
 def build_review_tasks(
     reference_clusters: list[ReferenceCluster],
     conflicts: list[ConflictRecord],
@@ -896,39 +1187,17 @@ def build_review_tasks(
             ReferenceCandidateType.BARE_RELATION_ROLE,
         }:
             continue
-        ranked_entity_keys = _canonicalize_ranked_keys(
-            list(reference.candidate_entity_scores.keys()),
+        context = _reference_resolution_context(
+            reference,
+            title_owner_scores,
+            relation_owner_scores,
             canonical_map,
         )
-        ranked_speaker_keys = _canonicalize_ranked_keys(
-            list(reference.speaker_entity_scores.keys()),
-            canonical_map,
-        )
-        non_speaker_entity_keys = [
-            key for key in ranked_entity_keys
-            if key not in ranked_speaker_keys
-        ]
-        corpus_title_owner_keys: list[str] = []
-        dominant_owner_key = None
-        if reference.reference_type == ReferenceCandidateType.BARE_TITLE_ROLE:
-            non_speaker_owner_scores = {
-                key: score
-                for key, score in title_owner_scores.get(reference.normalized, {}).items()
-                if key not in ranked_speaker_keys
-            }
-            corpus_title_owner_keys = _strong_owner_keys(non_speaker_owner_scores)
-            dominant_owner_key = _dominant_owner_key(non_speaker_owner_scores)
-        corpus_relation_owner_keys: list[str] = []
-        dominant_relation_owner_key = None
-        if reference.reference_type == ReferenceCandidateType.BARE_RELATION_ROLE:
-            relation_scores = relation_owner_scores.get(reference.normalized, {})
-            non_speaker_relation_scores = {
-                key: score
-                for key, score in relation_scores.items()
-                if key not in ranked_speaker_keys
-            }
-            corpus_relation_owner_keys = _strong_owner_keys(non_speaker_relation_scores)
-            dominant_relation_owner_key = _dominant_owner_key(non_speaker_relation_scores)
+        ranked_entity_keys = context["ranked_entity_keys"]
+        ranked_speaker_keys = context["ranked_speaker_keys"]
+        non_speaker_entity_keys = context["non_speaker_entity_keys"]
+        corpus_owner_keys = context["corpus_owner_keys"]
+        dominant_owner_key = context["dominant_owner_key"]
         speaker_text = ""
         if reference.address_like_count and ranked_speaker_keys:
             speaker_text = f" spoken by {', '.join(ranked_speaker_keys)}"
@@ -938,14 +1207,20 @@ def build_review_tasks(
         else:
             kind = ReviewTaskKind.RELATION_ROLE_ATTACHMENT
             label = "relation"
+        evidence_note = _reference_evidence_note(
+            reference,
+            ranked_entity_keys,
+            ranked_speaker_keys,
+            corpus_owner_keys,
+            dominant_owner_key,
+        )
         if reference.address_like_count and ranked_speaker_keys and non_speaker_entity_keys:
             prompt = (
                 f"Does the address-like bare {label} '{reference.normalized}'"
                 f"{speaker_text} refer to one of {', '.join(non_speaker_entity_keys)}?"
             )
         elif (
-            reference.reference_type == ReferenceCandidateType.BARE_TITLE_ROLE
-            and reference.address_like_count
+            reference.address_like_count
             and ranked_speaker_keys
             and dominant_owner_key is not None
         ):
@@ -954,34 +1229,13 @@ def build_review_tasks(
                 f"{speaker_text} most likely refer to {dominant_owner_key}?"
             )
         elif (
-            reference.reference_type == ReferenceCandidateType.BARE_RELATION_ROLE
-            and reference.address_like_count
+            reference.address_like_count
             and ranked_speaker_keys
-            and dominant_relation_owner_key is not None
+            and corpus_owner_keys
         ):
             prompt = (
                 f"Does the address-like bare {label} '{reference.normalized}'"
-                f"{speaker_text} most likely refer to {dominant_relation_owner_key}?"
-            )
-        elif (
-            reference.reference_type == ReferenceCandidateType.BARE_TITLE_ROLE
-            and reference.address_like_count
-            and ranked_speaker_keys
-            and corpus_title_owner_keys
-        ):
-            prompt = (
-                f"Does the address-like bare {label} '{reference.normalized}'"
-                f"{speaker_text} refer to one of {', '.join(corpus_title_owner_keys)}?"
-            )
-        elif (
-            reference.reference_type == ReferenceCandidateType.BARE_RELATION_ROLE
-            and reference.address_like_count
-            and ranked_speaker_keys
-            and corpus_relation_owner_keys
-        ):
-            prompt = (
-                f"Does the address-like bare {label} '{reference.normalized}'"
-                f"{speaker_text} refer to one of {', '.join(corpus_relation_owner_keys)}?"
+                f"{speaker_text} refer to one of {', '.join(corpus_owner_keys)}?"
             )
         elif reference.address_like_count and ranked_speaker_keys and ranked_entity_keys:
             prompt = (
@@ -1012,6 +1266,10 @@ def build_review_tasks(
             subject_key=reference.normalized,
             prompt=prompt,
             supporting_anchor_paths=[reference.document_anchor.path],
+            ranked_candidate_keys=ranked_entity_keys,
+            ranked_speaker_keys=ranked_speaker_keys,
+            corpus_owner_keys=corpus_owner_keys,
+            evidence_note=evidence_note,
         )
         deduped_tasks[(
             task.kind.value,
@@ -1033,6 +1291,7 @@ def build_review_tasks(
                 f"{', '.join(category.value for category in conflict.conflicting_categories)}"
             ),
             supporting_anchor_paths=conflict.supporting_document_paths,
+            evidence_note=conflict.reason,
         )
         deduped_tasks[(
             task.kind.value,

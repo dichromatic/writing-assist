@@ -26,18 +26,20 @@ text so downstream stages can construct source anchors without re-scanning.
 from __future__ import annotations
 
 import re
-from typing import Optional, Union
+from typing import Union
 
+from backend.nlp.parsing.parser_common import (
+    derive_scenes,
+    derive_sections,
+    normalize_text,
+    strip_closing_hashes,
+)
 from backend.nlp.types import (
     Heading,
     Paragraph,
     ParsedMarkdownDocument,
-    Scene,
     SceneBreak,
-    Section,
-    SectionAnchor,
     SpanAnchor,
-    stable_hash_id,
 )
 
 _HEADING_RE = re.compile(r'^(#{1,6})\s+(.*)')
@@ -48,141 +50,6 @@ _HEADING_RE = re.compile(r'^(#{1,6})\s+(.*)')
 _SCENE_BREAK_RE = re.compile(r'^\s*(-{3,}|\*{3,}|_{3,})\s*$')
 
 _Span = Union[Heading, Paragraph, SceneBreak]
-
-
-def _normalize_text(text: str) -> str:
-    """Collapse all whitespace runs to a single space and strip edges."""
-    return ' '.join(text.split())
-
-
-def _strip_closing_hashes(text: str) -> str:
-    """Remove optional trailing ATX heading closing sequence (e.g. 'Title ##')."""
-    return re.sub(r'\s+#+\s*$', '', text).strip()
-
-
-def _derive_sections(
-    path: str,
-    all_spans: list[_Span],
-    doc_end: int,
-) -> list[Section]:
-    """Group spans into sections bounded by headings.
-
-    A new section begins whenever a Heading span is encountered. Content
-    before the first heading (if any) forms a section with heading=None.
-    An empty document produces one empty section.
-
-    Args:
-        path: Document path, used for SectionAnchor construction.
-        all_spans: All span types merged and sorted by span_ordinal.
-        doc_end: Character length of the source document.
-
-    Returns:
-        Sections in document order.
-    """
-    sections: list[Section] = []
-    section_idx = 0
-    current_heading: Optional[Heading] = None
-    current_spans: list[_Span] = []
-    section_start = 0
-
-    def close_section() -> None:
-        nonlocal section_idx
-        if not current_spans:
-            return
-        sections.append(Section(
-            section_index=section_idx,
-            heading=current_heading,
-            span_ordinals=[s.span_ordinal for s in current_spans],
-            start_char=section_start,
-            end_char=current_spans[-1].end_char,
-            anchor=SectionAnchor(path=path, section_index=section_idx),
-        ))
-        section_idx += 1
-
-    for span in all_spans:
-        if isinstance(span, Heading):
-            close_section()
-            current_heading = span
-            current_spans = [span]
-            section_start = span.start_char
-        else:
-            current_spans.append(span)
-
-    close_section()
-
-    if not sections:
-        sections.append(Section(
-            section_index=0,
-            heading=None,
-            span_ordinals=[],
-            start_char=0,
-            end_char=doc_end,
-            anchor=SectionAnchor(path=path, section_index=0),
-        ))
-
-    return sections
-
-
-def _derive_scenes(
-    all_spans: list[_Span],
-    sections: list[Section],
-    doc_end: int,
-) -> list[Scene]:
-    """Group spans into scenes bounded by SceneBreak markers.
-
-    A new scene begins after each SceneBreak. The scene break itself is not
-    included in either scene's span_ordinals - it is accessible through the
-    ParsedMarkdownDocument.scene_breaks list.
-
-    Args:
-        all_spans: All span types merged and sorted by span_ordinal.
-        sections: Derived sections, used to assign each scene a section_index.
-        doc_end: Character length of the source document.
-
-    Returns:
-        Scenes in document order. Always at least one scene.
-    """
-    # Reverse lookup so each content span can be assigned to its section.
-    ordinal_to_section: dict[int, int] = {}
-    for section in sections:
-        for ordinal in section.span_ordinals:
-            ordinal_to_section[ordinal] = section.section_index
-
-    def scene_section(spans: list[_Span]) -> int:
-        if not spans:
-            return 0
-        return ordinal_to_section.get(spans[0].span_ordinal, 0)
-
-    scenes: list[Scene] = []
-    scene_idx = 0
-    current_spans: list[_Span] = []
-    scene_start = 0
-
-    for span in all_spans:
-        if isinstance(span, SceneBreak):
-            scenes.append(Scene(
-                scene_index=scene_idx,
-                section_index=scene_section(current_spans),
-                span_ordinals=[s.span_ordinal for s in current_spans],
-                start_char=scene_start,
-                end_char=span.start_char,
-            ))
-            scene_idx += 1
-            current_spans = []
-            scene_start = span.end_char
-        else:
-            current_spans.append(span)
-
-    # Final scene after the last break (or the only scene if there are no breaks).
-    scenes.append(Scene(
-        scene_index=scene_idx,
-        section_index=scene_section(current_spans),
-        span_ordinals=[s.span_ordinal for s in current_spans],
-        start_char=scene_start,
-        end_char=current_spans[-1].end_char if current_spans else doc_end,
-    ))
-
-    return scenes
 
 
 def parse(path: str, text: str) -> ParsedMarkdownDocument:
@@ -228,7 +95,7 @@ def parse(path: str, text: str) -> ParsedMarkdownDocument:
         ord_ = next_ordinal()
         paragraphs.append(Paragraph(
             text=raw,
-            normalized_text=_normalize_text(raw),
+            normalized_text=normalize_text(raw),
             span_ordinal=ord_,
             start_char=para_start,
             end_char=end,
@@ -250,7 +117,7 @@ def parse(path: str, text: str) -> ParsedMarkdownDocument:
         if m:
             flush_paragraph()
             level = len(m.group(1))
-            heading_text = _strip_closing_hashes(m.group(2))
+            heading_text = strip_closing_hashes(m.group(2))
             if not heading_text:
                 # A heading with no content (e.g. "# ") carries no structural
                 # information; treat it as a paragraph line rather than
@@ -294,8 +161,8 @@ def parse(path: str, text: str) -> ParsedMarkdownDocument:
         [*headings, *paragraphs, *scene_breaks],
         key=lambda s: s.span_ordinal,
     )
-    sections = _derive_sections(path, all_spans, len(text))
-    scenes = _derive_scenes(all_spans, sections, len(text))
+    sections = derive_sections(path, all_spans, len(text))
+    scenes = derive_scenes(all_spans, sections, len(text))
 
     return ParsedMarkdownDocument(
         path=path,

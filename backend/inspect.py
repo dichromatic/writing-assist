@@ -4,6 +4,7 @@ and prints a human-readable report of the results at each stage.
 
 Usage:
     uv run --project backend python backend/inspect.py <path/to/doc.md>
+    uv run --project backend python backend/inspect.py <path/to/doc.txt>
 
 # Diagram omitted - this is a CLI entry point with no significant data flow
 # beyond sequentially calling the pipeline stages and printing their output.
@@ -29,7 +30,7 @@ if _workspace not in _sys.path:
 import sys
 from pathlib import Path
 
-from backend.nlp.parsing.markdown_parser import parse
+from backend.nlp.parsing.document_parser import parse
 from backend.nlp.parsing.preprocessing import preprocess
 from backend.nlp.lexicon.bootstrap import bootstrap
 from backend.nlp.lexicon.induction import classify_clusters

@@ -479,6 +479,176 @@ Done when:
 
 ---
 
+## Near-Term Follow-Up Work
+
+These items sit on top of the current manuscript semantic-review work and the
+new dossier experiment scaffold. They are intentionally smaller and more
+concrete than the older archetype-harvester phases below.
+
+### Manuscript handoff artifact
+
+Status:
+
+- completed
+
+Goal:
+
+- persist a machine-readable manuscript handoff bundle that matches the current
+  question-first semantic-review boundary
+- render the manuscript inspection report from that persisted artifact instead
+  of relying only on ad hoc report assembly
+
+Deliverables:
+
+- a persisted `ManuscriptReviewBundle` JSON artifact shape built from the
+  current manuscript pipeline outputs
+- report rendering that reads from the manuscript handoff artifact
+- explicit inclusion of:
+  - document-level entity records
+  - reference clusters
+  - conflict records
+  - review tasks
+  - grouped suppressed evidence
+  - absorbed surface families
+  - ranked reference and attachment alternatives
+
+Out of scope:
+
+- changing the manuscript semantic-review boundary from review questions to
+  proposal-style outputs
+- forcing manuscript documents into the same record-unit structure used by the
+  dossier experiment
+- LLM semantic resolution
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- the persisted artifact preserves grouped suppressed evidence under stable
+  local containers
+- the persisted artifact preserves ranked reference alternatives and speaker
+  context without hiding them in prompt text only
+- absorbed and aliased surface families remain explicit in the artifact
+- the rendered manuscript report can be produced from the persisted artifact
+  without losing current review-question content
+
+Done when:
+
+- manuscript inspection output can be regenerated from a stored
+  `ManuscriptReviewBundle`
+- the manuscript handoff is machine-readable in the same broad architectural
+  style as the dossier review scaffold while keeping manuscript-specific
+  analysis units
+
+Documentation:
+
+- `documentation/python-p54-manuscript-review-bundle.md`
+
+### Document status metadata
+
+Status:
+
+- deferred
+
+Goal:
+
+- add optional per-document status metadata that influences source authority
+  and review weighting without changing extraction family selection
+
+Deliverables:
+
+- support for optional document status metadata on any document type
+- default behavior of `primary_canon` when no explicit status is set
+- support for both in-document metadata and sidecar-manifest metadata
+- conflict handling when both metadata sources disagree
+- integration of document status into provenance and authority layers
+
+Out of scope:
+
+- creating new extraction families solely because of status labels
+- using status to choose the extraction pipeline
+- blocking ingestion when metadata sources disagree
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- documents without explicit status default to `primary_canon`
+- matching in-document and sidecar status values are accepted
+- conflicting in-document and sidecar values downgrade to `draft_unknown`
+  and emit a reviewable metadata conflict
+- folder names can emit soft hints but do not silently override explicit or
+  default status
+- status influences authority weighting without changing document-family
+  routing
+
+Done when:
+
+- document status is available as provenance metadata across manuscripts,
+  structured notes, and later document types
+- status can affect downstream authority and review behavior without changing
+  segmentation or extraction family selection
+
+Documentation:
+
+- `documentation/document-status-metadata-notes.md`
+
+### Retrieval object and manuscript editing flow notes
+
+Status:
+
+- documented
+
+Goal:
+
+- preserve the current retrieval architecture discussion while extraction work
+  continues
+- keep the target object model clear without finalizing the database schema too
+  early
+- model how explicit manuscript-editing retrieval should behave before
+  frontend or storage implementation begins
+
+Deliverables:
+
+- a retrieval-object architecture note covering claim units, evidence,
+  grouping, ambiguity, result levels, retrieval channels, modes, reasons,
+  ranking, scope widening, and diagnostics
+- a manuscript-editing retrieval-flow note covering explicit invocation,
+  intent gating, skipped retrieval, channel execution, chat context packaging,
+  manual pinning, and source-use tracking
+
+Out of scope:
+
+- implementing retrieval
+- implementing frontend panes
+- finalizing database tables
+- choosing vector, relational, or hybrid storage
+- finalizing the canonical world model
+
+TDD applies:
+
+- no
+
+Behavior to test:
+
+- none yet; this is a planning artifact
+
+Done when:
+
+- future extraction, LLM-pass, retrieval, and database work can reference the
+  same retrieval-object target without relying on chat history
+
+Documentation:
+
+- `documentation/retrieval-object-architecture-notes.md`
+- `documentation/manuscript-editing-retrieval-flow-notes.md`
+
+---
+
 ## Phase 4: FastAPI server and editing
 
 Goal:
