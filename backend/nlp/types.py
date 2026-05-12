@@ -232,6 +232,50 @@ class ParsedMarkdownDocument:
 # Structured-record experiment output (structured_records/*.py)
 # ---------------------------------------------------------------------------
 
+class DocumentType(Enum):
+    """Corpus-file classification before record-family segmentation."""
+
+    MANUSCRIPT = "manuscript"
+    VIGNETTE = "vignette"
+    STORY_PLANNING = "story_planning"
+    WORLD_CONTEXT = "world_context"
+    LOCATION = "location"
+    CHARACTER_BACKGROUND = "character_background"
+    UNKNOWN = "unknown"
+
+
+class DocumentStatus(Enum):
+    """Source authority and canon-treatment metadata for one corpus file."""
+
+    PRIMARY_CANON = "primary_canon"
+    HISTORICAL = "historical"
+    LEGENDARY = "legendary"
+    DRAFT_UNKNOWN = "draft_unknown"
+    APOCRYPHAL = "apocryphal"
+
+
+@dataclass(frozen=True)
+class DocumentMetadata:
+    """Resolved metadata for one corpus file.
+
+    Args:
+        document_path: Source document path.
+        document_type: Corpus-file document type.
+        document_status: Source authority and canon-treatment status.
+        status_source: Source that supplied the final status.
+        status_hints: Non-authoritative hints discovered during metadata
+            resolution.
+        metadata_conflicts: Reviewable metadata conflicts.
+    """
+
+    document_path: str
+    document_type: DocumentType
+    document_status: DocumentStatus
+    status_source: str
+    status_hints: list[str] = field(default_factory=list)
+    metadata_conflicts: list[str] = field(default_factory=list)
+
+
 class StructuredRecordType(Enum):
     """High-level family for one segmented non-manuscript record."""
 
@@ -438,9 +482,12 @@ class ClaimUnit:
         raw_claim_payload: Raw extraction payload that produced the claim.
         source_record_id: Structured record identifier.
         source_document_id: Source document identifier.
+        document_type: Corpus-file document type.
         source_family: Source record family.
         source_status: Document status metadata, when available.
         source_authority: Source authority label from the prompt packet.
+        source_authority_weight: Source authority weight after status
+            metadata is applied.
         primary_evidence: Direct evidence supporting the claim.
         supporting_evidence: Additional supporting evidence.
         retrieval_channel_tags: Retrieval channels this claim can support.
@@ -465,9 +512,11 @@ class ClaimUnit:
     raw_claim_payload: dict[str, Any]
     source_record_id: str
     source_document_id: str
+    document_type: DocumentType
     source_family: str
-    source_status: str
+    source_status: DocumentStatus
     source_authority: str
+    source_authority_weight: float
     primary_evidence: ClaimEvidence
     supporting_evidence: list[ClaimEvidence]
     retrieval_channel_tags: list[str]
@@ -544,8 +593,15 @@ class LLMRecordPromptPacket:
         record_id: Structured record identifier.
         record_type: Record family under review.
         document_path: Source document path.
+        document_type: Corpus-file document type.
+        document_status: Source authority and canon-treatment status.
+        document_status_source: Source that supplied the status value.
+        document_status_hints: Non-authoritative metadata hints.
+        metadata_conflicts: Reviewable metadata conflicts.
         source_authority: Document-family authority label for later proposal
             review. This belongs to the source, not to the model.
+        source_authority_weight: Source authority weight after status
+            metadata is applied.
         task_name: Stable narrow task name for the future LLM call.
         task_goal: Short factual statement of what the model is allowed to do.
         task_constraints: Explicit constraints that bound the future model
@@ -561,7 +617,13 @@ class LLMRecordPromptPacket:
     record_id: str
     record_type: StructuredRecordType
     document_path: str
+    document_type: DocumentType
+    document_status: DocumentStatus
+    document_status_source: str
+    document_status_hints: list[str]
+    metadata_conflicts: list[str]
     source_authority: str
+    source_authority_weight: float
     task_name: str
     task_goal: str
     task_constraints: list[str]
@@ -579,6 +641,11 @@ class RecordReviewBundle:
     Args:
         record_id: Structured record identifier.
         record_type: Record family for this bundle.
+        document_type: Corpus-file document type.
+        document_status: Source authority and canon-treatment status.
+        document_status_source: Source that supplied the status value.
+        document_status_hints: Non-authoritative metadata hints.
+        metadata_conflicts: Reviewable metadata conflicts.
         document_path: Source document path.
         raw_text: Raw record text.
         llm_prompt_packet: Explicit future LLM input packet for this record.
@@ -596,6 +663,11 @@ class RecordReviewBundle:
 
     record_id: str
     record_type: StructuredRecordType
+    document_type: DocumentType
+    document_status: DocumentStatus
+    document_status_source: str
+    document_status_hints: list[str]
+    metadata_conflicts: list[str]
     document_path: str
     raw_text: str
     llm_prompt_packet: LLMRecordPromptPacket
@@ -616,6 +688,11 @@ class StructuredDocumentDiagnostics:
 
     Args:
         document_path: Source document path.
+        document_type: Corpus-file document type.
+        document_status: Source authority and canon-treatment status.
+        document_status_source: Source that supplied the status value.
+        document_status_hints: Non-authoritative metadata hints.
+        metadata_conflicts: Reviewable metadata conflicts.
         heading_count: Total detected heading spans in the parsed document.
         candidate_record_counts: Counts by segmented record family.
         sample_heading_texts: Small sample of opening heading texts.
@@ -623,6 +700,11 @@ class StructuredDocumentDiagnostics:
     """
 
     document_path: str
+    document_type: DocumentType
+    document_status: DocumentStatus
+    document_status_source: str
+    document_status_hints: list[str]
+    metadata_conflicts: list[str]
     heading_count: int
     candidate_record_counts: dict[str, int]
     sample_heading_texts: list[str]

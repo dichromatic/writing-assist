@@ -7,7 +7,10 @@ Structured review experiment CLI - runs deterministic structured-note scaffoldin
         A[Input .txt path] --> B[Parse and preprocess full document]
         B --> C[Run existing document extraction as weak hints]
         B --> D[Segment StructuredRecord list]
-        C & D --> E[Build RecordReviewBundle list]
+        M[Optional metadata manifest] --> N[Resolve document metadata]
+        A --> N
+        B --> N
+        C & D & N --> E[Build RecordReviewBundle list]
         E --> F[Write JSON artifact]
         E --> G[Write deterministic text report]
         E --> H[Write separate LLM text report]
@@ -20,6 +23,7 @@ import json
 import os
 from pathlib import Path
 
+from backend.nlp.document_metadata import load_document_metadata_manifest, resolve_document_metadata
 from backend.nlp.experiments.structured_review.claim_units import build_claim_units_from_review_bundles
 from backend.nlp.experiments.structured_review.llm_pass import run_structured_llm_passes
 from backend.nlp.experiments.structured_review.report import (
@@ -47,6 +51,7 @@ def run_structured_review_experiment(
     llm_model: str = "gpt-4o-mini",
     max_llm_records: int | None = None,
     llm_timeout_seconds: float = 60.0,
+    metadata_manifest_path: str | None = None,
 ) -> tuple[Path, Path, Path]:
     """Run the deterministic structured review scaffold on one file.
 
@@ -58,12 +63,19 @@ def run_structured_review_experiment(
         llm_model: Model name to use for the live LLM pass.
         max_llm_records: Optional cap on how many bundles to send to the LLM.
         llm_timeout_seconds: Timeout for each live LLM request.
+        metadata_manifest_path: Optional JSON sidecar manifest path.
 
     Returns:
         Paths to the JSON artifact, deterministic text report, and LLM text report.
     """
     source_path = Path(input_path)
     raw_text = source_path.read_text(encoding="utf-8")
+    metadata_manifest = load_document_metadata_manifest(metadata_manifest_path)
+    document_metadata = resolve_document_metadata(
+        str(source_path),
+        raw_text,
+        metadata_manifest,
+    )
     doc = parse(str(source_path), raw_text)
     pre = preprocess(doc)
     result = bootstrap(doc)
@@ -76,6 +88,7 @@ def run_structured_review_experiment(
         structured_records,
         entity_records,
         reference_candidates,
+        document_metadata,
     )
     if run_llm:
         review_bundles = run_structured_llm_passes(
@@ -95,6 +108,7 @@ def run_structured_review_experiment(
 
     artifact = {
         "document_path": str(source_path),
+        "document_metadata": to_llm_safe_jsonable(document_metadata),
         "diagnostics": to_llm_safe_jsonable(diagnostics),
         "structured_records": to_llm_safe_jsonable(structured_records),
         "review_bundles": to_llm_safe_jsonable(review_bundles),
@@ -159,5 +173,10 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=60.0,
         help="Per-request timeout for --run-llm. Default: 60",
+    )
+    parser.add_argument(
+        "--metadata-manifest",
+        default=None,
+        help="Optional JSON sidecar manifest containing document status metadata.",
     )
     return parser

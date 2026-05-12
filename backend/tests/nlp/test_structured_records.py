@@ -2,12 +2,18 @@
 
 from pathlib import Path
 
+from backend.nlp.document_metadata import (
+    document_status_authority_weight,
+    resolve_document_metadata,
+)
+from backend.nlp.document_type import classify_document_type
 from backend.nlp.experiments.structured_review.claim_units import build_claim_units_from_review_bundles
 from backend.nlp.experiments.structured_review.cli import run_structured_review_experiment
 from backend.nlp.experiments.structured_review.llm_pass import (
     _extract_json_object_text,
     run_structured_llm_pass,
 )
+from backend.nlp.experiments.structured_review.report import render_structured_llm_report
 from backend.nlp.experiments.structured_review.review_bundle import build_structured_review_bundles
 from backend.nlp.lexicon.bootstrap import bootstrap
 from backend.nlp.parsing.document_parser import parse
@@ -17,7 +23,13 @@ from backend.nlp.promotion.promotion import promote
 from backend.nlp.reconciliation.document_entities import summarize_document_entities
 from backend.nlp.semantic_review import extract_reference_candidates
 from backend.nlp.structured_records import build_record_seed_bundle, segment_structured_records
-from backend.nlp.types import ClaimKind, StructuredFieldLineType, StructuredRecordType
+from backend.nlp.types import (
+    ClaimKind,
+    DocumentStatus,
+    DocumentType,
+    StructuredFieldLineType,
+    StructuredRecordType,
+)
 
 
 def _document_outputs(path: str):
@@ -38,6 +50,93 @@ def _document_outputs(path: str):
     entity_records = summarize_document_entities(pre, result.clusters, attribution_records, bundle)
     reference_candidates = extract_reference_candidates(pre, entity_records, attribution_records)
     return doc, entity_records, reference_candidates
+
+
+def test_document_type_classifier_preserves_corpus_file_classification():
+    # Document type is a corpus-file classification, not a record-family
+    # segmentation result. These examples lock that distinction before the
+    # value is used in persistence and retrieval.
+    assert classify_document_type("examples/story planning/recovery arcs.txt") == DocumentType.STORY_PLANNING
+    assert classify_document_type("examples/world context/human history.txt") == DocumentType.WORLD_CONTEXT
+    assert classify_document_type("examples/vignettes/camilla rinka 3.md") == DocumentType.VIGNETTE
+    assert classify_document_type("examples/locations/Solar System.docx") == DocumentType.LOCATION
+    assert (
+        classify_document_type("examples/character backgrounds/Nilam Norre.docx")
+        == DocumentType.CHARACTER_BACKGROUND
+    )
+    assert classify_document_type("examples/4. Tairngire.md") == DocumentType.MANUSCRIPT
+
+
+def test_document_metadata_defaults_to_primary_canon_without_explicit_status():
+    # Default status needs to be explicit in artifacts. Otherwise later
+    # persistence cannot tell whether authority metadata was forgotten or
+    # intentionally treated as primary canon.
+    metadata = resolve_document_metadata(
+        "examples/world context/human history.txt",
+        "Human history notes",
+    )
+
+    assert metadata.document_type == DocumentType.WORLD_CONTEXT
+    assert metadata.document_status == DocumentStatus.PRIMARY_CANON
+    assert metadata.status_source == "default"
+    assert metadata.metadata_conflicts == []
+
+
+def test_document_metadata_accepts_matching_in_document_and_sidecar_status():
+    # Sidecar manifests and in-document headers should be able to agree without
+    # making the document reviewable. This keeps future batch metadata usable
+    # while still allowing author-visible per-file status.
+    metadata = resolve_document_metadata(
+        "examples/vignettes/camilla rinka 3.md",
+        "document_status: legendary\n\nA remembered account.",
+        {
+            "documents": {
+                "examples/vignettes/camilla rinka 3.md": {"status": "legendary"}
+            }
+        },
+    )
+
+    assert metadata.document_type == DocumentType.VIGNETTE
+    assert metadata.document_status == DocumentStatus.LEGENDARY
+    assert metadata.status_source == "sidecar:examples/vignettes/camilla rinka 3.md"
+    assert metadata.status_hints == ["folder:vignettes"]
+    assert metadata.metadata_conflicts == []
+
+
+def test_document_metadata_conflict_downgrades_to_draft_unknown():
+    # Conflicting metadata must not silently pick one authority source. The
+    # document remains ingestible, but downstream review sees the conflict and
+    # a conservative status.
+    metadata = resolve_document_metadata(
+        "examples/story planning/recovery arcs.txt",
+        "document_status: historical\n\nArc notes.",
+        {"recovery arcs.txt": "primary_canon"},
+    )
+
+    assert metadata.document_status == DocumentStatus.DRAFT_UNKNOWN
+    assert metadata.status_source == "conflict"
+    assert metadata.metadata_conflicts == [
+        "document_status mismatch: in_document=historical sidecar=primary_canon"
+    ]
+
+
+def test_folder_status_hints_do_not_override_default_or_explicit_status():
+    # Vignette-like folders are useful hints, but the user decided status is
+    # per-document. Folder names must not silently convert the source away from
+    # primary canon when no explicit status exists.
+    default_metadata = resolve_document_metadata(
+        "examples/vignettes/camilla rinka 3.md",
+        "A remembered account.",
+    )
+    explicit_metadata = resolve_document_metadata(
+        "examples/vignettes/camilla rinka 3.md",
+        'document_status: "historical"\n\nA remembered account.',
+    )
+
+    assert default_metadata.document_status == DocumentStatus.PRIMARY_CANON
+    assert default_metadata.status_hints == ["folder:vignettes"]
+    assert explicit_metadata.document_status == DocumentStatus.HISTORICAL
+    assert explicit_metadata.status_hints == ["folder:vignettes"]
 
 
 def test_estuary_summary_segments_into_dossier_entries_with_banner_context():
@@ -133,9 +232,14 @@ def test_world_context_file_builds_reference_section_bundles():
     )
 
     assert bundles
+    assert diagnostics.document_type == DocumentType.WORLD_CONTEXT
+    assert diagnostics.document_status == DocumentStatus.PRIMARY_CANON
+    assert diagnostics.document_status_source == "default"
     assert diagnostics.reason_no_review_bundles == ""
     assert diagnostics.candidate_record_counts["reference_section"] > 0
     assert any(bundle.record_type == StructuredRecordType.REFERENCE_SECTION for bundle in bundles)
+    assert all(bundle.document_type == DocumentType.WORLD_CONTEXT for bundle in bundles)
+    assert all(bundle.document_status == DocumentStatus.PRIMARY_CANON for bundle in bundles)
 
 
 def test_no_heading_world_context_file_still_segments_into_reference_sections():
@@ -236,7 +340,7 @@ def test_claim_units_project_deterministic_facts_as_atomic_retrieval_units():
     first_bundle = next(
         bundle for bundle in bundles
         if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
-        and bundle.deterministic_seed_bundle.header_line.startswith("🌊 WATANABE YŌ")
+        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
     )
 
     claim_units = [
@@ -250,9 +354,12 @@ def test_claim_units_project_deterministic_facts_as_atomic_retrieval_units():
     assert claim_unit.claim_kind == ClaimKind.FACT
     assert claim_unit.primary_subject_guess == "Watanabe Yō"
     assert claim_unit.claim_value == "Commanding Officer, Radiant Estuary"
+    assert claim_unit.document_type == DocumentType.STORY_PLANNING
     assert claim_unit.source_record_id == first_bundle.record_id
     assert claim_unit.source_family == "dossier_entry"
+    assert claim_unit.source_status == DocumentStatus.PRIMARY_CANON
     assert claim_unit.source_authority == "planning_dossier"
+    assert claim_unit.source_authority_weight == document_status_authority_weight(DocumentStatus.PRIMARY_CANON)
     assert claim_unit.proposal_state.value == "deterministic_proposal"
     assert claim_unit.review_state.value == "unreviewed"
     assert claim_unit.primary_evidence.quote == "Commanding Officer, Radiant Estuary"
@@ -273,7 +380,7 @@ def test_claim_units_group_same_source_line_neighbors():
     first_bundle = next(
         bundle for bundle in bundles
         if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
-        and bundle.deterministic_seed_bundle.header_line.startswith("🌊 WATANABE YŌ")
+        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
     )
 
     rank_claims = [
@@ -330,8 +437,47 @@ def test_structured_review_artifact_includes_claim_units(tmp_path):
     report_text = report_path.read_text(encoding="utf-8")
 
     assert '"claim_units"' in json_text
+    assert '"document_type": "world_context"' in json_text
+    assert '"document_status": "primary_canon"' in json_text
     assert '"result_level": "claim_unit"' in json_text
     assert "CLAIM UNIT SUMMARY" in report_text
+    assert "document_type: world_context" in report_text
+    assert "document_status: primary_canon" in report_text
+
+
+def test_structured_review_artifact_preserves_document_status_manifest(tmp_path):
+    # Status is provenance metadata for database insertion. It should travel
+    # through diagnostics, review bundles, prompt packets, and claim units
+    # without changing the record-family segmentation result.
+    manifest_path = tmp_path / "metadata.json"
+    manifest_path.write_text(
+        """
+{
+  "documents": {
+    "examples/world context/human history.txt": {
+      "status": "historical"
+    }
+  }
+}
+""".strip(),
+        encoding="utf-8",
+    )
+
+    json_path, report_path, _llm_report_path = run_structured_review_experiment(
+        "examples/world context/human history.txt",
+        str(tmp_path),
+        max_report_records=1,
+        metadata_manifest_path=str(manifest_path),
+    )
+
+    json_text = json_path.read_text(encoding="utf-8")
+    report_text = report_path.read_text(encoding="utf-8")
+
+    assert '"document_status": "historical"' in json_text
+    assert '"source_status": "historical"' in json_text
+    assert '"source_authority_weight": 0.85' in json_text
+    assert "document_status: historical" in report_text
+    assert "reference_section" in report_text
 
 
 def test_outline_beat_seed_bundle_preserves_heading_and_bullets():
@@ -434,11 +580,14 @@ def test_review_bundle_includes_explicit_llm_prompt_packet_with_weak_hints():
     first_bundle = next(
         bundle for bundle in bundles
         if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
-        and bundle.deterministic_seed_bundle.header_line.startswith("🌊 WATANABE YŌ")
+        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
     )
 
     assert first_bundle.llm_prompt_packet.task_name == "dossier_subject_and_explicit_facts"
+    assert first_bundle.llm_prompt_packet.document_type == DocumentType.STORY_PLANNING
+    assert first_bundle.llm_prompt_packet.document_status == DocumentStatus.PRIMARY_CANON
     assert first_bundle.llm_prompt_packet.source_authority == "planning_dossier"
+    assert first_bundle.llm_prompt_packet.source_authority_weight == 1.0
     assert "🌊" not in first_bundle.llm_prompt_packet.header_line
     assert first_bundle.llm_prompt_packet.header_line.startswith("WATANABE YŌ")
     assert any(
@@ -472,7 +621,7 @@ def test_llm_pass_fills_completed_payloads_and_comparison_fields():
     first_bundle = next(
         bundle for bundle in bundles
         if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
-        and bundle.deterministic_seed_bundle.header_line.startswith("🌊 WATANABE YŌ")
+        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
     )
 
     def fake_responder(_bundle, _model):
@@ -480,7 +629,7 @@ def test_llm_pass_fills_completed_payloads_and_comparison_fields():
             "subject": {
                 "subject_name": "Watanabe Yō",
                 "alternate_names": ["Yō"],
-                "evidence_quotes": ["WATANABE YŌ — CAPTAIN / PIONEER-ADMIRAL (O‑9)"],
+                "evidence_quotes": ["WATANABE YŌ CAPTAIN / PIONEER-ADMIRAL"],
                 "certainty_note": "Header line names the subject directly.",
                 "unresolved": False,
             },
@@ -517,6 +666,175 @@ def test_llm_pass_fills_completed_payloads_and_comparison_fields():
     assert updated_bundle.open_questions == [
         "Should 'Pioneer-Admiral (O‑9)' be stored as a second rank entry?"
     ]
+
+
+def test_completed_llm_pass_produces_separate_review_required_claim_units():
+    # LLM proposals should become database-ready claim units without replacing
+    # deterministic claims or being treated as canon. They need their own
+    # proposal state, semantic retrieval tag, and evidence quote.
+    path = "examples/story planning/estuary crew summaries.txt"
+    doc, entity_records, reference_candidates = _document_outputs(path)
+    records = segment_structured_records(doc)
+    bundles, _diagnostics = build_structured_review_bundles(
+        records,
+        entity_records,
+        reference_candidates,
+    )
+    first_bundle = next(
+        bundle for bundle in bundles
+        if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
+        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
+    )
+
+    def fake_responder(_bundle, _model):
+        return ({
+            "subject": {
+                "subject_name": "Watanabe Yō",
+                "alternate_names": ["Yō"],
+                "evidence_quotes": ["WATANABE YŌ CAPTAIN / PIONEER-ADMIRAL"],
+                "certainty_note": "Header line names the subject directly.",
+                "unresolved": False,
+            },
+            "fact_proposals": [
+                {
+                    "label": "Role",
+                    "value": "Commanding Officer, Radiant Estuary",
+                    "evidence_quote": "Role: Commanding Officer, Radiant Estuary",
+                    "certainty_note": "Explicit label-value line.",
+                }
+            ],
+            "open_questions": [],
+        }, "resp_test_claim_unit")
+
+    updated_bundle = run_structured_llm_pass(
+        first_bundle,
+        model="gpt-4o-mini",
+        responder=fake_responder,
+    )
+
+    claim_units = build_claim_units_from_review_bundles([updated_bundle])
+    llm_claims = [
+        claim_unit
+        for claim_unit in claim_units
+        if claim_unit.proposal_state.value == "llm_proposal"
+    ]
+
+    assert len(llm_claims) == 1
+    assert llm_claims[0].review_state.value == "review_required"
+    assert llm_claims[0].primary_subject_guess == "Watanabe Yō"
+    assert llm_claims[0].claim_label == "Role"
+    assert llm_claims[0].primary_evidence.quote == "Role: Commanding Officer, Radiant Estuary"
+    assert llm_claims[0].retrieval_channel_tags == ["semantic_inferred"]
+    assert llm_claims[0].raw_claim_payload["response_id"] == "resp_test_claim_unit"
+    assert any(
+        claim_unit.proposal_state.value == "deterministic_proposal"
+        for claim_unit in claim_units
+    )
+
+
+def test_llm_report_lists_projected_llm_claim_units():
+    # The separate LLM log should show the database-shaped projection, not only
+    # the raw model payload. Otherwise manual inspection can miss that a
+    # completed fact proposal failed to become a reviewable claim unit.
+    path = "examples/story planning/estuary crew summaries.txt"
+    doc, entity_records, reference_candidates = _document_outputs(path)
+    records = segment_structured_records(doc)
+    bundles, diagnostics = build_structured_review_bundles(
+        records,
+        entity_records,
+        reference_candidates,
+    )
+    first_bundle = next(
+        bundle for bundle in bundles
+        if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
+        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
+    )
+
+    def fake_responder(_bundle, _model):
+        return ({
+            "subject": {
+                "subject_name": "Watanabe Yō",
+                "alternate_names": ["Yō"],
+                "evidence_quotes": ["WATANABE YŌ CAPTAIN / PIONEER-ADMIRAL"],
+                "certainty_note": "Header line names the subject directly.",
+                "unresolved": False,
+            },
+            "fact_proposals": [
+                {
+                    "label": "Role",
+                    "value": "Commanding Officer, Radiant Estuary",
+                    "evidence_quote": "Role: Commanding Officer, Radiant Estuary",
+                    "certainty_note": "Explicit label-value line.",
+                }
+            ],
+            "open_questions": [],
+        }, "resp_test_llm_report_claim")
+
+    updated_bundle = run_structured_llm_pass(
+        first_bundle,
+        model="gpt-4o-mini",
+        responder=fake_responder,
+    )
+    report_text = render_structured_llm_report(
+        diagnostics,
+        [updated_bundle],
+        max_records=1,
+    )
+
+    assert "llm_claim_units:" in report_text
+    assert "fact Role: Commanding Officer, Radiant Estuary" in report_text
+    assert "subject=Watanabe Yō" in report_text
+    assert "review=review_required" in report_text
+
+
+def test_unresolved_llm_subject_does_not_force_claim_subject():
+    # An LLM can extract useful facts while leaving the subject unresolved. The
+    # claim unit should preserve that ambiguity instead of copying an
+    # unresolved subject into the primary subject field.
+    path = "examples/world context/human history.txt"
+    doc, entity_records, reference_candidates = _document_outputs(path)
+    records = segment_structured_records(doc)
+    bundles, _diagnostics = build_structured_review_bundles(
+        records,
+        entity_records,
+        reference_candidates,
+    )
+    loose_bundle = next(bundle for bundle in bundles if bundle.record_type == StructuredRecordType.LOOSE_RECORD)
+
+    def fake_responder(_bundle, _model):
+        return ({
+            "subject": {
+                "subject_name": "unclear",
+                "alternate_names": ["Triumvirate history"],
+                "evidence_quotes": [],
+                "certainty_note": "The prelude is broad context rather than a subject record.",
+                "unresolved": True,
+            },
+            "fact_proposals": [
+                {
+                    "label": "context_summary",
+                    "value": "Human history converges from three arcs.",
+                    "evidence_quote": "three long, partially overlapping arcs",
+                    "certainty_note": "Explicitly stated in the prelude.",
+                }
+            ],
+            "open_questions": ["Should this be attached to Triumvirate history?"],
+        }, "resp_unresolved_subject")
+
+    updated_bundle = run_structured_llm_pass(
+        loose_bundle,
+        model="gpt-4o-mini",
+        responder=fake_responder,
+    )
+    llm_claim = next(
+        claim_unit
+        for claim_unit in build_claim_units_from_review_bundles([updated_bundle])
+        if claim_unit.proposal_state.value == "llm_proposal"
+    )
+
+    assert llm_claim.primary_subject_guess == ""
+    assert llm_claim.alternate_subject_candidates == ["Triumvirate history"]
+    assert llm_claim.claim_value == "Human history converges from three arcs."
 
 
 def test_chat_completion_json_extractor_tolerates_fenced_output():

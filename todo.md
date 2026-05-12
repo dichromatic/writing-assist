@@ -29,6 +29,15 @@ Goal:
 
 Work in this order. Each subphase depends on the previous one.
 
+Current note:
+
+- P.1 through P.7 describe the manuscript evidence pipeline and are complete.
+- P.8 and P.9 remain listed as historical pipeline-port phases, but the active
+  non-manuscript work now runs through `structured_review`.
+- Use `documentation/structured-review-reference-and-flow.md` as the terminology
+  reference for document type, record family, document status, review bundles,
+  claim units, and index-database handoff.
+
 ### Phase P.1: Pipeline types and data model
 
 Status:
@@ -372,7 +381,7 @@ Documentation:
 
 Status:
 
-- not started
+- partially complete, historical
 
 Deliverables:
 
@@ -412,11 +421,18 @@ Documentation:
 
 - `documentation/python-p8-pipeline-wiring-and-inspection.md`
 
+Current state:
+
+- `backend/inspect.py` exists and is the active manuscript inspection tool.
+- `backend/nlp/pipeline.py` is still a placeholder.
+- Structured non-manuscript inspection now uses
+  `inspect_structured_records.py` and `backend/nlp/experiments/structured_review/`.
+
 ### Phase P.9: Remaining archetype harvesters
 
 Status:
 
-- not started
+- superseded for current non-manuscript work
 
 Deliverables:
 
@@ -466,7 +482,27 @@ Done when:
 - full pipeline runs on a document of each archetype type
 - `inspect.py` shows archetype-appropriate evidence for each document type
 
+Current state:
+
+- `backend/nlp/harvesting/dossier.py`, `planning.py`, `reference.py`,
+  `loose_note.py`, and `dispatch.py` are placeholders.
+- The active path is no longer separate harvester modules per document type.
+- The active path is:
+  - classify corpus file document type
+  - parse file into spans
+  - segment by shape into structured-review record families
+  - preserve deterministic seed bundles
+  - project deterministic and LLM outputs into claim units
+- Do not revive this phase without first proving that shape-based
+  structured-review record families are insufficient.
+
 ### Python NLP pipeline completion criteria
+
+Current note:
+
+- These criteria belong to the older archetype-harvester plan.
+- For active structured-review work, use the near-term structured-review
+  metadata, validation, and LLM handoff sections below.
 
 - all pipeline stage modules are implemented and importable without circular imports
 - `inspect.py` produces readable per-stage output for all five supported archetypes
@@ -482,8 +518,103 @@ Done when:
 ## Near-Term Follow-Up Work
 
 These items sit on top of the current manuscript semantic-review work and the
-new dossier experiment scaffold. They are intentionally smaller and more
+structured-review scaffold. They are intentionally smaller and more
 concrete than the older archetype-harvester phases below.
+
+### Structured review terminology and flow reference
+
+Status:
+
+- documented
+
+Goal:
+
+- preserve the current terminology and data-flow decisions so future sessions
+  do not re-invent or confuse document type, record family, document status,
+  source authority, review bundles, and claim units
+
+Deliverables:
+
+- glossary for corpus file, document type, record family, document status,
+  source authority, deterministic seed bundle, record review bundle, claim
+  unit, proposal state, and review state
+- Mermaid data-flow diagram from corpus file to index database insertion
+- current coverage matrix for manuscripts, story planning, world context,
+  vignettes, locations, and character backgrounds
+- explicit next implementation order
+
+Out of scope:
+
+- changing code
+- finalizing database tables
+
+TDD applies:
+
+- no
+
+Behavior to test:
+
+- none, documentation only
+
+Done when:
+
+- the terminology reference can be used as the source of truth for future
+  structured-review implementation work
+
+Documentation:
+
+- `documentation/structured-review-reference-and-flow.md`
+
+### Structured review document type metadata
+
+Status:
+
+- completed
+
+Goal:
+
+- add first-class corpus-file document type metadata to structured-review
+  artifacts and claim units before broader LLM evaluation
+
+Deliverables:
+
+- document type enum or typed value for `manuscript`, `vignette`,
+  `story_planning`, `world_context`, `location`, and `character_background`
+- path or manifest based classifier for the current example corpus
+- `document_type` on structured-review diagnostics, review bundles, prompt
+  packets, and claim units
+- reports that show document type separately from record family
+
+Out of scope:
+
+- using document type as the record segmentation family
+- `.docx` ingestion
+- database schema finalization
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- `examples/story planning/...` classifies as `story_planning`
+- `examples/world context/...` classifies as `world_context`
+- `examples/vignettes/...` classifies as `vignette`
+- `examples/locations/...` classifies as `location` once ingested
+- `examples/character backgrounds/...` classifies as `character_background`
+- record family remains shape-based after document type is attached
+- claim units preserve both `document_type` and `source_family`
+
+Done when:
+
+- structured-review JSON and logs expose document type for every processed file
+- claim units can distinguish a `reference_section` from world context,
+  location, character background, and story planning sources
+
+Documentation:
+
+- `documentation/structured-review-reference-and-flow.md`
+- `documentation/python-p69-structured-review-document-type-metadata.md`
 
 ### Manuscript handoff artifact
 
@@ -517,7 +648,7 @@ Out of scope:
 - changing the manuscript semantic-review boundary from review questions to
   proposal-style outputs
 - forcing manuscript documents into the same record-unit structure used by the
-  dossier experiment
+  structured-review experiment
 - LLM semantic resolution
 
 TDD applies:
@@ -539,7 +670,7 @@ Done when:
 - manuscript inspection output can be regenerated from a stored
   `ManuscriptReviewBundle`
 - the manuscript handoff is machine-readable in the same broad architectural
-  style as the dossier review scaffold while keeping manuscript-specific
+  style as the structured-review scaffold while keeping manuscript-specific
   analysis units
 
 Documentation:
@@ -550,7 +681,7 @@ Documentation:
 
 Status:
 
-- deferred
+- completed
 
 Goal:
 
@@ -583,8 +714,7 @@ Behavior to test:
   and emit a reviewable metadata conflict
 - folder names can emit soft hints but do not silently override explicit or
   default status
-- status influences authority weighting without changing document-family
-  routing
+- status influences authority weighting without changing record-family routing
 
 Done when:
 
@@ -595,7 +725,99 @@ Done when:
 
 Documentation:
 
-- `documentation/document-status-metadata-notes.md`
+- `documentation/python-p70-document-status-metadata.md`
+- `documentation/structured-review-reference-and-flow.md`
+
+### Claim-unit database readiness validation
+
+Status:
+
+- next
+
+Goal:
+
+- validate that deterministic and LLM claim units are shaped for later index
+  database insertion before broader LLM evaluation
+
+Deliverables:
+
+- validator for structured-review claim units
+- structured diagnostics for missing insertability fields
+- CLI and report summary for database-ready, warning, and failed claim units
+
+Out of scope:
+
+- creating database tables
+- deduplicating deterministic and LLM proposals
+- approving or canonicalizing claims
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- LLM claim units fail validation if source id, source record id, document
+  type, source family, evidence anchor, evidence quote, proposal state, review
+  state, claim label, or claim value is missing
+- unresolved subjects are allowed when alternate candidates or raw payload
+  preserve ambiguity
+- deterministic and LLM proposals are validated without merging them
+- validation diagnostics are written into JSON and visible in the report
+
+Done when:
+
+- a structured-review artifact can state whether its claim units are ready for
+  index-database insertion as proposal records
+
+Documentation:
+
+- `documentation/structured-review-reference-and-flow.md`
+
+### Structured review LLM handoff probe
+
+Status:
+
+- blocked by document type metadata and database-readiness validation
+
+Goal:
+
+- run a small, deliberately chosen LLM probe to test the handoff contract before
+  broad corpus evaluation
+
+Deliverables:
+
+- fixed probe set of representative records across current structured-review
+  families
+- per-record LLM prompt packet, LLM response slots, claim units, and validation
+  diagnostics
+- short inspection summary describing whether the handoff contract worked
+
+Out of scope:
+
+- corpus-wide LLM benchmark
+- final extraction quality judgment
+- canonical merge or entity resolution
+
+TDD applies:
+
+- partial, only for harness behavior and validation plumbing
+
+Behavior to test:
+
+- probe runner does not send unsupported files to the LLM
+- failed records do not fail the whole probe
+- completed LLM facts become `llm_proposal` claim units
+- validation diagnostics are produced for completed, failed, and skipped records
+
+Done when:
+
+- we can inspect whether the LLM pass produces database-shaped proposal records
+  without pretending the quality question is settled
+
+Documentation:
+
+- `documentation/structured-review-reference-and-flow.md`
 
 ### Retrieval object and manuscript editing flow notes
 

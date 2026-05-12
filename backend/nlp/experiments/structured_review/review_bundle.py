@@ -7,16 +7,19 @@ Structured-record review bundle builder - packages deterministic record-side evi
         A[StructuredRecord list] --> B[Keep supported record types]
         C[DocumentEntityRecord list] --> D[Filter overlapping entities]
         E[ReferenceCandidate list] --> F[Filter overlapping references]
-        B & D & F --> G[Build DeterministicSeedBundle]
+        M[DocumentMetadata] --> N[Document type and status]
+        B & D & F & N --> G[Build DeterministicSeedBundle]
         G --> H[Build RecordReviewBundle]
         H --> I[List of structured review bundles]
 """
 
 from __future__ import annotations
 
+from backend.nlp.document_metadata import resolve_document_metadata
 from backend.nlp.experiments.structured_review.prompt_packet import build_record_prompt_packet
 from backend.nlp.structured_records.seed_extractor import build_record_seed_bundle
 from backend.nlp.types import (
+    DocumentMetadata,
     DocumentEntityRecord,
     RecordReviewBundle,
     ReferenceCandidate,
@@ -38,6 +41,7 @@ def build_structured_review_bundles(
     records: list[StructuredRecord],
     entity_records: list[DocumentEntityRecord],
     reference_candidates: list[ReferenceCandidate],
+    document_metadata: DocumentMetadata | None = None,
 ) -> tuple[list[RecordReviewBundle], StructuredDocumentDiagnostics]:
     """Build phase-1 structured-note review bundles from structured records.
 
@@ -46,6 +50,7 @@ def build_structured_review_bundles(
         entity_records: Whole-document entity summaries used as weak hints.
         reference_candidates: Whole-document deferred references used as weak
             hints.
+        document_metadata: Optional pre-resolved document metadata.
 
     Returns:
         Review bundles plus structural diagnostics for the document.
@@ -54,8 +59,15 @@ def build_structured_review_bundles(
         record for record in records
         if record.record_type in _SUPPORTED_RECORD_TYPES
     ]
+    document_path = records[0].document_path if records else ""
+    metadata = document_metadata or resolve_document_metadata(document_path)
     diagnostics = StructuredDocumentDiagnostics(
-        document_path=records[0].document_path if records else "",
+        document_path=document_path,
+        document_type=metadata.document_type,
+        document_status=metadata.document_status,
+        document_status_source=metadata.status_source,
+        document_status_hints=list(metadata.status_hints),
+        metadata_conflicts=list(metadata.metadata_conflicts),
         heading_count=sum(1 for record in records if record.heading_text),
         candidate_record_counts={
             record_type.value: sum(1 for record in records if record.record_type == record_type)
@@ -79,10 +91,20 @@ def build_structured_review_bundles(
             entity_records,
             reference_candidates,
         )
-        prompt_packet = build_record_prompt_packet(record, seed_bundle, fact_candidates)
+        prompt_packet = build_record_prompt_packet(
+            record,
+            seed_bundle,
+            fact_candidates,
+            metadata,
+        )
         bundles.append(RecordReviewBundle(
             record_id=record.record_id,
             record_type=record.record_type,
+            document_type=metadata.document_type,
+            document_status=metadata.document_status,
+            document_status_source=metadata.status_source,
+            document_status_hints=list(metadata.status_hints),
+            metadata_conflicts=list(metadata.metadata_conflicts),
             document_path=record.document_path,
             raw_text=record.raw_text,
             llm_prompt_packet=prompt_packet,

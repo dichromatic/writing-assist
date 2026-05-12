@@ -7,16 +7,19 @@ Structured-record prompt packet builder - freeze deterministic evidence for LLM 
         A[StructuredRecord] --> B[Record metadata]
         C[DeterministicSeedBundle] --> D[Seed evidence]
         E[DeterministicFactCandidate list] --> F[Fact candidates]
-        B & D & F --> G[Dispatch task by record type]
+        M[DocumentMetadata] --> N[Status and authority weight]
+        B & D & F & N --> G[Dispatch task by record type]
         G --> H[LLMRecordPromptPacket]
 """
 
 from __future__ import annotations
 
+from backend.nlp.document_metadata import document_status_authority_weight
 from backend.nlp.text_filtering import sanitize_for_llm
 from backend.nlp.types import (
     DeterministicFactCandidate,
     DeterministicSeedBundle,
+    DocumentMetadata,
     LLMRecordPromptPacket,
     StructuredRecord,
     StructuredRecordType,
@@ -114,6 +117,7 @@ def build_record_prompt_packet(
     record: StructuredRecord,
     seed_bundle: DeterministicSeedBundle,
     fact_candidates: list[DeterministicFactCandidate],
+    document_metadata: DocumentMetadata,
 ) -> LLMRecordPromptPacket:
     """Build the future LLM input packet for one supported record.
 
@@ -122,6 +126,7 @@ def build_record_prompt_packet(
         seed_bundle: Deterministic seed evidence for the same record.
         fact_candidates: Shallow deterministic fact-like candidates preserved
             before any model call.
+        document_metadata: Resolved document type and source status metadata.
 
     Returns:
         Structured packet that freezes the task boundary and deterministic
@@ -136,7 +141,13 @@ def build_record_prompt_packet(
         record_id=record.record_id,
         record_type=record.record_type,
         document_path=record.document_path,
+        document_type=document_metadata.document_type,
+        document_status=document_metadata.document_status,
+        document_status_source=document_metadata.status_source,
+        document_status_hints=list(document_metadata.status_hints),
+        metadata_conflicts=list(document_metadata.metadata_conflicts),
         source_authority=_source_authority(record),
+        source_authority_weight=document_status_authority_weight(document_metadata.document_status),
         task_name=task_name,
         task_goal=task_goal,
         task_constraints=task_constraints,

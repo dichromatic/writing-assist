@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from backend.nlp.experiments.structured_review.claim_units import build_claim_units_from_review_bundles
 from backend.nlp.text_filtering import strip_emoji
-from backend.nlp.types import RecordReviewBundle, StructuredDocumentDiagnostics
+from backend.nlp.types import ClaimProposalState, RecordReviewBundle, StructuredDocumentDiagnostics
 
 
 def _hr(title: str = "") -> str:
@@ -53,6 +53,17 @@ def render_structured_review_report(
     lines: list[str] = []
     lines.append(_hr("STRUCTURAL SUMMARY"))
     lines.append(f"  document_path: {diagnostics.document_path}")
+    lines.append(f"  document_type: {diagnostics.document_type.value}")
+    lines.append(f"  document_status: {diagnostics.document_status.value}")
+    lines.append(f"  document_status_source: {diagnostics.document_status_source}")
+    if diagnostics.document_status_hints:
+        lines.append("  document_status_hints:")
+        for hint in diagnostics.document_status_hints:
+            lines.append(f"    - {hint}")
+    if diagnostics.metadata_conflicts:
+        lines.append("  metadata_conflicts:")
+        for conflict in diagnostics.metadata_conflicts:
+            lines.append(f"    - {conflict}")
     lines.append(f"  heading_count: {diagnostics.heading_count}")
     for record_type, count in sorted(diagnostics.candidate_record_counts.items()):
         lines.append(f"  {record_type}: {count}")
@@ -84,6 +95,8 @@ def render_structured_review_report(
     for bundle in bundles[:max_records]:
         lines.append(f"  record_id: {bundle.record_id}")
         lines.append(f"  record_type: {bundle.record_type.value}")
+        lines.append(f"  document_type: {bundle.document_type.value}")
+        lines.append(f"  document_status: {bundle.document_status.value}")
         lines.append(f"  document_path: {bundle.document_path}")
         lines.append(f"  header_line: {bundle.deterministic_seed_bundle.header_line or '-'}")
         lines.append(
@@ -149,6 +162,7 @@ def render_structured_review_report(
     lines.append(_hr())
     return strip_emoji("\n".join(lines) + "\n")
 
+
 def render_structured_llm_report(
     diagnostics: StructuredDocumentDiagnostics,
     bundles: list[RecordReviewBundle],
@@ -168,6 +182,17 @@ def render_structured_llm_report(
     lines: list[str] = []
     lines.append(_hr("STRUCTURAL SUMMARY"))
     lines.append(f"  document_path: {diagnostics.document_path}")
+    lines.append(f"  document_type: {diagnostics.document_type.value}")
+    lines.append(f"  document_status: {diagnostics.document_status.value}")
+    lines.append(f"  document_status_source: {diagnostics.document_status_source}")
+    if diagnostics.document_status_hints:
+        lines.append("  document_status_hints:")
+        for hint in diagnostics.document_status_hints:
+            lines.append(f"    - {hint}")
+    if diagnostics.metadata_conflicts:
+        lines.append("  metadata_conflicts:")
+        for conflict in diagnostics.metadata_conflicts:
+            lines.append(f"    - {conflict}")
     lines.append(f"  heading_count: {diagnostics.heading_count}")
     for record_type, count in sorted(diagnostics.candidate_record_counts.items()):
         lines.append(f"  {record_type}: {count}")
@@ -178,14 +203,32 @@ def render_structured_llm_report(
         lines.append(_hr())
         return "\n".join(lines) + "\n"
 
+    claim_units = build_claim_units_from_review_bundles(bundles)
+    llm_claim_units_by_record: dict[str, list[str]] = {}
+    for claim_unit in claim_units:
+        if claim_unit.proposal_state != ClaimProposalState.LLM_PROPOSAL:
+            continue
+        llm_claim_units_by_record.setdefault(
+            claim_unit.source_record_id,
+            [],
+        ).append(
+            f"{claim_unit.claim_kind.value} {claim_unit.claim_label}: {claim_unit.claim_value}"
+            f" subject={claim_unit.primary_subject_guess or '-'}"
+            f" review={claim_unit.review_state.value}"
+            f" reason={claim_unit.primary_retrieval_reason}"
+        )
+
     lines.append(_hr("STRUCTURED LLM REVIEW"))
     for bundle in bundles[:max_records]:
         lines.append(f"  record_id: {bundle.record_id}")
         lines.append(f"  record_type: {bundle.record_type.value}")
+        lines.append(f"  document_type: {bundle.document_type.value}")
+        lines.append(f"  document_status: {bundle.document_status.value}")
         lines.append(f"  document_path: {bundle.document_path}")
         lines.append(f"  header_line: {bundle.deterministic_seed_bundle.header_line or '-'}")
         lines.append(f"  llm_task: {bundle.llm_prompt_packet.task_name}")
         lines.append(f"  source_authority: {bundle.llm_prompt_packet.source_authority}")
+        lines.append(f"  source_authority_weight: {bundle.llm_prompt_packet.source_authority_weight:.2f}")
         lines.append(f"  task_goal: {bundle.llm_prompt_packet.task_goal}")
         lines.append("  task_constraints:")
         for constraint in bundle.llm_prompt_packet.task_constraints:
@@ -237,6 +280,11 @@ def render_structured_llm_report(
         if bundle.open_questions:
             lines.append("  open_questions:")
             for item in bundle.open_questions[:12]:
+                lines.append(f"    - {item}")
+        llm_claim_unit_lines = llm_claim_units_by_record.get(bundle.record_id, [])
+        if llm_claim_unit_lines:
+            lines.append("  llm_claim_units:")
+            for item in llm_claim_unit_lines[:12]:
                 lines.append(f"    - {item}")
         lines.append("")
 
