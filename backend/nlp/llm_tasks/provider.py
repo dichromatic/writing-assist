@@ -22,6 +22,7 @@ from urllib import request
 from urllib.error import HTTPError
 from typing import Callable
 
+from backend.nlp.llm_tasks.models import normalize_llm_payload
 from backend.nlp.types import (
     LLMTaskPacket,
     LLMTaskResult,
@@ -196,6 +197,10 @@ def run_llm_task_packets(
             continue
         try:
             payload, response_id = responder(packet, model)
+            normalized = normalize_llm_payload(
+                task_family=packet.task_family,
+                raw_payload=payload,
+            )
             results.append(
                 LLMTaskResult(
                     task_id=packet.task_id,
@@ -205,7 +210,7 @@ def run_llm_task_packets(
                     model=model,
                     provider=provider,
                     response_id=response_id,
-                    payload=payload,
+                    payload=normalized.model_dump(mode="json"),
                 )
             )
         except Exception as exc:  # pragma: no cover - runtime provider exceptions vary.

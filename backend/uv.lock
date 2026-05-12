@@ -755,6 +755,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "nltk" },
     { name = "pyahocorasick" },
+    { name = "pydantic" },
     { name = "regex" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -773,6 +774,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
     { name = "nltk", specifier = ">=3.9" },
     { name = "pyahocorasick", specifier = ">=2.1" },
+    { name = "pydantic", specifier = ">=2.8" },
     { name = "regex", specifier = ">=2024.11" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
 ]

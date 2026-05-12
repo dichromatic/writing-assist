@@ -20,6 +20,13 @@ from backend.nlp.types import (
     IndexingDiagnostic,
 )
 
+def _llm_payload_valid_for_insertion(proposal: DatabaseProposal) -> bool:
+    """Return True when the LLM proposal payload passed typed normalization."""
+    details = proposal.raw_source_payload.get("llm_validation", {})
+    if not isinstance(details, dict):
+        return False
+    return bool(details.get("is_valid", False))
+
 
 def _missing_required_fields(proposal: DatabaseProposal) -> list[str]:
     """Return missing required proposal envelope fields."""
@@ -69,18 +76,21 @@ def validate_database_proposals(
             )
             continue
         if proposal.proposal_state.value == "llm_proposal":
-            proposal.insertability_state = DatabaseProposalInsertabilityState.NEEDS_NORMALIZATION
-            diagnostics.append(
-                IndexingDiagnostic(
-                    code="llm_observed_not_normalized",
-                    level="info",
-                    source_bundle_kind=proposal.source_bundle_kind,
-                    source_object_kind=proposal.source_object_kind,
-                    source_object_id=proposal.source_object_id,
-                    message="LLM proposal requires normalization before insertion.",
-                    context={"proposal_id": proposal.proposal_id},
+            if _llm_payload_valid_for_insertion(proposal):
+                proposal.insertability_state = DatabaseProposalInsertabilityState.INSERTABLE
+            else:
+                proposal.insertability_state = DatabaseProposalInsertabilityState.NEEDS_NORMALIZATION
+                diagnostics.append(
+                    IndexingDiagnostic(
+                        code="llm_observed_not_normalized",
+                        level="info",
+                        source_bundle_kind=proposal.source_bundle_kind,
+                        source_object_kind=proposal.source_object_kind,
+                        source_object_id=proposal.source_object_id,
+                        message="LLM proposal requires normalization before insertion.",
+                        context={"proposal_id": proposal.proposal_id},
+                    )
                 )
-            )
             continue
         proposal.insertability_state = DatabaseProposalInsertabilityState.INSERTABLE
     return proposals, diagnostics

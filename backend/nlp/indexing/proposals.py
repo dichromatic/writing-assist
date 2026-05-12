@@ -35,6 +35,19 @@ from backend.nlp.types import (
     stable_hash_id,
 )
 
+def _result_payload_and_validation(
+    result_payload: dict[str, Any],
+) -> tuple[dict[str, Any], bool, list[str], dict[str, Any]]:
+    """Extract normalized proposal payload and validation metadata."""
+    if "proposal_payload" in result_payload:
+        return (
+            dict(result_payload.get("proposal_payload", {})),
+            bool(result_payload.get("is_valid", False)),
+            list(result_payload.get("validation_errors", [])),
+            dict(result_payload.get("raw_payload", {})),
+        )
+    return dict(result_payload), True, [], dict(result_payload)
+
 
 def _base_proposal(
     *,
@@ -355,6 +368,9 @@ def project_llm_task_results_to_database_proposals(
                 )
             )
             continue
+        proposal_payload, is_valid, validation_errors, raw_payload = _result_payload_and_validation(
+            result.payload
+        )
         evidence_refs = [
             DatabaseProposalEvidenceRef(
                 evidence_id=item.evidence_id,
@@ -384,13 +400,22 @@ def project_llm_task_results_to_database_proposals(
             evidence_refs=evidence_refs,
             evidence_quotes=[item.quote for item in packet.evidence_payload[:8]],
             subject_keys=[],
-            retrieval_tags=[result.task_family.value, "llm_inferred"],
-            payload=dict(result.payload),
+            retrieval_tags=[
+                result.task_family.value,
+                "llm_inferred",
+                "llm_validated" if is_valid else "llm_validation_failed",
+            ],
+            payload=proposal_payload,
             raw_source_payload={
                 "response_id": result.response_id,
                 "provider": result.provider,
                 "model": result.model,
                 "task_goal": packet.task_goal,
+                "llm_validation": {
+                    "is_valid": is_valid,
+                    "validation_errors": validation_errors,
+                },
+                "llm_raw_payload": raw_payload,
             },
             source_result_ids=[result.response_id] if result.response_id else [],
         )

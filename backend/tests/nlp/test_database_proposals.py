@@ -91,10 +91,10 @@ def test_completed_llm_results_project_to_llm_database_proposals():
 
 
 def test_validation_sets_insertability_states():
-    # Validation must separate insertable deterministic proposals from LLM
-    # proposals that still need normalization.
+    # Validation should accept typed-valid LLM envelopes while preserving
+    # needs-normalization behavior for invalid envelopes.
     deterministic, _ = project_task_packets_to_database_proposals([_packet()])
-    llm, _ = project_llm_task_results_to_database_proposals(
+    llm_valid, _ = project_llm_task_results_to_database_proposals(
         [
             LLMTaskResult(
                 task_id="task-1",
@@ -104,15 +104,47 @@ def test_validation_sets_insertability_states():
                 model="test-model",
                 provider="test-provider",
                 response_id="resp-2",
-                payload={"items": []},
+                payload={
+                    "proposal_payload": {"task_id": "task-1", "facts": []},
+                    "is_valid": True,
+                    "validation_errors": [],
+                    "raw_payload": {"task_id": "task-1", "facts": []},
+                },
+            )
+        ],
+        [_packet()],
+    )
+    llm_invalid, _ = project_llm_task_results_to_database_proposals(
+        [
+            LLMTaskResult(
+                task_id="task-1",
+                task_family=LLMTaskFamily.RECORD_FACT_EXTRACTION,
+                schema_id="record_fact_extraction.v1",
+                status=LLMTaskResultStatus.COMPLETED,
+                model="test-model",
+                provider="test-provider",
+                response_id="resp-3",
+                payload={
+                    "proposal_payload": {},
+                    "is_valid": False,
+                    "validation_errors": ["missing required field"],
+                    "raw_payload": {},
+                },
             )
         ],
         [_packet()],
     )
 
-    validated, diagnostics = validate_database_proposals(deterministic + llm)
-    by_state = {item.proposal_state.value: item.insertability_state.value for item in validated}
+    validated_valid, diagnostics_valid = validate_database_proposals(deterministic + llm_valid)
+    llm_valid_state = [
+        item.insertability_state.value
+        for item in validated_valid
+        if item.proposal_state.value == "llm_proposal"
+    ][0]
+    assert llm_valid_state == "insertable"
 
-    assert by_state["deterministic_proposal"] == "insertable"
-    assert by_state["llm_proposal"] == "needs_normalization"
-    assert any(item.code == "llm_observed_not_normalized" for item in diagnostics)
+    validated_invalid, diagnostics_invalid = validate_database_proposals(deterministic + llm_invalid)
+    by_state_invalid = {item.proposal_state.value: item.insertability_state.value for item in validated_invalid}
+    assert by_state_invalid["deterministic_proposal"] == "insertable"
+    assert by_state_invalid["llm_proposal"] == "needs_normalization"
+    assert any(item.code == "llm_observed_not_normalized" for item in diagnostics_valid + diagnostics_invalid)
