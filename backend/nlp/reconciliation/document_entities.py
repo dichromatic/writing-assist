@@ -4,12 +4,10 @@ Per-document entity summaries for later corpus reconciliation.
 .. code-block:: mermaid
 
     flowchart TD
-        A[MentionCluster list] --> B[score_all]
-        C[AttributionRecord list] --> B
-        A --> D[classify_clusters]
-        C --> D
-        E[PromotedEvidenceBundle] --> F[Bucket lookup]
-        B & D & F --> G[DocumentEntityRecord list]
+        A[MentionCluster list] --> B[Iterate clusters]
+        C[PromotedEvidenceBundle] --> D[Bucket lookup]
+        E[Promotion scores + classifications] --> B
+        B & D --> F[DocumentEntityRecord list]
 """
 
 from __future__ import annotations

@@ -1,6 +1,6 @@
 """
 Evidence promotion - classifies clusters into promoted, review-only, or suppressed
-buckets and constructs the PromotedEvidenceBundle for downstream stages.
+buckets and returns promotion outputs for downstream stages.
 
 .. code-block:: mermaid
 
@@ -14,6 +14,7 @@ buckets and constructs the PromotedEvidenceBundle for downstream stages.
         C -->|score between thresholds| G2[ReviewOnlyCandidate\nreason: mid-confidence]
         F & G & G2 --> H[Build EvidenceWindows for all anchors]
         D & E & F & G & G2 & H --> I[PromotedEvidenceBundle]
+        I --> J[PromotionResult]
 """
 
 from __future__ import annotations
