@@ -15,7 +15,11 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from backend.nlp.harvesting.shared import RELATION_ROLE_NOUNS, TITLE_PREFIXES, stable_hash_id
+from backend.nlp.harvesting.shared import (
+    RELATION_ROLE_NOUNS,
+    TITLE_PREFIXES_LOWER,
+    stable_hash_id,
+)
 from backend.nlp.types import (
     CharacterSemanticSummary,
     ConflictRecord,
@@ -38,7 +42,6 @@ from backend.nlp.types import (
     SpanAnchor,
 )
 
-_TITLE_PREFIXES_NORMALIZED = frozenset(title.lower() for title in TITLE_PREFIXES)
 _RELATION_ROLE_NOUNS_NORMALIZED = frozenset(noun.lower() for noun in RELATION_ROLE_NOUNS)
 _CONTEXT_WINDOW_CHARS = 60
 _REFERENCE_SUPPRESSED_ORBIT_CHARS = 40
@@ -530,7 +533,7 @@ def extract_reference_candidates(
         pre,
         records,
         attribution_records,
-        _TITLE_PREFIXES_NORMALIZED,
+        TITLE_PREFIXES_LOWER,
         ReferenceCandidateType.BOUND_TITLE_ROLE,
         ReferenceCandidateType.BARE_TITLE_ROLE,
         True,
@@ -553,15 +556,6 @@ def extract_reference_candidates(
             candidate.reference_type.value,
         ),
     )
-
-
-def extract_title_role_candidates(
-    pre: PreprocessedDocument,
-    records: list[DocumentEntityRecord],
-    attribution_records: list,
-) -> list[ReferenceCandidate]:
-    """Backward-compatible wrapper for callers still using the old name."""
-    return extract_reference_candidates(pre, records, attribution_records)
 
 
 def build_conflict_records(entities: list[CorpusEntity]) -> list[ConflictRecord]:

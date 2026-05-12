@@ -26,20 +26,14 @@ _workspace = _os.path.dirname(_os.path.realpath(__file__))
 if _workspace not in _sys.path:
     _sys.path.insert(0, _workspace)
 
-from backend.nlp.lexicon.bootstrap import bootstrap
-from backend.nlp.parsing.document_parser import parse
-from backend.nlp.parsing.preprocessing import preprocess
-from backend.nlp.promotion.attribution import attribute_dialogue
-from backend.nlp.promotion.promotion import promote
+from backend.nlp.pipeline import run_document_pipeline
 from backend.nlp.reconciliation.corpus_entities import reconcile_document_entities
-from backend.nlp.reconciliation.document_entities import summarize_document_entities
 from backend.nlp.semantic_review import (
     build_character_summaries,
-    build_manuscript_review_bundle,
+    build_manuscript_review_bundle as build_manuscript_bundle,
     build_reference_clusters,
     build_conflict_records,
     build_review_tasks,
-    extract_reference_candidates,
     manuscript_bundle_to_jsonable,
     render_manuscript_review_report,
 )
@@ -61,15 +55,9 @@ def _collect_document_outputs(
     records: list[DocumentEntityRecord] = []
     references: list[ReferenceCandidate] = []
     for path in paths:
-        raw = path.read_text(encoding="utf-8")
-        doc = parse(str(path), raw)
-        pre = preprocess(doc)
-        result = bootstrap(doc)
-        attribution_records = attribute_dialogue(pre, result.clusters)
-        bundle = promote(pre, result.clusters, result.lexicon, attribution_records)
-        document_records = summarize_document_entities(pre, result.clusters, attribution_records, bundle)
-        records.extend(document_records)
-        references.extend(extract_reference_candidates(pre, document_records, attribution_records))
+        result = run_document_pipeline(str(path), path.read_text(encoding="utf-8"))
+        records.extend(result.entity_records)
+        references.extend(result.reference_candidates)
     return records, references
 
 
@@ -93,7 +81,7 @@ def _build_manuscript_review_bundle(paths: list[Path]) -> ManuscriptReviewBundle
         conflicts,
     )
     review_tasks = build_review_tasks(reference_clusters, conflicts, character_summaries)
-    return build_manuscript_review_bundle(
+    return build_manuscript_bundle(
         paths,
         records,
         corpus.canonical_entities,
@@ -150,18 +138,6 @@ def _write_manuscript_artifacts(
         encoding="utf-8",
     )
     return report_path, artifact_path
-
-
-def _format_report(bundle: ManuscriptReviewBundle) -> str:
-    """Backward-compatible wrapper around the manuscript report renderer.
-
-    Args:
-        bundle: Persisted manuscript review bundle.
-
-    Returns:
-        Human-readable manuscript handoff report text.
-    """
-    return render_manuscript_review_report(bundle)
 
 
 def main(glob_pattern: str, output_path: str, json_output_path: str | None = None) -> int:

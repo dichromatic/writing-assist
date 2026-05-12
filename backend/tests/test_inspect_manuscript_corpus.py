@@ -3,7 +3,8 @@
 import json
 from pathlib import Path
 
-from inspect_manuscript_corpus import _format_report, _write_manuscript_artifacts
+from inspect_manuscript_corpus import _write_manuscript_artifacts
+from backend.nlp.semantic_review import render_manuscript_review_report
 from backend.nlp.types import (
     CharacterSemanticSummary,
     ConflictSource,
@@ -133,7 +134,7 @@ def test_report_treats_buckets_as_visibility_tiers_and_stops_at_questions():
         review_tasks=review_tasks,
     )
 
-    report = _format_report(bundle)
+    report = render_manuscript_review_report(bundle)
 
     assert "BUCKET SEMANTICS" in report
     assert "suppressed  : hidden from the main entity inventory, but retained" in report

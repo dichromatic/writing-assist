@@ -122,6 +122,7 @@ def _deduplicate_candidates(candidates: list[MentionCandidate]) -> list[MentionC
 def bootstrap(
     doc: ParsedMarkdownDocument,
     max_passes: int = 3,
+    pre: PreprocessedDocument | None = None,
 ) -> BootstrapResult:
     """Run the convergence loop and return the final lexicon and clusters.
 
@@ -134,12 +135,14 @@ def bootstrap(
         doc: A parsed Markdown document from the parsing stage.
         max_passes: Maximum total number of passes including pass 0. Must be
             >= 1. Set to 1 to disable the convergence loop (pass 0 only).
+        pre: Optional preprocessed document. When provided, bootstrap reuses
+            this object instead of preprocessing the parsed document again.
 
     Returns:
         BootstrapResult with the final lexicon, clusters, candidates, pass count,
         and per-pass new-entry counts.
     """
-    pre = preprocess(doc)
+    pre = pre or preprocess(doc)
 
     # Pass 0: harvest without lexicon
     candidates = harvest_manuscript(pre)

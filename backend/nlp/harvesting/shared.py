@@ -38,6 +38,13 @@ TITLE_PREFIXES: frozenset[str] = frozenset({
     'Saint', 'St',
 })
 
+# Reused lowercase projection of title prefixes. Centralizing this avoids
+# duplicate set construction across classification, promotion, and review
+# modules that all apply the same membership test.
+TITLE_PREFIXES_LOWER: frozenset[str] = frozenset(
+    title.lower() for title in TITLE_PREFIXES
+)
+
 # ---------------------------------------------------------------------------
 # Relation-role nouns
 #

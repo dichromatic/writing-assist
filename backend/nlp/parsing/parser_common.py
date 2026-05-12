@@ -6,19 +6,47 @@ Shared parser helpers for span-based document parsing.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from enum import Enum
 import re
-from typing import Optional, Union
+from typing import Callable, Optional, Union
 
 from backend.nlp.types import (
     Heading,
+    ParsedMarkdownDocument,
     Paragraph,
     Scene,
     SceneBreak,
     Section,
     SectionAnchor,
+    SpanAnchor,
 )
 
 _Span = Union[Heading, Paragraph, SceneBreak]
+
+
+class LineClassification(Enum):
+    """Line-level structural classification emitted by parser callbacks."""
+
+    HEADING = "heading"
+    SCENE_BREAK = "scene_break"
+    PARAGRAPH = "paragraph"
+    BLANK = "blank"
+
+
+@dataclass(frozen=True)
+class ClassifiedLine:
+    """Structured line classification used by the shared scanner.
+
+    Args:
+        classification: Structural class for the source line.
+        heading_level: Heading depth when classification is HEADING.
+        heading_normalized_text: Normalized heading text.
+    """
+
+    classification: LineClassification
+    heading_level: int = 0
+    heading_normalized_text: str = ""
 
 
 def normalize_text(text: str) -> str:
@@ -43,6 +71,136 @@ def strip_closing_hashes(text: str) -> str:
         The heading text without any Markdown closing hashes.
     """
     return re.sub(r"\s+#+\s*$", "", text).strip()
+
+
+def scan_document(
+    path: str,
+    text: str,
+    classify_line: Callable[[str], ClassifiedLine],
+) -> ParsedMarkdownDocument:
+    """Parse document lines into shared span model via callback classification.
+
+    Args:
+        path: Source document path.
+        text: Raw source text.
+        classify_line: Parser-specific line classifier callback.
+
+    Returns:
+        ParsedMarkdownDocument with headings, paragraphs, scene breaks, sections,
+        and scenes.
+    """
+    headings: list[Heading] = []
+    paragraphs: list[Paragraph] = []
+    scene_breaks: list[SceneBreak] = []
+    ordinal = 0
+
+    paragraph_lines: list[str] = []
+    paragraph_start = 0
+
+    def next_ordinal() -> int:
+        nonlocal ordinal
+        current = ordinal
+        ordinal += 1
+        return current
+
+    def make_anchor(span_ordinal: int, start_char: int, end_char: int) -> SpanAnchor:
+        return SpanAnchor(
+            path=path,
+            span_ordinal=span_ordinal,
+            start_char=start_char,
+            end_char=end_char,
+        )
+
+    def flush_paragraph() -> None:
+        if not paragraph_lines:
+            return
+        raw = "".join(paragraph_lines).rstrip()
+        if not raw:
+            paragraph_lines.clear()
+            return
+        end_char = paragraph_start + len(raw)
+        span_ordinal = next_ordinal()
+        paragraphs.append(
+            Paragraph(
+                text=raw,
+                normalized_text=normalize_text(raw),
+                span_ordinal=span_ordinal,
+                start_char=paragraph_start,
+                end_char=end_char,
+                anchor=make_anchor(span_ordinal, paragraph_start, end_char),
+            )
+        )
+        paragraph_lines.clear()
+
+    position = 0
+    for line in text.splitlines(keepends=True):
+        line_start = position
+        position += len(line)
+        stripped = line.rstrip("\n\r")
+        classified = classify_line(stripped)
+
+        if classified.classification == LineClassification.BLANK:
+            flush_paragraph()
+            continue
+
+        if classified.classification == LineClassification.HEADING:
+            flush_paragraph()
+            if not classified.heading_normalized_text:
+                if not paragraph_lines:
+                    paragraph_start = line_start
+                paragraph_lines.append(line)
+                continue
+            end_char = line_start + len(stripped)
+            span_ordinal = next_ordinal()
+            headings.append(
+                Heading(
+                    text=stripped,
+                    level=classified.heading_level,
+                    normalized_text=classified.heading_normalized_text,
+                    span_ordinal=span_ordinal,
+                    start_char=line_start,
+                    end_char=end_char,
+                    anchor=make_anchor(span_ordinal, line_start, end_char),
+                )
+            )
+            continue
+
+        if classified.classification == LineClassification.SCENE_BREAK:
+            flush_paragraph()
+            end_char = line_start + len(stripped)
+            span_ordinal = next_ordinal()
+            scene_breaks.append(
+                SceneBreak(
+                    span_ordinal=span_ordinal,
+                    start_char=line_start,
+                    end_char=end_char,
+                    anchor=make_anchor(span_ordinal, line_start, end_char),
+                )
+            )
+            continue
+
+        if not paragraph_lines:
+            paragraph_start = line_start
+        paragraph_lines.append(line)
+
+    flush_paragraph()
+
+    all_spans: list[_Span] = sorted(
+        [*headings, *paragraphs, *scene_breaks],
+        key=lambda span: span.span_ordinal,
+    )
+    sections = derive_sections(path, all_spans, len(text))
+    scenes = derive_scenes(all_spans, sections, len(text))
+
+    return ParsedMarkdownDocument(
+        path=path,
+        raw_text=text,
+        headings=headings,
+        paragraphs=paragraphs,
+        scene_breaks=scene_breaks,
+        sections=sections,
+        scenes=scenes,
+    )
 
 
 def derive_sections(

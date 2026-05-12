@@ -11,7 +11,7 @@ noise from the corpus.
 
 from __future__ import annotations
 
-from dataclasses import asdict, fields, is_dataclass
+from dataclasses import fields, is_dataclass
 from enum import Enum
 from typing import Any
 
@@ -80,19 +80,22 @@ def to_llm_safe_jsonable(value: Any) -> Any:
     Returns:
         JSON-serializable deep structure with strings sanitized.
     """
-    sanitized = sanitize_for_llm(value)
-
-    def _to_jsonable(inner_value: Any) -> Any:
-        if isinstance(inner_value, Enum):
-            return inner_value.value
-        if is_dataclass(inner_value):
-            return _to_jsonable(asdict(inner_value))
-        if isinstance(inner_value, dict):
-            return {key: _to_jsonable(value) for key, value in inner_value.items()}
-        if isinstance(inner_value, list):
-            return [_to_jsonable(item) for item in inner_value]
-        if isinstance(inner_value, tuple):
-            return [_to_jsonable(item) for item in inner_value]
-        return inner_value
-
-    return _to_jsonable(sanitized)
+    if isinstance(value, str):
+        return strip_emoji(value)
+    if isinstance(value, Enum):
+        return value.value
+    if is_dataclass(value):
+        return {
+            field.name: to_llm_safe_jsonable(getattr(value, field.name))
+            for field in fields(value)
+        }
+    if isinstance(value, dict):
+        return {
+            strip_emoji(key) if isinstance(key, str) else key: to_llm_safe_jsonable(inner_value)
+            for key, inner_value in value.items()
+        }
+    if isinstance(value, list):
+        return [to_llm_safe_jsonable(item) for item in value]
+    if isinstance(value, tuple):
+        return [to_llm_safe_jsonable(item) for item in value]
+    return value

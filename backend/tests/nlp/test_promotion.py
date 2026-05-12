@@ -37,9 +37,9 @@ def run_promote(text: str, path: str = "doc.md"):
     """Run the full pipeline through to a PromotedEvidenceBundle."""
     doc = parse(path, text)
     pre = preprocess(doc)
-    result = bootstrap(doc)
+    result = bootstrap(doc, pre=pre)
     attribution_records = attribute_dialogue(pre, result.clusters)
-    return promote(pre, result.clusters, result.lexicon, attribution_records)
+    return promote(pre, result.clusters, result.lexicon, attribution_records).bundle
 
 
 # ---------------------------------------------------------------------------
@@ -305,7 +305,7 @@ class TestPromotion:
         pre = preprocess(doc)
         result = bootstrap(doc)
         attribution_records = attribute_dialogue(pre, result.clusters)
-        bundle = promote(pre, result.clusters, result.lexicon, attribution_records)
+        bundle = promote(pre, result.clusters, result.lexicon, attribution_records).bundle
         aldous_windows = [w for w in bundle.evidence_windows if w.entity_key == "aldous"]
         assert any(w.has_attribution for w in aldous_windows)
 
@@ -385,7 +385,7 @@ class TestPromotion:
             cluster_id=stable_hash_id("doc.md", "still"),
         )
 
-        bundle = promote(pre, [cluster], [], [])
+        bundle = promote(pre, [cluster], [], []).bundle
         suppressed_keys = {c.cluster.normalized_key for c in bundle.suppressed}
         review_keys = {c.cluster.normalized_key for c in bundle.review_only}
         assert "still" in suppressed_keys

@@ -29,7 +29,6 @@ from backend.nlp.semantic_review import (
     build_semantic_proposals,
     build_review_tasks,
     extract_reference_candidates,
-    extract_title_role_candidates,
 )
 
 
@@ -39,8 +38,14 @@ def _document_records(text: str, path: str = "doc.md"):
     pre = preprocess(doc)
     result = bootstrap(doc)
     attribution_records = attribute_dialogue(pre, result.clusters)
-    bundle = promote(pre, result.clusters, result.lexicon, attribution_records)
-    records = summarize_document_entities(pre, result.clusters, attribution_records, bundle)
+    promotion_result = promote(pre, result.clusters, result.lexicon, attribution_records)
+    records = summarize_document_entities(
+        pre,
+        result.clusters,
+        promotion_result.bundle,
+        promotion_result.scores,
+        promotion_result.classifications,
+    )
     return pre, records
 
 
@@ -50,8 +55,14 @@ def _document_outputs(text: str, path: str = "doc.md"):
     pre = preprocess(doc)
     result = bootstrap(doc)
     attribution_records = attribute_dialogue(pre, result.clusters)
-    bundle = promote(pre, result.clusters, result.lexicon, attribution_records)
-    records = summarize_document_entities(pre, result.clusters, attribution_records, bundle)
+    promotion_result = promote(pre, result.clusters, result.lexicon, attribution_records)
+    records = summarize_document_entities(
+        pre,
+        result.clusters,
+        promotion_result.bundle,
+        promotion_result.scores,
+        promotion_result.classifications,
+    )
     return pre, records, attribution_records
 
 
@@ -108,7 +119,7 @@ class TestReferenceCandidates:
             "Captain Aldous arrived. The captain told Aldous to wait."
         )
 
-        candidates = extract_title_role_candidates(pre, records, [])
+        candidates = extract_reference_candidates(pre, records, [])
         by_type_and_surface = {
             (candidate.reference_type.value, candidate.normalized): candidate
             for candidate in candidates
@@ -127,7 +138,7 @@ class TestReferenceCandidates:
             "Captain Aldous arrived. The captain nodded. The captain waited."
         )
 
-        candidates = extract_title_role_candidates(pre, records, [])
+        candidates = extract_reference_candidates(pre, records, [])
         clusters = build_reference_clusters(candidates, records)
         bare_captain = next(
             cluster for cluster in clusters
@@ -147,7 +158,7 @@ class TestReferenceCandidates:
             "Captain Aldous arrived. Captain Beatrix left. The captain waited."
         )
 
-        candidates = extract_title_role_candidates(pre, records, [])
+        candidates = extract_reference_candidates(pre, records, [])
         clusters = build_reference_clusters(candidates, records)
         bare_captain = next(
             cluster for cluster in clusters
@@ -163,7 +174,7 @@ class TestReferenceCandidates:
         # dropped because no nearby entity could be linked.
         pre, records = _document_records("The captain waited in silence.")
 
-        candidates = extract_title_role_candidates(pre, records, [])
+        candidates = extract_reference_candidates(pre, records, [])
         tasks = build_review_tasks(build_reference_clusters(candidates, records), [])
 
         assert any(task.kind == ReviewTaskKind.TITLE_ROLE_ATTACHMENT for task in tasks)

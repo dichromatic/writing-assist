@@ -28,29 +28,20 @@ outline headings such as "0.1 - Mission Briefing".
 from __future__ import annotations
 
 import re
-from typing import Union
 
 from backend.nlp.parsing.parser_common import (
-    derive_scenes,
-    derive_sections,
+    ClassifiedLine,
+    LineClassification,
     normalize_text,
+    scan_document,
     strip_closing_hashes,
 )
-from backend.nlp.types import (
-    Heading,
-    Paragraph,
-    ParsedMarkdownDocument,
-    SceneBreak,
-    SpanAnchor,
-)
+from backend.nlp.types import ParsedMarkdownDocument
 
 _MARKDOWN_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)")
 _SCENE_BREAK_RE = re.compile(r"^\s*(-{3,}|\*{3,}|_{3,})\s*$")
 _NUMBERED_HEADING_RE = re.compile(r"^\s*(\d+(?:\.\d+)*)\s*[—–-]\s+(.+?)\s*$")
 _ALLOWED_HEADING_PUNCTUATION = frozenset({"-", "—", "–", ":", "/", "&", "'", '"', "“", "”", "(", ")"})
-
-_Span = Union[Heading, Paragraph, SceneBreak]
-
 
 def _looks_like_uppercase_heading(line: str) -> bool:
     """Return True when a line is a likely uppercase title heading.
@@ -107,152 +98,36 @@ def parse(path: str, text: str) -> ParsedMarkdownDocument:
     Returns:
         Parsed document with headings, paragraphs, sections, and scenes.
     """
-    headings: list[Heading] = []
-    paragraphs: list[Paragraph] = []
-    scene_breaks: list[SceneBreak] = []
-    ordinal = 0
-
-    paragraph_lines: list[str] = []
-    paragraph_start = 0
-
-    def next_ordinal() -> int:
-        nonlocal ordinal
-        current = ordinal
-        ordinal += 1
-        return current
-
-    def make_anchor(span_ordinal: int, start_char: int, end_char: int) -> SpanAnchor:
-        return SpanAnchor(
-            path=path,
-            span_ordinal=span_ordinal,
-            start_char=start_char,
-            end_char=end_char,
-        )
-
-    def flush_paragraph() -> None:
-        if not paragraph_lines:
-            return
-        raw = "".join(paragraph_lines).rstrip()
-        if not raw:
-            paragraph_lines.clear()
-            return
-        end_char = paragraph_start + len(raw)
-        span_ordinal = next_ordinal()
-        paragraphs.append(
-            Paragraph(
-                text=raw,
-                normalized_text=normalize_text(raw),
-                span_ordinal=span_ordinal,
-                start_char=paragraph_start,
-                end_char=end_char,
-                anchor=make_anchor(span_ordinal, paragraph_start, end_char),
-            )
-        )
-        paragraph_lines.clear()
-
-    position = 0
-    for line in text.splitlines(keepends=True):
-        line_start = position
-        position += len(line)
-        stripped = line.rstrip("\n\r")
-
+    def classify_line(stripped: str) -> ClassifiedLine:
         if not stripped or stripped.isspace():
-            flush_paragraph()
-            continue
-
+            return ClassifiedLine(classification=LineClassification.BLANK)
         markdown_heading = _MARKDOWN_HEADING_RE.match(stripped)
         if markdown_heading:
-            flush_paragraph()
             level = len(markdown_heading.group(1))
             heading_text = strip_closing_hashes(markdown_heading.group(2))
-            if not heading_text:
-                if not paragraph_lines:
-                    paragraph_start = line_start
-                paragraph_lines.append(line)
-                continue
-            end_char = line_start + len(stripped)
-            span_ordinal = next_ordinal()
-            headings.append(
-                Heading(
-                    text=stripped,
-                    level=level,
-                    normalized_text=heading_text,
-                    span_ordinal=span_ordinal,
-                    start_char=line_start,
-                    end_char=end_char,
-                    anchor=make_anchor(span_ordinal, line_start, end_char),
-                )
+            return ClassifiedLine(
+                classification=LineClassification.HEADING,
+                heading_level=level,
+                heading_normalized_text=heading_text,
             )
-            continue
 
         if _SCENE_BREAK_RE.match(stripped):
-            flush_paragraph()
-            end_char = line_start + len(stripped)
-            span_ordinal = next_ordinal()
-            scene_breaks.append(
-                SceneBreak(
-                    span_ordinal=span_ordinal,
-                    start_char=line_start,
-                    end_char=end_char,
-                    anchor=make_anchor(span_ordinal, line_start, end_char),
-                )
-            )
-            continue
+            return ClassifiedLine(classification=LineClassification.SCENE_BREAK)
 
         outline_heading = _NUMBERED_HEADING_RE.match(stripped)
         if outline_heading:
-            flush_paragraph()
-            end_char = line_start + len(stripped)
-            span_ordinal = next_ordinal()
-            headings.append(
-                Heading(
-                    text=stripped,
-                    level=_outline_heading_level(outline_heading.group(1)),
-                    normalized_text=stripped.strip(),
-                    span_ordinal=span_ordinal,
-                    start_char=line_start,
-                    end_char=end_char,
-                    anchor=make_anchor(span_ordinal, line_start, end_char),
-                )
+            return ClassifiedLine(
+                classification=LineClassification.HEADING,
+                heading_level=_outline_heading_level(outline_heading.group(1)),
+                heading_normalized_text=stripped.strip(),
             )
-            continue
 
         if _looks_like_uppercase_heading(stripped):
-            flush_paragraph()
-            end_char = line_start + len(stripped)
-            span_ordinal = next_ordinal()
-            headings.append(
-                Heading(
-                    text=stripped,
-                    level=1,
-                    normalized_text=normalize_text(stripped),
-                    span_ordinal=span_ordinal,
-                    start_char=line_start,
-                    end_char=end_char,
-                    anchor=make_anchor(span_ordinal, line_start, end_char),
-                )
+            return ClassifiedLine(
+                classification=LineClassification.HEADING,
+                heading_level=1,
+                heading_normalized_text=normalize_text(stripped),
             )
-            continue
+        return ClassifiedLine(classification=LineClassification.PARAGRAPH)
 
-        if not paragraph_lines:
-            paragraph_start = line_start
-        paragraph_lines.append(line)
-
-    flush_paragraph()
-
-    all_spans: list[_Span] = sorted(
-        [*headings, *paragraphs, *scene_breaks],
-        key=lambda span: span.span_ordinal,
-    )
-    sections = derive_sections(path, all_spans, len(text))
-    scenes = derive_scenes(all_spans, sections, len(text))
-
-    return ParsedMarkdownDocument(
-        path=path,
-        raw_text=text,
-        headings=headings,
-        paragraphs=paragraphs,
-        scene_breaks=scene_breaks,
-        sections=sections,
-        scenes=scenes,
-    )
+    return scan_document(path, text, classify_line)

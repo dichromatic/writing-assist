@@ -32,8 +32,14 @@ def run_document_entities(text: str, path: str) -> list[DocumentEntityRecord]:
     pre = preprocess(doc)
     result = bootstrap(doc)
     attribution_records = attribute_dialogue(pre, result.clusters)
-    bundle = promote(pre, result.clusters, result.lexicon, attribution_records)
-    return summarize_document_entities(pre, result.clusters, attribution_records, bundle)
+    promotion_result = promote(pre, result.clusters, result.lexicon, attribution_records)
+    return summarize_document_entities(
+        pre,
+        result.clusters,
+        promotion_result.bundle,
+        promotion_result.scores,
+        promotion_result.classifications,
+    )
 
 
 def make_record(

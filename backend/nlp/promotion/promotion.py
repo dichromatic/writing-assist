@@ -18,6 +18,8 @@ buckets and constructs the PromotedEvidenceBundle for downstream stages.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from backend.nlp.classification.arbitration import classify_clusters
 from backend.nlp.classification.compound_shapes import compound_parts
 from backend.nlp.types import (
@@ -36,7 +38,7 @@ from backend.nlp.types import (
     SuppressedCandidate,
 )
 from backend.nlp.harvesting.shared import (
-    TITLE_PREFIXES,
+    TITLE_PREFIXES_LOWER,
     has_generic_modifier_profile,
     has_generic_verb_sense,
     is_stopword,
@@ -50,12 +52,19 @@ from backend.nlp.promotion.scoring import PROMOTE_THRESHOLD, SUPPRESS_THRESHOLD,
 # outer bound; the real edge is the sentence start or end closest to that limit.
 _CONTEXT_RADIUS = 150
 
-# Lowercased set of every title prefix string from shared.py. A cluster whose
-# normalized_key appears here is a bare title ("captain", "lord") rather than a
-# name. These clusters are real character references - characters are frequently
-# referred to only by title - but they are ambiguous enough that a human reviewer
-# should confirm them before they enter the promoted bucket.
-_BARE_TITLE_KEYS: frozenset[str] = frozenset(t.lower() for t in TITLE_PREFIXES)
+@dataclass
+class PromotionResult:
+    """Complete promotion output including reusable intermediate decisions.
+
+    Args:
+        bundle: Final promotion buckets and evidence windows.
+        classifications: Deterministic category decisions per cluster key.
+        scores: Deterministic confidence signals and score per cluster key.
+    """
+
+    bundle: PromotedEvidenceBundle
+    classifications: dict[str, object]
+    scores: dict[str, tuple[object, float]]
 
 
 def _should_suppress_generic_verb_noise(
@@ -85,8 +94,7 @@ def _should_suppress_generic_verb_noise(
 
 def _has_fully_covering_longer_compound(
     cluster: MentionCluster,
-    clusters: list[MentionCluster],
-    classifications: dict[str, object],
+    accepted_compound_anchors_by_span: dict[int, list[tuple[int, int, str, int]]],
 ) -> bool:
     """Return True when every anchor is covered by a longer accepted compound.
 
@@ -95,35 +103,23 @@ def _has_fully_covering_longer_compound(
     only counts when it has at least accepted entityhood so arbitrary overlaps
     do not suppress shorter clusters.
     """
-    cluster_parts = compound_parts(cluster)
+    cluster_part_count = len(compound_parts(cluster))
     for anchor in cluster.anchors:
-        covered = False
-        for other in clusters:
-            if other.cluster_id == cluster.cluster_id:
-                continue
-            other_parts = compound_parts(other)
-            if len(other_parts) <= len(cluster_parts):
-                continue
-            other_decision = classifications[other.normalized_key]
-            if not other_decision.entityhood.accepted:
-                continue
-            if not any(
-                other_anchor.span_ordinal == anchor.span_ordinal
-                and other_anchor.start_char <= anchor.start_char
-                and other_anchor.end_char >= anchor.end_char
-                for other_anchor in other.anchors
-            ):
-                continue
-            covered = True
-            break
-        if not covered:
+        candidates = accepted_compound_anchors_by_span.get(anchor.span_ordinal, [])
+        if not any(
+            other_cluster_id != cluster.cluster_id
+            and other_part_count > cluster_part_count
+            and other_start <= anchor.start_char
+            and other_end >= anchor.end_char
+            for other_start, other_end, other_cluster_id, other_part_count in candidates
+        ):
             return False
     return bool(cluster.anchors)
 
 
 def _should_suppress_component_overlap_noise(
     cluster: MentionCluster,
-    clusters: list[MentionCluster],
+    accepted_compound_anchors_by_span: dict[int, list[tuple[int, int, str, int]]],
     classifications: dict[str, object],
     signals,
 ) -> bool:
@@ -142,7 +138,7 @@ def _should_suppress_component_overlap_noise(
         return False
     if signals.attribution_count > 0:
         return False
-    if not _has_fully_covering_longer_compound(cluster, clusters, classifications):
+    if not _has_fully_covering_longer_compound(cluster, accepted_compound_anchors_by_span):
         return False
 
     decision = classifications[cluster.normalized_key]
@@ -150,6 +146,40 @@ def _should_suppress_component_overlap_noise(
         return False
 
     return has_generic_modifier_profile(parts[0])
+
+
+def _build_accepted_compound_anchor_index(
+    clusters: list[MentionCluster],
+    classifications: dict[str, object],
+) -> dict[int, list[tuple[int, int, str, int]]]:
+    """Build per-span accepted compound anchor index for overlap checks.
+
+    Args:
+        clusters: Mention clusters under promotion.
+        classifications: Deterministic classification decisions by cluster key.
+
+    Returns:
+        Mapping:
+        - key: span ordinal
+        - value: list of tuples
+          (anchor_start, anchor_end, cluster_id, compound_part_count)
+    """
+    index: dict[int, list[tuple[int, int, str, int]]] = {}
+    for cluster in clusters:
+        decision = classifications[cluster.normalized_key]
+        if not decision.entityhood.accepted:
+            continue
+        part_count = len(compound_parts(cluster))
+        for anchor in cluster.anchors:
+            index.setdefault(anchor.span_ordinal, []).append(
+                (
+                    anchor.start_char,
+                    anchor.end_char,
+                    cluster.cluster_id,
+                    part_count,
+                )
+            )
+    return index
 
 
 def _should_promote_place(
@@ -303,7 +333,7 @@ def promote(
     clusters: list[MentionCluster],
     lexicon: list[BootstrappedLexiconEntry],
     attribution_records: list[AttributionRecord],
-) -> PromotedEvidenceBundle:
+) -> PromotionResult:
     """Classify clusters and return the complete PromotedEvidenceBundle.
 
     Applies structural suppression (stopword check) before score-based
@@ -318,12 +348,16 @@ def promote(
         attribution_records: Speaker attribution records from attribute_dialogue.
 
     Returns:
-        PromotedEvidenceBundle with all three classification buckets and
-        the evidence windows drawn from promoted and review-only clusters.
+        PromotionResult with the promotion bundle plus reusable score and
+        classification maps for downstream stages.
     """
     doc = pre.source
     scores = score_all(clusters, attribution_records, pre)
     classifications = classify_clusters(clusters, pre, attribution_records)
+    accepted_compound_anchors_by_span = _build_accepted_compound_anchor_index(
+        clusters,
+        classifications,
+    )
 
     promoted: list[PromotedCandidate] = []
     review_only: list[ReviewOnlyCandidate] = []
@@ -347,7 +381,7 @@ def promote(
 
         if _should_suppress_component_overlap_noise(
             cluster,
-            clusters,
+            accepted_compound_anchors_by_span,
             classifications,
             signals,
         ):
@@ -410,7 +444,7 @@ def promote(
 
         if (
             score >= PROMOTE_THRESHOLD
-            and cluster.normalized_key not in _BARE_TITLE_KEYS
+            and cluster.normalized_key not in TITLE_PREFIXES_LOWER
             and review_reason is None
         ):
             promoted.append(PromotedCandidate(
@@ -428,7 +462,7 @@ def promote(
             # well when it recurs frequently, but without an accompanying name it
             # is ambiguous - the same title could refer to different people in
             # different scenes. Human review is required before promoting.
-            if score >= PROMOTE_THRESHOLD and cluster.normalized_key in _BARE_TITLE_KEYS:
+            if score >= PROMOTE_THRESHOLD and cluster.normalized_key in TITLE_PREFIXES_LOWER:
                 reason = (
                     f"'{cluster.normalized_key}' is a bare title prefix; "
                     f"confidence {score:.3f} is above promotion threshold "
@@ -454,10 +488,14 @@ def promote(
                 _build_evidence_windows(cluster, attribution_records, doc.raw_text, pre.sentences)
             )
 
-    return PromotedEvidenceBundle(
-        document_anchor=DocumentAnchor(path=doc.path),
-        promoted=promoted,
-        review_only=review_only,
-        suppressed=suppressed,
-        evidence_windows=evidence_windows,
+    return PromotionResult(
+        bundle=PromotedEvidenceBundle(
+            document_anchor=DocumentAnchor(path=doc.path),
+            promoted=promoted,
+            review_only=review_only,
+            suppressed=suppressed,
+            evidence_windows=evidence_windows,
+        ),
+        classifications=classifications,
+        scores=scores,
     )

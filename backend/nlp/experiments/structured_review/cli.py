@@ -31,13 +31,8 @@ from backend.nlp.experiments.structured_review.report import (
     render_structured_review_report,
 )
 from backend.nlp.experiments.structured_review.review_bundle import build_structured_review_bundles
-from backend.nlp.lexicon.bootstrap import bootstrap
+from backend.nlp.pipeline import run_document_pipeline
 from backend.nlp.parsing.document_parser import parse
-from backend.nlp.parsing.preprocessing import preprocess
-from backend.nlp.promotion.attribution import attribute_dialogue
-from backend.nlp.promotion.promotion import promote
-from backend.nlp.reconciliation.document_entities import summarize_document_entities
-from backend.nlp.semantic_review import extract_reference_candidates
 from backend.nlp.structured_records import segment_structured_records
 from backend.nlp.text_filtering import to_llm_safe_jsonable
 
@@ -77,17 +72,12 @@ def run_structured_review_experiment(
         metadata_manifest,
     )
     doc = parse(str(source_path), raw_text)
-    pre = preprocess(doc)
-    result = bootstrap(doc)
-    attribution_records = attribute_dialogue(pre, result.clusters)
-    bundle = promote(pre, result.clusters, result.lexicon, attribution_records)
-    entity_records = summarize_document_entities(pre, result.clusters, attribution_records, bundle)
-    reference_candidates = extract_reference_candidates(pre, entity_records, attribution_records)
+    pipeline = run_document_pipeline(str(source_path), raw_text)
     structured_records = segment_structured_records(doc)
     review_bundles, diagnostics = build_structured_review_bundles(
         structured_records,
-        entity_records,
-        reference_candidates,
+        pipeline.entity_records,
+        pipeline.reference_candidates,
         document_metadata,
     )
     if run_llm:

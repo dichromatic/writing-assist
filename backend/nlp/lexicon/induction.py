@@ -48,7 +48,7 @@ def _meets_induction_threshold(cluster: MentionCluster) -> bool:
     )
 
 
-def classify_clusters(
+def classify_cluster_categories(
     clusters: list[MentionCluster],
     pre,
     attribution_records: list,

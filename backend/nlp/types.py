@@ -481,7 +481,7 @@ class ClaimUnit:
         readable_summary: Human-readable summary for UI or chat packing.
         raw_claim_payload: Raw extraction payload that produced the claim.
         source_record_id: Structured record identifier.
-        source_document_id: Source document identifier.
+        source_document_path: Source document path.
         document_type: Corpus-file document type.
         source_family: Source record family.
         source_status: Document status metadata, when available.
@@ -511,7 +511,7 @@ class ClaimUnit:
     readable_summary: str
     raw_claim_payload: dict[str, Any]
     source_record_id: str
-    source_document_id: str
+    source_document_path: str
     document_type: DocumentType
     source_family: str
     source_status: DocumentStatus

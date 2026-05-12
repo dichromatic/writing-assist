@@ -12,7 +12,6 @@ from .review import (
     build_semantic_proposals,
     build_review_tasks,
     extract_reference_candidates,
-    extract_title_role_candidates,
 )
 
 __all__ = [
@@ -23,7 +22,6 @@ __all__ = [
     "build_semantic_proposals",
     "build_review_tasks",
     "extract_reference_candidates",
-    "extract_title_role_candidates",
     "manuscript_bundle_to_jsonable",
     "render_manuscript_review_report",
 ]

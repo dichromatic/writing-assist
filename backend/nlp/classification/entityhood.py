@@ -13,13 +13,10 @@ Entityhood scoring for clustered mention candidates.
 from __future__ import annotations
 
 from backend.nlp.classification.types import ClassEvidence, EntityhoodDecision
-from backend.nlp.harvesting.shared import TITLE_PREFIXES
+from backend.nlp.harvesting.shared import TITLE_PREFIXES_LOWER
 from backend.nlp.types import LexiconCategory, MentionCluster
 
 _ENTITYHOOD_THRESHOLD = 0.55
-_TITLE_NORMALIZED = frozenset(title.lower() for title in TITLE_PREFIXES)
-
-
 def assess_entityhood(
     cluster: MentionCluster,
     evidence_by_category: dict[LexiconCategory, ClassEvidence],
@@ -45,7 +42,7 @@ def assess_entityhood(
     if cluster.has_title_support:
         score += 0.75
         reasons.append("appears with a title prefix")
-    elif cluster.normalized_key in _TITLE_NORMALIZED:
+    elif cluster.normalized_key in TITLE_PREFIXES_LOWER:
         score += 0.55
         reasons.append("is used as a bare title reference")
 

@@ -14,8 +14,7 @@ Per-document entity summaries for later corpus reconciliation.
 
 from __future__ import annotations
 
-from backend.nlp.classification import classify_clusters
-from backend.nlp.promotion.scoring import score_all
+from backend.nlp.classification.types import ClassificationDecision
 from backend.nlp.types import (
     DocumentAnchor,
     DocumentEntityBucket,
@@ -25,6 +24,7 @@ from backend.nlp.types import (
     PromotedEvidenceBundle,
     SpanAnchor,
     SuppressedEvidence,
+    ConfidenceSignals,
 )
 
 
@@ -125,8 +125,9 @@ def _attach_suppressed_evidence_to_records(
 def summarize_document_entities(
     pre: PreprocessedDocument,
     clusters: list[MentionCluster],
-    attribution_records: list,
     bundle: PromotedEvidenceBundle,
+    scores: dict[str, tuple[ConfidenceSignals, float]],
+    classifications: dict[str, ClassificationDecision],
 ) -> list[DocumentEntityRecord]:
     """Build stable per-document entity summaries from pipeline outputs.
 
@@ -138,15 +139,14 @@ def summarize_document_entities(
     Args:
         pre: Preprocessed document context.
         clusters: Final clusters for the document.
-        attribution_records: Dialogue attribution records.
         bundle: Final promotion bundle for the same document.
+        scores: Precomputed deterministic score map from promotion.
+        classifications: Precomputed deterministic classification map from
+            promotion.
 
     Returns:
         DocumentEntityRecord list in cluster order.
     """
-    scores = score_all(clusters, attribution_records, pre)
-    classifications = classify_clusters(clusters, pre, attribution_records)
-
     promoted_by_key = {
         candidate.cluster.normalized_key: candidate
         for candidate in bundle.promoted

@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from backend.nlp.harvesting.shared import TITLE_PREFIXES, has_generic_modifier_profile
+from backend.nlp.harvesting.shared import TITLE_PREFIXES_LOWER, has_generic_modifier_profile
 from backend.nlp.types import (
     CorpusEntity,
     CorpusReconciliationResult,
@@ -28,9 +28,6 @@ from backend.nlp.types import (
     DocumentEntityRecord,
     LexiconCategory,
 )
-
-_TITLE_PREFIX_NORMALIZED = frozenset(title.lower() for title in TITLE_PREFIXES)
-
 
 def _dominant_category(records: list[DocumentEntityRecord]) -> tuple[LexiconCategory, list[LexiconCategory]]:
     """Choose the strongest current category for an exact-key group.
@@ -192,7 +189,7 @@ def _merge_character_compound_aliases(
             continue
         merge_plans[key] = parts
         if (
-            left in _TITLE_PREFIX_NORMALIZED
+            left in TITLE_PREFIXES_LOWER
             or (
                 by_key[left].dominant_category != LexiconCategory.CHARACTER
                 and by_key[right].dominant_category == LexiconCategory.CHARACTER
@@ -297,7 +294,7 @@ def _merge_generic_leading_character_aliases(
             continue
 
         if not all(
-            part in _TITLE_PREFIX_NORMALIZED or has_generic_modifier_profile(part)
+            part in TITLE_PREFIXES_LOWER or has_generic_modifier_profile(part)
             for part in parts[:-1]
         ):
             continue

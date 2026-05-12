@@ -30,12 +30,8 @@ if _workspace not in _sys.path:
 import sys
 from pathlib import Path
 
-from backend.nlp.parsing.document_parser import parse
-from backend.nlp.parsing.preprocessing import preprocess
-from backend.nlp.lexicon.bootstrap import bootstrap
-from backend.nlp.lexicon.induction import classify_clusters
-from backend.nlp.promotion.attribution import attribute_dialogue
-from backend.nlp.promotion.promotion import promote
+from backend.nlp.pipeline import run_document_pipeline
+from backend.nlp.lexicon.induction import classify_cluster_categories
 
 
 def _hr(title: str = "") -> None:
@@ -54,11 +50,12 @@ def _truncate(text: str, limit: int = 80) -> str:
 
 def main(path: str) -> None:
     raw = Path(path).read_text(encoding="utf-8")
-
-    # ------------------------------------------------------------------
-    # Stage 1: Parse
-    # ------------------------------------------------------------------
-    doc = parse(path, raw)
+    pipeline = run_document_pipeline(path, raw)
+    doc = pipeline.doc
+    pre = pipeline.pre
+    result = pipeline.bootstrap_result
+    attribution_records = pipeline.attribution_records
+    bundle = pipeline.promotion_bundle
 
     _hr("PARSE")
     print(f"  Path     : {doc.path}")
@@ -74,11 +71,6 @@ def main(path: str) -> None:
             spans_label = f"{len(scene.span_ordinals)} spans"
             print(f"    Scene {scene.scene_index}: chars {scene.start_char}-{scene.end_char}  [{spans_label}]")
 
-    # ------------------------------------------------------------------
-    # Stage 2: Preprocess
-    # ------------------------------------------------------------------
-    pre = preprocess(doc)
-
     _hr("PREPROCESS")
     total_tokens = sum(len(toks) for toks in pre.tokens_by_span.values())
     print(f"  Spans tokenised : {len(pre.tokens_by_span)}")
@@ -93,11 +85,6 @@ def main(path: str) -> None:
         if len(pre.quote_spans) > 5:
             print(f"    ... and {len(pre.quote_spans) - 5} more")
 
-    # ------------------------------------------------------------------
-    # Stage 3: Bootstrap (harvest + cluster + lexicon induction)
-    # ------------------------------------------------------------------
-    result = bootstrap(doc)
-
     _hr("BOOTSTRAP")
     print(f"  Passes run      : {result.passes_run}")
     print(f"  New per pass    : {result.new_entries_per_pass}")
@@ -105,16 +92,11 @@ def main(path: str) -> None:
     print(f"  Clusters        : {len(result.clusters)}")
     print(f"  Candidates      : {len(result.candidates)}")
 
-    # ------------------------------------------------------------------
-    # Stage 4: Attribution
-    # ------------------------------------------------------------------
-    attribution_records = attribute_dialogue(pre, result.clusters)
-
     # Re-classify clusters now that attribution evidence is available.
     # Bootstrap-time classification uses an empty attribution set because
     # attribution runs after bootstrapping. classify_clusters applies the
     # attribution tie-break so that speakers are never mislabelled as places.
-    corrected_categories = classify_clusters(result.clusters, pre, attribution_records)
+    corrected_categories = classify_cluster_categories(result.clusters, pre, attribution_records)
 
     if result.lexicon:
         print()
@@ -132,11 +114,6 @@ def main(path: str) -> None:
             print(f"    {r.speaker_key!r}  via {r.pattern}"
                   f"  (span {r.quote_anchor.span_ordinal},"
                   f" chars {r.quote_anchor.start_char}-{r.quote_anchor.end_char})")
-
-    # ------------------------------------------------------------------
-    # Stage 5: Promotion
-    # ------------------------------------------------------------------
-    bundle = promote(pre, result.clusters, result.lexicon, attribution_records)
 
     _hr("PROMOTION")
     print(f"  Promoted    : {len(bundle.promoted)}")

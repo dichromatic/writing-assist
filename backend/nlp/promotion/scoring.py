@@ -17,6 +17,7 @@ into a single deterministic confidence score in [0.0, 1.0].
 
 from __future__ import annotations
 
+import bisect
 import math
 
 from backend.nlp.types import (
@@ -25,14 +26,7 @@ from backend.nlp.types import (
     PreprocessedDocument,
 )
 from backend.nlp.promotion.attribution import AttributionRecord
-from backend.nlp.harvesting.shared import TITLE_PREFIXES
-
-# Lowercased set of title prefix strings. A cluster whose normalized_key is in
-# this set is a bare title used as a character reference ("The Captain spoke").
-# These clusters never produce a title_prefix candidate (no name follows), so
-# has_title_support is False on the cluster, but they still carry title semantics
-# and warrant tier=3 so that promotion.py's bare-title routing can intercept them.
-_TITLE_NORMALIZED: frozenset[str] = frozenset(t.lower() for t in TITLE_PREFIXES)
+from backend.nlp.harvesting.shared import TITLE_PREFIXES_LOWER
 
 # ---------------------------------------------------------------------------
 # Promotion thresholds - exported so promotion.py and tests can reference them
@@ -66,6 +60,53 @@ _SCENE_WEIGHT: float = 0.05       # per distinct scene with at least one mention
 _SCENE_CAP: float = 0.15
 _TFIDF_WEIGHT: float = 0.10       # scaled TF-IDF specificity score
 _TFIDF_CAP: float = 0.10
+
+
+def _lookup_unit_id(
+    char_offset: int,
+    unit_starts: list[int],
+    unit_triples: list[tuple[int, int, int]],
+) -> int | None:
+    """Return unit id for a character offset using bisect over unit starts.
+
+    Args:
+        char_offset: Character offset to resolve.
+        unit_starts: Sorted list of unit start offsets.
+        unit_triples: Unit records as (start_char, end_char, unit_id).
+
+    Returns:
+        Unit id when offset falls inside a unit, otherwise None.
+    """
+    index = bisect.bisect_right(unit_starts, char_offset) - 1
+    if index < 0:
+        return None
+    unit_start, unit_end, unit_id = unit_triples[index]
+    if unit_start <= char_offset < unit_end:
+        return unit_id
+    return None
+
+
+def _build_scene_lookup(
+    pre: PreprocessedDocument,
+):
+    """Build a callable that maps anchor start offsets to scene index.
+
+    Args:
+        pre: Preprocessed document with scene boundaries.
+
+    Returns:
+        Callable that resolves scene index for a character offset, or None
+        when no explicit scenes exist or the offset is outside known scenes.
+    """
+    scenes = pre.source.scenes
+    if not scenes:
+        return lambda _char_offset: None
+    scene_triples = [
+        (scene.start_char, scene.end_char, scene.scene_index)
+        for scene in scenes
+    ]
+    scene_starts = [start for start, _, _ in scene_triples]
+    return lambda char_offset: _lookup_unit_id(char_offset, scene_starts, scene_triples)
 
 
 def compute_tfidf(
@@ -111,6 +152,7 @@ def compute_tfidf(
     else:
         unit_triples = None
         num_units = max(len(pre.tokens_by_span), 1)
+    unit_starts = [start for start, _, _ in unit_triples] if unit_triples is not None else None
 
     total_count = max(sum(c.occurrence_count for c in clusters), 1)
 
@@ -121,10 +163,9 @@ def compute_tfidf(
         if unit_triples is not None:
             units_with_cluster: set[int] = set()
             for anchor in cluster.anchors:
-                for u_start, u_end, u_id in unit_triples:
-                    if u_start <= anchor.start_char < u_end:
-                        units_with_cluster.add(u_id)
-                        break
+                unit_id = _lookup_unit_id(anchor.start_char, unit_starts, unit_triples)
+                if unit_id is not None:
+                    units_with_cluster.add(unit_id)
             df = len(units_with_cluster)
         else:
             # Each anchor carries its parent span_ordinal, so df is simply the
@@ -139,7 +180,7 @@ def compute_tfidf(
 
 def compute_signals(
     cluster: MentionCluster,
-    attr_counts: dict[str, int],
+    attribution_counts: dict[str, int],
     pre: PreprocessedDocument,
     tfidf_scores: dict[str, float],
 ) -> ConfidenceSignals:
@@ -147,7 +188,7 @@ def compute_signals(
 
     Args:
         cluster: The cluster to score.
-        attr_counts: Mapping from normalized_key to number of attribution records.
+        attribution_counts: Mapping from normalized_key to number of attribution records.
         pre: The preprocessed document, used for scene-boundary lookups.
         tfidf_scores: Pre-computed TF-IDF scores from compute_tfidf.
 
@@ -164,7 +205,7 @@ def compute_signals(
     # title_prefix candidate because no name follows, so has_title_support is
     # False, but they carry title semantics and must reach PROMOTE_THRESHOLD so
     # that promotion.py's bare-title intercept can route them to review_only.
-    if cluster.has_title_support or cluster.normalized_key in _TITLE_NORMALIZED:
+    if cluster.has_title_support or cluster.normalized_key in TITLE_PREFIXES_LOWER:
         rule_tier = 3
     elif cluster.has_possessive_support:
         rule_tier = 2
@@ -179,13 +220,12 @@ def compute_signals(
     )
 
     # Count distinct scenes that contain at least one mention anchor.
-    scenes = pre.source.scenes
+    scene_lookup = _build_scene_lookup(pre)
     scene_indices: set[int] = set()
     for anchor in cluster.anchors:
-        for scene in scenes:
-            if scene.start_char <= anchor.start_char < scene.end_char:
-                scene_indices.add(scene.scene_index)
-                break
+        scene_index = scene_lookup(anchor.start_char)
+        if scene_index is not None:
+            scene_indices.add(scene_index)
     # A cluster with anchors but in a document with no explicit scene breaks
     # (empty scenes list) is treated as appearing in one implicit scene.
     scene_count = max(len(scene_indices), 1 if cluster.anchors else 0)
@@ -194,7 +234,7 @@ def compute_signals(
         rule_tier=rule_tier,
         has_title=cluster.has_title_support,
         possessive_count=possessive_count,
-        attribution_count=attr_counts.get(cluster.normalized_key, 0),
+        attribution_count=attribution_counts.get(cluster.normalized_key, 0),
         scene_count=scene_count,
         tfidf_score=tfidf_scores.get(cluster.normalized_key, 0.0),
     )
@@ -242,15 +282,15 @@ def score_all(
     Returns:
         Mapping from normalized_key to (ConfidenceSignals, confidence_score).
     """
-    attr_counts: dict[str, int] = {}
+    attribution_counts: dict[str, int] = {}
     for record in attribution_records:
-        attr_counts[record.speaker_key] = attr_counts.get(record.speaker_key, 0) + 1
+        attribution_counts[record.speaker_key] = attribution_counts.get(record.speaker_key, 0) + 1
 
     tfidf_scores = compute_tfidf(clusters, pre)
 
     result: dict[str, tuple[ConfidenceSignals, float]] = {}
     for cluster in clusters:
-        signals = compute_signals(cluster, attr_counts, pre, tfidf_scores)
+        signals = compute_signals(cluster, attribution_counts, pre, tfidf_scores)
         score = score_cluster(signals)
         result[cluster.normalized_key] = (signals, score)
 

@@ -30,6 +30,7 @@ testing before results are relied on.
 
 from __future__ import annotations
 
+from collections import defaultdict
 from dataclasses import dataclass
 from typing import Optional
 
@@ -177,6 +178,59 @@ class AttributionRecord:
     pattern: str
 
 
+def _build_surface_indexes(
+    surface_to_key: dict[str, str],
+) -> tuple[dict[str, list[tuple[int, str]]], dict[str, list[tuple[int, list[str], str]]]]:
+    """Index cluster surfaces for faster speaker matching.
+
+    The index preserves the original dict iteration order as an explicit rank
+    so speaker tie-breaking remains compatible with the existing behavior.
+
+    Args:
+        surface_to_key: Mapping from lowercase surface form to cluster key.
+
+    Returns:
+        Two indexes:
+        - single-word surface -> list of (rank, key)
+        - first word of multi-word surface -> list of (rank, remaining words, key)
+    """
+    single_word: dict[str, list[tuple[int, str]]] = defaultdict(list)
+    multi_word: dict[str, list[tuple[int, list[str], str]]] = defaultdict(list)
+    for rank, (surface, key) in enumerate(surface_to_key.items()):
+        words = surface.split()
+        if len(words) == 1:
+            single_word[words[0]].append((rank, key))
+            continue
+        multi_word[words[0]].append((rank, words[1:], key))
+    return dict(single_word), dict(multi_word)
+
+
+def _matches_speech_tag_shape(
+    token_texts: list[str],
+    verb_positions: list[int],
+    surface_start: int,
+    surface_end: int,
+) -> bool:
+    """Return True when a matched surface forms a local speech-tag shape."""
+    if any(surface_end == verb_pos - 1 for verb_pos in verb_positions):
+        return True
+    if any(surface_start == verb_pos + 1 for verb_pos in verb_positions):
+        return True
+    if any(
+        surface_end == verb_pos - 2
+        and _is_permitted_gap_token(token_texts[verb_pos - 1])
+        for verb_pos in verb_positions
+    ):
+        return True
+    if any(
+        surface_start == verb_pos + 2
+        and _is_permitted_gap_token(token_texts[verb_pos + 1])
+        for verb_pos in verb_positions
+    ):
+        return True
+    return False
+
+
 def attribute_dialogue(
     pre: PreprocessedDocument,
     clusters: list[MentionCluster],
@@ -226,6 +280,7 @@ def attribute_dialogue(
     quotes_by_span: dict[int, list[QuoteSpan]] = {}
     for quote in pre.quote_spans:
         quotes_by_span.setdefault(quote.span_ordinal, []).append(quote)
+    single_surfaces, multi_surfaces = _build_surface_indexes(surface_to_key)
 
     records: list[AttributionRecord] = []
 
@@ -269,7 +324,7 @@ def attribute_dialogue(
             # Post-quote pattern: "..." Speaker said.
             # Checked first because it is the more common English pattern and a
             # cleaner signal - the speaker tag immediately follows the quote mark.
-            speaker = _find_speaker(post_tokens[:_WINDOW_SIZE], surface_to_key)
+            speaker = _find_speaker(post_tokens[:_WINDOW_SIZE], single_surfaces, multi_surfaces)
             if speaker is not None:
                 records.append(AttributionRecord(
                     speaker_key=speaker,
@@ -279,7 +334,7 @@ def attribute_dialogue(
                 continue
 
             # Pre-quote pattern: Speaker said, "..."
-            speaker = _find_speaker(pre_tokens[-_WINDOW_SIZE:], surface_to_key)
+            speaker = _find_speaker(pre_tokens[-_WINDOW_SIZE:], single_surfaces, multi_surfaces)
             if speaker is not None:
                 records.append(AttributionRecord(
                     speaker_key=speaker,
@@ -292,7 +347,8 @@ def attribute_dialogue(
 
 def _find_speaker(
     tokens: list[Token],
-    surface_to_key: dict[str, str],
+    single_surfaces: dict[str, list[tuple[int, str]]],
+    multi_surfaces: dict[str, list[tuple[int, list[str], str]]],
 ) -> Optional[str]:
     """Return the normalized_key of the speaker cluster in a local speech tag.
 
@@ -305,7 +361,9 @@ def _find_speaker(
 
     Args:
         tokens: The pre-quote or post-quote token window, already size-limited.
-        surface_to_key: Mapping from lowercase base surface to normalized_key.
+        single_surfaces: Indexed single-token surfaces with stable rank.
+        multi_surfaces: Indexed multi-token surfaces by first token with
+            stable rank.
 
     Returns:
         The normalized_key of the attributed speaker, or None if no match found.
@@ -318,33 +376,26 @@ def _find_speaker(
     if not verb_positions:
         return None
 
-    for surface, key in surface_to_key.items():
-        words = surface.split()
-        for i in range(len(token_texts) - len(words) + 1):
-            if token_texts[i:i + len(words)] == words:
-                surface_start = i
-                surface_end = i + len(words) - 1
+    best_rank: int | None = None
+    best_key: str | None = None
+    for index, token_text in enumerate(token_texts):
+        for rank, key in single_surfaces.get(token_text, []):
+            if best_rank is not None and rank >= best_rank:
+                continue
+            if _matches_speech_tag_shape(token_texts, verb_positions, index, index):
+                best_rank = rank
+                best_key = key
 
-                if any(surface_end == verb_pos - 1 for verb_pos in verb_positions):
-                    return key
-                if any(surface_start == verb_pos + 1 for verb_pos in verb_positions):
-                    return key
-                if any(
-                    surface_end == verb_pos - 2
-                    and _is_permitted_gap_token(token_texts[verb_pos - 1])
-                    for verb_pos in verb_positions
-                ):
-                    return key
-                if any(
-                    surface_start == verb_pos + 2
-                    and _is_permitted_gap_token(token_texts[verb_pos + 1])
-                    for verb_pos in verb_positions
-                ):
-                    return key
+        for rank, remaining_words, key in multi_surfaces.get(token_text, []):
+            if best_rank is not None and rank >= best_rank:
+                continue
+            end_index = index + len(remaining_words)
+            if end_index >= len(token_texts):
+                continue
+            if token_texts[index + 1 : end_index + 1] != remaining_words:
+                continue
+            if _matches_speech_tag_shape(token_texts, verb_positions, index, end_index):
+                best_rank = rank
+                best_key = key
 
-                # Only consider the first occurrence of each surface in the
-                # window; a repeated non-adjacent name does not become a
-                # speaker unless it participates directly in a speech tag.
-                break
-
-    return None
+    return best_key

@@ -26,21 +26,14 @@ text so downstream stages can construct source anchors without re-scanning.
 from __future__ import annotations
 
 import re
-from typing import Union
 
 from backend.nlp.parsing.parser_common import (
-    derive_scenes,
-    derive_sections,
-    normalize_text,
+    ClassifiedLine,
+    LineClassification,
+    scan_document,
     strip_closing_hashes,
 )
-from backend.nlp.types import (
-    Heading,
-    Paragraph,
-    ParsedMarkdownDocument,
-    SceneBreak,
-    SpanAnchor,
-)
+from backend.nlp.types import ParsedMarkdownDocument
 
 _HEADING_RE = re.compile(r'^(#{1,6})\s+(.*)')
 # CommonMark thematic break: three or more of ---, ***, or ___ on a line by
@@ -48,9 +41,6 @@ _HEADING_RE = re.compile(r'^(#{1,6})\s+(.*)')
 # as scene breaks so manuscripts that use asterisms (***) or underscores work
 # without requiring the author to convert to dashes.
 _SCENE_BREAK_RE = re.compile(r'^\s*(-{3,}|\*{3,}|_{3,})\s*$')
-
-_Span = Union[Heading, Paragraph, SceneBreak]
-
 
 def parse(path: str, text: str) -> ParsedMarkdownDocument:
     """Parse a Markdown document into a structured span model.
@@ -67,109 +57,20 @@ def parse(path: str, text: str) -> ParsedMarkdownDocument:
     Returns:
         ParsedMarkdownDocument with all spans, sections, and scenes.
     """
-    headings: list[Heading] = []
-    paragraphs: list[Paragraph] = []
-    scene_breaks: list[SceneBreak] = []
-    ordinal = 0
-
-    para_lines: list[str] = []
-    para_start = 0
-
-    def next_ordinal() -> int:
-        nonlocal ordinal
-        n = ordinal
-        ordinal += 1
-        return n
-
-    def make_anchor(ord_: int, start: int, end: int) -> SpanAnchor:
-        return SpanAnchor(path=path, span_ordinal=ord_, start_char=start, end_char=end)
-
-    def flush_paragraph() -> None:
-        if not para_lines:
-            return
-        raw = ''.join(para_lines).rstrip()
-        if not raw:
-            para_lines.clear()
-            return
-        end = para_start + len(raw)
-        ord_ = next_ordinal()
-        paragraphs.append(Paragraph(
-            text=raw,
-            normalized_text=normalize_text(raw),
-            span_ordinal=ord_,
-            start_char=para_start,
-            end_char=end,
-            anchor=make_anchor(ord_, para_start, end),
-        ))
-        para_lines.clear()
-
-    pos = 0
-    for line in text.splitlines(keepends=True):
-        line_start = pos
-        pos += len(line)
-        stripped = line.rstrip('\n\r')
-
+    def classify_line(stripped: str) -> ClassifiedLine:
         if not stripped or stripped.isspace():
-            flush_paragraph()
-            continue
-
+            return ClassifiedLine(classification=LineClassification.BLANK)
         m = _HEADING_RE.match(stripped)
         if m:
-            flush_paragraph()
             level = len(m.group(1))
             heading_text = strip_closing_hashes(m.group(2))
-            if not heading_text:
-                # A heading with no content (e.g. "# ") carries no structural
-                # information; treat it as a paragraph line rather than
-                # creating an anonymous heading that could pollute section structure.
-                if not para_lines:
-                    para_start = line_start
-                para_lines.append(line)
-                continue
-            end = line_start + len(stripped)
-            ord_ = next_ordinal()
-            headings.append(Heading(
-                text=stripped,
-                level=level,
-                normalized_text=heading_text,
-                span_ordinal=ord_,
-                start_char=line_start,
-                end_char=end,
-                anchor=make_anchor(ord_, line_start, end),
-            ))
-            continue
-
+            return ClassifiedLine(
+                classification=LineClassification.HEADING,
+                heading_level=level,
+                heading_normalized_text=heading_text,
+            )
         if _SCENE_BREAK_RE.match(stripped):
-            flush_paragraph()
-            end = line_start + len(stripped)
-            ord_ = next_ordinal()
-            scene_breaks.append(SceneBreak(
-                span_ordinal=ord_,
-                start_char=line_start,
-                end_char=end,
-                anchor=make_anchor(ord_, line_start, end),
-            ))
-            continue
+            return ClassifiedLine(classification=LineClassification.SCENE_BREAK)
+        return ClassifiedLine(classification=LineClassification.PARAGRAPH)
 
-        if not para_lines:
-            para_start = line_start
-        para_lines.append(line)
-
-    flush_paragraph()
-
-    all_spans: list[_Span] = sorted(
-        [*headings, *paragraphs, *scene_breaks],
-        key=lambda s: s.span_ordinal,
-    )
-    sections = derive_sections(path, all_spans, len(text))
-    scenes = derive_scenes(all_spans, sections, len(text))
-
-    return ParsedMarkdownDocument(
-        path=path,
-        raw_text=text,
-        headings=headings,
-        paragraphs=paragraphs,
-        scene_breaks=scene_breaks,
-        sections=sections,
-        scenes=scenes,
-    )
+    return scan_document(path, text, classify_line)
