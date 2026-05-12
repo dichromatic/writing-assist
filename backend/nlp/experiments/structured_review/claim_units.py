@@ -14,8 +14,7 @@ Structured review claim units - project review bundles into retrieval-shaped cla
 
 from __future__ import annotations
 
-from typing import Any
-
+from backend.nlp.document_metadata import document_status_authority_weight
 from backend.nlp.harvesting.shared import stable_hash_id
 from backend.nlp.types import (
     ClaimEvidence,
@@ -26,7 +25,6 @@ from backend.nlp.types import (
     ClaimUnit,
     DeterministicFactCandidate,
     RecordReviewBundle,
-    SpanAnchor,
     StructuredRecordType,
 )
 
@@ -145,33 +143,6 @@ def _subject_guess(bundle: RecordReviewBundle) -> tuple[str, list[str]]:
     )
 
 
-def _llm_subject_guess(bundle: RecordReviewBundle) -> tuple[str, list[str]]:
-    """Return the completed LLM subject guess for a bundle.
-
-    Args:
-        bundle: Source review bundle.
-
-    Returns:
-        Primary subject guess plus alternate candidates.
-    """
-    if bundle.llm_subject_proposal.status != "completed":
-        return "", []
-    payload = bundle.llm_subject_proposal.payload
-    if payload.get("unresolved", False):
-        return "", [
-            str(candidate)
-            for candidate in payload.get("alternate_names", [])
-            if str(candidate).strip()
-        ]
-    subject_name = str(payload.get("subject_name", "")).strip()
-    alternate_names = [
-        str(candidate).strip()
-        for candidate in payload.get("alternate_names", [])
-        if str(candidate).strip()
-    ]
-    return subject_name, alternate_names
-
-
 def _claim_summary(subject: str, label: str, value: str) -> str:
     """Return a readable claim summary.
 
@@ -245,69 +216,6 @@ def _claim_group(
     )
 
 
-def _llm_claim_group(
-    bundle: RecordReviewBundle,
-    fact_item: dict[str, Any],
-    item_index: int,
-) -> ClaimGroup:
-    """Build a local claim group for one LLM fact proposal.
-
-    Args:
-        bundle: Source review bundle.
-        fact_item: LLM fact proposal payload.
-        item_index: Stable index within the model fact list.
-
-    Returns:
-        Local claim group metadata.
-    """
-    label = str(fact_item.get("label", "")).strip()
-    group_kind = _group_kind(label)
-    group_label = f"llm:{label}:{item_index}"
-    group_id = stable_hash_id(
-        bundle.record_id,
-        "llm_claim_group",
-        group_kind,
-        group_label,
-    )
-    evidence_id = stable_hash_id(
-        bundle.record_id,
-        "llm_evidence",
-        label,
-        str(item_index),
-        str(fact_item.get("evidence_quote", "")),
-    )
-    return ClaimGroup(
-        claim_group_id=group_id,
-        source_record_id=bundle.record_id,
-        group_kind=group_kind,
-        group_label=group_label,
-        primary_evidence_id=evidence_id,
-    )
-
-
-def _bundle_fallback_anchor(bundle: RecordReviewBundle) -> SpanAnchor:
-    """Return the best available source anchor for model-derived claims.
-
-    Args:
-        bundle: Source review bundle.
-
-    Returns:
-        Span anchor from deterministic evidence already attached to the bundle.
-
-    Raises:
-        ValueError: If the bundle has no available source anchor.
-    """
-    if bundle.deterministic_fact_candidates:
-        return bundle.deterministic_fact_candidates[0].supporting_anchor
-    if bundle.deterministic_subject_guess is not None:
-        return bundle.deterministic_subject_guess.supporting_anchor
-    if bundle.deterministic_seed_bundle.entity_candidates:
-        return bundle.deterministic_seed_bundle.entity_candidates[0].anchors[0]
-    if bundle.deterministic_seed_bundle.reference_candidates:
-        return bundle.deterministic_seed_bundle.reference_candidates[0].anchor
-    raise ValueError(f"Review bundle has no source anchor: {bundle.record_id}")
-
-
 def _claim_from_candidate(
     bundle: RecordReviewBundle,
     candidate: DeterministicFactCandidate,
@@ -357,8 +265,8 @@ def _claim_from_candidate(
         document_type=bundle.document_type,
         source_family=bundle.record_type.value,
         source_status=bundle.document_status,
-        source_authority=bundle.llm_prompt_packet.source_authority,
-        source_authority_weight=bundle.llm_prompt_packet.source_authority_weight,
+        source_authority=f"structured_record:{bundle.record_type.value}",
+        source_authority_weight=document_status_authority_weight(bundle.document_status),
         primary_evidence=evidence,
         supporting_evidence=[],
         retrieval_channel_tags=["literal_local"],
@@ -366,76 +274,6 @@ def _claim_from_candidate(
         primary_retrieval_reason="source_record_neighbor",
         review_state=ClaimReviewState.UNREVIEWED,
         proposal_state=ClaimProposalState.DETERMINISTIC_PROPOSAL,
-        claim_group=group,
-        structure_quality=_structure_quality(bundle),
-    )
-
-
-def _claim_from_llm_fact(
-    bundle: RecordReviewBundle,
-    fact_item: dict[str, Any],
-    item_index: int,
-) -> ClaimUnit:
-    """Project one completed LLM fact proposal into a claim unit.
-
-    Args:
-        bundle: Source review bundle.
-        fact_item: LLM fact proposal payload.
-        item_index: Stable index within the model fact list.
-
-    Returns:
-        Retrieval-shaped claim unit.
-    """
-    primary_subject, alternate_subjects = _llm_subject_guess(bundle)
-    claim_label = str(fact_item.get("label", "")).strip()
-    claim_value = str(fact_item.get("value", "")).strip()
-    evidence_quote = str(fact_item.get("evidence_quote", "")).strip() or claim_value
-    certainty_note = str(fact_item.get("certainty_note", "")).strip()
-    group = _llm_claim_group(bundle, fact_item, item_index)
-    claim_id = stable_hash_id(
-        bundle.record_id,
-        "llm_claim_unit",
-        str(item_index),
-        claim_label,
-        claim_value,
-        evidence_quote,
-    )
-    evidence = ClaimEvidence(
-        anchor=_bundle_fallback_anchor(bundle),
-        quote=evidence_quote,
-        source_snippet=bundle.raw_text,
-        evidence_role="primary",
-    )
-    return ClaimUnit(
-        claim_id=claim_id,
-        claim_kind=_claim_kind(claim_label, bundle.record_type),
-        primary_subject_guess=primary_subject,
-        alternate_subject_candidates=alternate_subjects,
-        claim_label=claim_label,
-        claim_value=claim_value,
-        readable_summary=_claim_summary(primary_subject, claim_label, claim_value),
-        raw_claim_payload={
-            "llm_label": claim_label,
-            "llm_value": claim_value,
-            "evidence_quote": evidence_quote,
-            "certainty_note": certainty_note,
-            "model": bundle.llm_fact_proposals.model,
-            "response_id": bundle.llm_fact_proposals.response_id,
-        },
-        source_record_id=bundle.record_id,
-        source_document_path=bundle.document_path,
-        document_type=bundle.document_type,
-        source_family=bundle.record_type.value,
-        source_status=bundle.document_status,
-        source_authority=bundle.llm_prompt_packet.source_authority,
-        source_authority_weight=bundle.llm_prompt_packet.source_authority_weight,
-        primary_evidence=evidence,
-        supporting_evidence=[],
-        retrieval_channel_tags=["semantic_inferred"],
-        retrieval_reasons=["inferred_subject_match"],
-        primary_retrieval_reason="inferred_subject_match",
-        review_state=ClaimReviewState.REVIEW_REQUIRED,
-        proposal_state=ClaimProposalState.LLM_PROPOSAL,
         claim_group=group,
         structure_quality=_structure_quality(bundle),
     )
@@ -458,14 +296,6 @@ def build_claim_units_from_review_bundles(
             if not candidate.value.strip():
                 continue
             claim_units.append(_claim_from_candidate(bundle, candidate))
-        if bundle.llm_fact_proposals.status != "completed":
-            continue
-        for item_index, fact_item in enumerate(bundle.llm_fact_proposals.payload.get("items", [])):
-            claim_label = str(fact_item.get("label", "")).strip()
-            claim_value = str(fact_item.get("value", "")).strip()
-            if not claim_label or not claim_value:
-                continue
-            claim_units.append(_claim_from_llm_fact(bundle, fact_item, item_index))
 
     group_to_claim_ids: dict[str, list[str]] = {}
     for claim_unit in claim_units:

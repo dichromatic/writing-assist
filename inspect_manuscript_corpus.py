@@ -28,6 +28,11 @@ if _workspace not in _sys.path:
 
 from backend.nlp.pipeline import run_document_pipeline
 from backend.nlp.reconciliation.corpus_entities import reconcile_document_entities
+from backend.nlp.llm_tasks import (
+    build_llm_task_packets,
+    build_review_bundle_handoff_artifact,
+    render_llm_task_packet_report,
+)
 from backend.nlp.semantic_review import (
     build_character_summaries,
     build_manuscript_review_bundle as build_manuscript_bundle,
@@ -116,7 +121,7 @@ def _write_manuscript_artifacts(
     bundle: ManuscriptReviewBundle,
     output_path: str,
     json_output_path: str | None = None,
-) -> tuple[Path, Path]:
+) -> tuple[Path, Path, Path]:
     """Write report and JSON manuscript handoff artifacts to disk.
 
     Args:
@@ -125,19 +130,45 @@ def _write_manuscript_artifacts(
         json_output_path: Optional explicit JSON destination path.
 
     Returns:
-        Paths to the written text report and JSON artifact.
+        Paths to the written text report, JSON artifact, and task report.
     """
     report_path = Path(output_path)
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(render_manuscript_review_report(bundle), encoding="utf-8")
 
+    llm_task_packets, llm_task_diagnostics = build_llm_task_packets(
+        manuscript_review_bundle=bundle
+    )
+
     artifact_path = _json_output_path(output_path, json_output_path)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text(
-        json.dumps(manuscript_bundle_to_jsonable(bundle), indent=2, ensure_ascii=False),
+        json.dumps(
+            build_review_bundle_handoff_artifact(
+                source_kind="manuscript",
+                review_bundle_kind="manuscript_review_bundle",
+                review_bundle=manuscript_bundle_to_jsonable(bundle),
+                llm_task_packets=llm_task_packets,
+                llm_task_diagnostics=llm_task_diagnostics,
+                extras={"document_paths": list(bundle.document_paths)},
+            ),
+            indent=2,
+            ensure_ascii=False,
+        ),
         encoding="utf-8",
     )
-    return report_path, artifact_path
+    task_report_path = artifact_path.with_name(
+        artifact_path.stem + "-llm-task-packets.txt"
+    )
+    task_report_path.write_text(
+        render_llm_task_packet_report(
+            llm_task_packets,
+            llm_task_diagnostics,
+            max_packets=12,
+        ),
+        encoding="utf-8",
+    )
+    return report_path, artifact_path, task_report_path
 
 
 def main(glob_pattern: str, output_path: str, json_output_path: str | None = None) -> int:
@@ -157,7 +188,7 @@ def main(glob_pattern: str, output_path: str, json_output_path: str | None = Non
         return 1
 
     bundle = _build_manuscript_review_bundle(paths)
-    report_path, artifact_path = _write_manuscript_artifacts(
+    report_path, artifact_path, task_report_path = _write_manuscript_artifacts(
         bundle,
         output_path,
         json_output_path,
@@ -165,6 +196,7 @@ def main(glob_pattern: str, output_path: str, json_output_path: str | None = Non
 
     print(f"Wrote corpus report for {len(paths)} documents to {report_path}")
     print(f"Wrote manuscript handoff artifact to {artifact_path}")
+    print(f"Wrote manuscript LLM task report to {task_report_path}")
     return 0
 
 

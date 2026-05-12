@@ -1,21 +1,18 @@
 """
-Structured review report renderer - prints deterministic and LLM review logs.
+Structured review report renderer - prints deterministic structured-review logs.
 
 .. code-block:: mermaid
 
     flowchart TD
         A[RecordReviewBundle list] --> B[Format deterministic record blocks]
-        A --> C[Format LLM review blocks]
         D[StructuredDocumentDiagnostics] --> E[Format structural summary]
         B & E --> F[Deterministic review report]
-        C & E --> G[LLM review report]
 """
 
 from __future__ import annotations
 
-from backend.nlp.experiments.structured_review.claim_units import build_claim_units_from_review_bundles
 from backend.nlp.text_filtering import strip_emoji
-from backend.nlp.types import ClaimProposalState, RecordReviewBundle, StructuredDocumentDiagnostics
+from backend.nlp.types import RecordReviewBundle, StructuredDocumentDiagnostics
 
 
 def _hr(title: str = "") -> str:
@@ -79,17 +76,6 @@ def render_structured_review_report(
         lines.append("  None.")
         lines.append(_hr())
         return "\n".join(lines) + "\n"
-
-    claim_units = build_claim_units_from_review_bundles(bundles)
-    lines.append(_hr("CLAIM UNIT SUMMARY"))
-    lines.append(f"  claim_unit_count: {len(claim_units)}")
-    for claim_unit in claim_units[:max_records * 4]:
-        group_label = claim_unit.claim_group.group_label if claim_unit.claim_group else "-"
-        lines.append(
-            f"  - {claim_unit.claim_kind.value} {claim_unit.claim_label}: {claim_unit.claim_value}"
-            f" source={claim_unit.source_family}"
-            f" group={group_label}"
-        )
 
     lines.append(_hr("STRUCTURED REVIEW BUNDLES"))
     for bundle in bundles[:max_records]:
@@ -157,135 +143,6 @@ def render_structured_review_report(
         lines.append("  raw_text:")
         for line in bundle.raw_text.splitlines()[:16]:
             lines.append(f"    {line}")
-        lines.append("")
-
-    lines.append(_hr())
-    return strip_emoji("\n".join(lines) + "\n")
-
-
-def render_structured_llm_report(
-    diagnostics: StructuredDocumentDiagnostics,
-    bundles: list[RecordReviewBundle],
-    *,
-    max_records: int = 5,
-) -> str:
-    """Render the separate LLM-side structured review log.
-
-    Args:
-        diagnostics: Structural summary for the source document.
-        bundles: Structured-note review bundles, including deterministic and LLM slots.
-        max_records: Maximum number of full record blocks to print.
-
-    Returns:
-        LLM-focused report text for manual inspection.
-    """
-    lines: list[str] = []
-    lines.append(_hr("STRUCTURAL SUMMARY"))
-    lines.append(f"  document_path: {diagnostics.document_path}")
-    lines.append(f"  document_type: {diagnostics.document_type.value}")
-    lines.append(f"  document_status: {diagnostics.document_status.value}")
-    lines.append(f"  document_status_source: {diagnostics.document_status_source}")
-    if diagnostics.document_status_hints:
-        lines.append("  document_status_hints:")
-        for hint in diagnostics.document_status_hints:
-            lines.append(f"    - {hint}")
-    if diagnostics.metadata_conflicts:
-        lines.append("  metadata_conflicts:")
-        for conflict in diagnostics.metadata_conflicts:
-            lines.append(f"    - {conflict}")
-    lines.append(f"  heading_count: {diagnostics.heading_count}")
-    for record_type, count in sorted(diagnostics.candidate_record_counts.items()):
-        lines.append(f"  {record_type}: {count}")
-
-    if not bundles:
-        lines.append(_hr("STRUCTURED LLM REVIEW"))
-        lines.append("  None.")
-        lines.append(_hr())
-        return "\n".join(lines) + "\n"
-
-    claim_units = build_claim_units_from_review_bundles(bundles)
-    llm_claim_units_by_record: dict[str, list[str]] = {}
-    for claim_unit in claim_units:
-        if claim_unit.proposal_state != ClaimProposalState.LLM_PROPOSAL:
-            continue
-        llm_claim_units_by_record.setdefault(
-            claim_unit.source_record_id,
-            [],
-        ).append(
-            f"{claim_unit.claim_kind.value} {claim_unit.claim_label}: {claim_unit.claim_value}"
-            f" subject={claim_unit.primary_subject_guess or '-'}"
-            f" review={claim_unit.review_state.value}"
-            f" reason={claim_unit.primary_retrieval_reason}"
-        )
-
-    lines.append(_hr("STRUCTURED LLM REVIEW"))
-    for bundle in bundles[:max_records]:
-        lines.append(f"  record_id: {bundle.record_id}")
-        lines.append(f"  record_type: {bundle.record_type.value}")
-        lines.append(f"  document_type: {bundle.document_type.value}")
-        lines.append(f"  document_status: {bundle.document_status.value}")
-        lines.append(f"  document_path: {bundle.document_path}")
-        lines.append(f"  header_line: {bundle.deterministic_seed_bundle.header_line or '-'}")
-        lines.append(f"  llm_task: {bundle.llm_prompt_packet.task_name}")
-        lines.append(f"  source_authority: {bundle.llm_prompt_packet.source_authority}")
-        lines.append(f"  source_authority_weight: {bundle.llm_prompt_packet.source_authority_weight:.2f}")
-        lines.append(f"  task_goal: {bundle.llm_prompt_packet.task_goal}")
-        lines.append("  task_constraints:")
-        for constraint in bundle.llm_prompt_packet.task_constraints:
-            lines.append(f"    - {constraint}")
-
-        lines.append(f"  llm_subject_proposal: {bundle.llm_subject_proposal.status}")
-        if bundle.llm_subject_proposal.status == "completed":
-            payload = bundle.llm_subject_proposal.payload
-            lines.append(f"    subject_name: {payload.get('subject_name', '-')}")
-            alternate_names = payload.get("alternate_names", [])
-            evidence_quotes = payload.get("evidence_quotes", [])
-            lines.append(
-                "    alternate_names: "
-                + (", ".join(alternate_names) if alternate_names else "-")
-            )
-            lines.append(f"    certainty_note: {payload.get('certainty_note', '-')}")
-            lines.append(f"    unresolved: {payload.get('unresolved', False)}")
-            if evidence_quotes:
-                lines.append("    evidence_quotes:")
-                for quote in evidence_quotes[:5]:
-                    lines.append(f"      - {quote}")
-        elif bundle.llm_subject_proposal.status == "failed":
-            lines.append(f"    error: {bundle.llm_subject_proposal.error}")
-
-        lines.append(f"  llm_fact_proposals: {bundle.llm_fact_proposals.status}")
-        if bundle.llm_fact_proposals.status == "completed":
-            fact_items = bundle.llm_fact_proposals.payload.get("items", [])
-            for fact_item in fact_items[:12]:
-                lines.append(
-                    f"    - {fact_item.get('label', '-')}: {fact_item.get('value', '-')}"
-                    f" evidence={fact_item.get('evidence_quote', '-')}"
-                    f" note={fact_item.get('certainty_note', '-')}"
-                )
-        elif bundle.llm_fact_proposals.status == "failed":
-            lines.append(f"    error: {bundle.llm_fact_proposals.error}")
-
-        if bundle.agreement_items:
-            lines.append("  agreement_items:")
-            for item in bundle.agreement_items[:12]:
-                lines.append(f"    - {item}")
-        if bundle.deterministic_only_items:
-            lines.append("  deterministic_only_items:")
-            for item in bundle.deterministic_only_items[:12]:
-                lines.append(f"    - {item}")
-        if bundle.llm_only_items:
-            lines.append("  llm_only_items:")
-            for item in bundle.llm_only_items[:12]:
-                lines.append(f"    - {item}")
-        if bundle.open_questions:
-            lines.append("  open_questions:")
-            for item in bundle.open_questions[:12]:
-                lines.append(f"    - {item}")
-        llm_claim_unit_lines = llm_claim_units_by_record.get(bundle.record_id, [])
-        if llm_claim_unit_lines:
-            lines.append("  llm_claim_units:")
-            for item in llm_claim_unit_lines[:12]:
-                lines.append(f"    - {item}")
         lines.append("")
 
     lines.append(_hr())

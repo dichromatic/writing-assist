@@ -36,7 +36,7 @@ Current note:
   non-manuscript work now runs through `structured_review`.
 - Use `documentation/structured-review-reference-and-flow.md` as the terminology
   reference for document type, record family, document status, review bundles,
-  claim units, and index-database handoff.
+  LLM task packets, database proposals, and index-database handoff.
 
 ### Phase P.1: Pipeline types and data model
 
@@ -381,7 +381,7 @@ Documentation:
 
 Status:
 
-- partially complete, historical
+- completed, historical
 
 Deliverables:
 
@@ -424,7 +424,10 @@ Documentation:
 Current state:
 
 - `backend/inspect.py` exists and is the active manuscript inspection tool.
-- `backend/nlp/pipeline.py` is still a placeholder.
+- `backend/nlp/pipeline.py` is now the canonical deterministic orchestration
+  module.
+- Entry points should call `run_document_pipeline` or `run_corpus_pipeline`
+  instead of reassembling stage wiring ad hoc.
 - Structured non-manuscript inspection now uses
   `inspect_structured_records.py` and `backend/nlp/experiments/structured_review/`.
 
@@ -492,7 +495,9 @@ Current state:
   - parse file into spans
   - segment by shape into structured-review record families
   - preserve deterministic seed bundles
-  - project deterministic and LLM outputs into claim units
+- `ClaimUnit` exists as a structured-review local projection, but the current
+  convergence plan treats it as transitional. Future database insertion should
+  use shared database proposal objects.
 - Do not revive this phase without first proving that shape-based
   structured-review record families are insufficient.
 
@@ -531,13 +536,14 @@ Goal:
 
 - preserve the current terminology and data-flow decisions so future sessions
   do not re-invent or confuse document type, record family, document status,
-  source authority, review bundles, and claim units
+  source authority, review bundles, LLM task packets, and database proposals
 
 Deliverables:
 
 - glossary for corpus file, document type, record family, document status,
-  source authority, deterministic seed bundle, record review bundle, claim
-  unit, proposal state, and review state
+  source authority, deterministic seed bundle, record review bundle,
+  manuscript review bundle, LLM task packet, database proposal, proposal state,
+  review state, approval state, and insertability state
 - Mermaid data-flow diagram from corpus file to index database insertion
 - current coverage matrix for manuscripts, story planning, world context,
   vignettes, locations, and character backgrounds
@@ -564,6 +570,7 @@ Done when:
 Documentation:
 
 - `documentation/structured-review-reference-and-flow.md`
+- `documentation/review-bundle-llm-task-convergence-design.md`
 
 ### Structured review document type metadata
 
@@ -574,15 +581,15 @@ Status:
 Goal:
 
 - add first-class corpus-file document type metadata to structured-review
-  artifacts and claim units before broader LLM evaluation
+  artifacts and future database proposals before broader LLM evaluation
 
 Deliverables:
 
 - document type enum or typed value for `manuscript`, `vignette`,
   `story_planning`, `world_context`, `location`, and `character_background`
 - path or manifest based classifier for the current example corpus
-- `document_type` on structured-review diagnostics, review bundles, prompt
-  packets, and claim units
+- `document_type` on structured-review diagnostics, review bundles, legacy
+  prompt packets, and local claim projections
 - reports that show document type separately from record family
 
 Out of scope:
@@ -603,13 +610,13 @@ Behavior to test:
 - `examples/locations/...` classifies as `location` once ingested
 - `examples/character backgrounds/...` classifies as `character_background`
 - record family remains shape-based after document type is attached
-- claim units preserve both `document_type` and `source_family`
+- local claim projections preserve both `document_type` and `source_family`
 
 Done when:
 
 - structured-review JSON and logs expose document type for every processed file
-- claim units can distinguish a `reference_section` from world context,
-  location, character background, and story planning sources
+- local claim projections can distinguish a `reference_section` from world
+  context, location, character background, and story planning sources
 
 Documentation:
 
@@ -718,8 +725,8 @@ Behavior to test:
 
 Done when:
 
-- document status is available as provenance metadata across manuscripts,
-  structured notes, and later document types
+- document status is available as provenance metadata across structured notes
+  and is ready to be reused for manuscript bundle metadata parity
 - status can affect downstream authority and review behavior without changing
   segmentation or extraction family selection
 
@@ -728,7 +735,7 @@ Documentation:
 - `documentation/python-p70-document-status-metadata.md`
 - `documentation/structured-review-reference-and-flow.md`
 
-### Claim-unit database readiness validation
+### Review bundle and LLM task convergence cleanup
 
 Status:
 
@@ -736,20 +743,27 @@ Status:
 
 Goal:
 
-- validate that deterministic and LLM claim units are shaped for later index
-  database insertion before broader LLM evaluation
+- reconcile manuscript and structured-record review bundles before broader LLM
+  or database work
+- make review bundles deterministic-only
+- move provider execution and task packets into a shared LLM task layer
 
 Deliverables:
 
-- validator for structured-review claim units
-- structured diagnostics for missing insertability fields
-- CLI and report summary for database-ready, warning, and failed claim units
+- remove LLM prompt and response fields from `RecordReviewBundle`
+- remove `--run-llm` from `inspect_structured_records.py`
+- move reusable provider transport logic toward `backend/nlp/llm_tasks/`
+- keep inspection CLIs deterministic and artifact-oriented
+- update structured-review reports so they no longer render legacy LLM slots
+- mark `ClaimUnit` as transitional or retire it when database proposals exist
 
 Out of scope:
 
 - creating database tables
-- deduplicating deterministic and LLM proposals
-- approving or canonicalizing claims
+- running provider calls
+- normalizing LLM results
+- approving or canonicalizing proposals
+- refactoring `backend/nlp/types.py` into a package
 
 TDD applies:
 
@@ -757,40 +771,143 @@ TDD applies:
 
 Behavior to test:
 
-- LLM claim units fail validation if source id, source record id, document
-  type, source family, evidence anchor, evidence quote, proposal state, review
-  state, claim label, or claim value is missing
-- unresolved subjects are allowed when alternate candidates or raw payload
-  preserve ambiguity
-- deterministic and LLM proposals are validated without merging them
-- validation diagnostics are written into JSON and visible in the report
+- structured-review bundle construction still preserves deterministic seed
+  bundles, subject guesses, and fact candidates
+- deterministic structured-review reports no longer include LLM slot state
+- structured-review CLI no longer runs provider calls
+- manuscript and structured-record inspection remain deterministic
+- old record-specific LLM tests are removed or rewritten around shared task
+  packet generation
 
 Done when:
 
-- a structured-review artifact can state whether its claim units are ready for
-  index-database insertion as proposal records
+- both manuscript and structured-record extraction stop at deterministic review
+  artifacts
+- live LLM work is no longer coupled to `RecordReviewBundle`
+- the next phase can introduce shared `LLMTaskPacket` artifacts cleanly
 
 Documentation:
 
 - `documentation/structured-review-reference-and-flow.md`
+- `documentation/review-bundle-llm-task-convergence-design.md`
 
-### Structured review LLM handoff probe
+### Shared LLM task packet layer
 
 Status:
 
-- blocked by document type metadata and database-readiness validation
+- blocked by review-bundle convergence cleanup
 
 Goal:
 
-- run a small, deliberately chosen LLM probe to test the handoff contract before
-  broad corpus evaluation
+- generate shared structured LLM task packets from both manuscript and
+  structured-record review bundles without running a provider
 
 Deliverables:
 
-- fixed probe set of representative records across current structured-review
-  families
-- per-record LLM prompt packet, LLM response slots, claim units, and validation
-  diagnostics
+- shared `LLMTaskPacket` type
+- shared task selection diagnostics
+- structured-record task builder for `record_fact_extraction`
+- manuscript task builders for entity profile, reference attachment, and
+  category resolution tasks
+- task-packet JSON artifacts from both inspection paths
+- task-selection report artifacts from both inspection paths
+
+Out of scope:
+
+- provider execution
+- LLM result normalization
+- database insertion
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- task packets carry bounded evidence snippets plus source anchors
+- skipped source objects emit selection diagnostics
+- suppressed evidence can be included when locally relevant and labeled
+- task packets reference schema ids rather than embedding provider-specific
+  prompt text
+
+Done when:
+
+- manuscript and structured-review CLIs can emit shared-schema LLM task packet
+  artifacts without provider calls
+
+Documentation:
+
+- `documentation/review-bundle-llm-task-convergence-design.md`
+
+### Database proposal projection and readiness validation
+
+Status:
+
+- blocked by shared LLM task packet layer
+
+Goal:
+
+- project deterministic manuscript and structured-record outputs into a shared
+  database proposal family and validate insertability
+
+Deliverables:
+
+- shared `DatabaseProposal` type
+- indexing diagnostics for unsupported or not-yet-normalized observations
+- deterministic structured-record claim projection into database proposals
+- deterministic manuscript projection for entity profile, alias link,
+  reference attachment, category resolution, and open review question proposals
+- insertability validator for database proposal envelope fields, evidence, and
+  payload presence
+- proposal JSON artifacts from both inspection paths
+
+Out of scope:
+
+- final database tables
+- canonical entity approval
+- LLM result normalization
+- relationship, timeline, or world-rule insertion
+
+TDD applies:
+
+- yes
+
+Behavior to test:
+
+- proposals preserve source document paths, source object ids, document type,
+  document status, authority, evidence anchors, and evidence quotes
+- review state, approval state, and insertability state are separate
+- unsupported hint kinds become diagnostics rather than insertable proposals
+- deterministic and future LLM-derived proposals can coexist without merging
+
+Done when:
+
+- both manuscript and structured-record artifacts can emit database-shaped
+  proposal records that pass or fail insertability validation explicitly
+
+Documentation:
+
+- `documentation/review-bundle-llm-task-convergence-design.md`
+
+### Shared LLM task runner and handoff probe
+
+Status:
+
+- blocked by shared LLM task packets and database proposal validation
+
+Goal:
+
+- run a small, deliberately chosen LLM probe through the shared task runner to
+  test the handoff contract before broad corpus evaluation
+
+Deliverables:
+
+- fixed probe set of representative manuscript and structured-record task
+  packets
+- shared provider runner that accepts one or more task-packet files
+- LLM task result artifacts
+- deterministic normalization from accepted task result payloads into database
+  proposals or diagnostics
 - short inspection summary describing whether the handoff contract worked
 
 Out of scope:
@@ -805,19 +922,20 @@ TDD applies:
 
 Behavior to test:
 
-- probe runner does not send unsupported files to the LLM
+- probe runner does not send unsupported task families to the LLM
 - failed records do not fail the whole probe
-- completed LLM facts become `llm_proposal` claim units
-- validation diagnostics are produced for completed, failed, and skipped records
+- completed LLM results become reviewable database proposals or diagnostics
+- validation diagnostics are produced for completed, failed, and skipped tasks
 
 Done when:
 
-- we can inspect whether the LLM pass produces database-shaped proposal records
+- we can inspect whether the shared LLM task path produces database-shaped
+  proposal records
   without pretending the quality question is settled
 
 Documentation:
 
-- `documentation/structured-review-reference-and-flow.md`
+- `documentation/review-bundle-llm-task-convergence-design.md`
 
 ### Retrieval object and manuscript editing flow notes
 
@@ -836,7 +954,8 @@ Goal:
 
 Deliverables:
 
-- a retrieval-object architecture note covering claim units, evidence,
+- a retrieval-object architecture note covering database proposals,
+  transitional claim units, evidence,
   grouping, ambiguity, result levels, retrieval channels, modes, reasons,
   ranking, scope widening, and diagnostics
 - a manuscript-editing retrieval-flow note covering explicit invocation,

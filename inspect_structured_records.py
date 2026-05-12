@@ -30,15 +30,11 @@ def main() -> int:
         args.input_path,
         args.output_dir,
         max_report_records=args.max_report_records,
-        run_llm=args.run_llm,
-        llm_model=args.llm_model,
-        max_llm_records=args.max_llm_records,
-        llm_timeout_seconds=args.llm_timeout_seconds,
         metadata_manifest_path=args.metadata_manifest,
     )
     print(f"Wrote structured review JSON to {json_path}")
     print(f"Wrote structured review report to {report_path}")
-    print(f"Wrote structured LLM report to {llm_report_path}")
+    print(f"Wrote structured LLM task report to {llm_report_path}")
     return 0
 
 

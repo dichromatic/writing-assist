@@ -16,7 +16,6 @@ Structured-record review bundle builder - packages deterministic record-side evi
 from __future__ import annotations
 
 from backend.nlp.document_metadata import resolve_document_metadata
-from backend.nlp.experiments.structured_review.prompt_packet import build_record_prompt_packet
 from backend.nlp.structured_records.seed_extractor import build_record_seed_bundle
 from backend.nlp.types import (
     DocumentMetadata,
@@ -26,7 +25,6 @@ from backend.nlp.types import (
     StructuredDocumentDiagnostics,
     StructuredRecord,
     StructuredRecordType,
-    PendingLLMResponse,
 )
 
 _SUPPORTED_RECORD_TYPES = {
@@ -91,12 +89,6 @@ def build_structured_review_bundles(
             entity_records,
             reference_candidates,
         )
-        prompt_packet = build_record_prompt_packet(
-            record,
-            seed_bundle,
-            fact_candidates,
-            metadata,
-        )
         bundles.append(RecordReviewBundle(
             record_id=record.record_id,
             record_type=record.record_type,
@@ -107,12 +99,9 @@ def build_structured_review_bundles(
             metadata_conflicts=list(metadata.metadata_conflicts),
             document_path=record.document_path,
             raw_text=record.raw_text,
-            llm_prompt_packet=prompt_packet,
             deterministic_seed_bundle=seed_bundle,
             deterministic_subject_guess=subject_guess,
             deterministic_fact_candidates=fact_candidates,
-            llm_subject_proposal=PendingLLMResponse(status="not_run_yet"),
-            llm_fact_proposals=PendingLLMResponse(status="not_run_yet"),
         ))
 
     return bundles, diagnostics

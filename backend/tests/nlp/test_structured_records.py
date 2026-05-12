@@ -9,11 +9,6 @@ from backend.nlp.document_metadata import (
 from backend.nlp.document_type import classify_document_type
 from backend.nlp.experiments.structured_review.claim_units import build_claim_units_from_review_bundles
 from backend.nlp.experiments.structured_review.cli import run_structured_review_experiment
-from backend.nlp.experiments.structured_review.llm_pass import (
-    _extract_json_object_text,
-    run_structured_llm_pass,
-)
-from backend.nlp.experiments.structured_review.report import render_structured_llm_report
 from backend.nlp.experiments.structured_review.review_bundle import build_structured_review_bundles
 from backend.nlp.lexicon.bootstrap import bootstrap
 from backend.nlp.parsing.document_parser import parse
@@ -328,7 +323,7 @@ def test_review_bundle_includes_loose_records_as_supported_family():
     assert diagnostics.candidate_record_counts["loose_record"] > 0
     assert any(bundle.record_type == StructuredRecordType.LOOSE_RECORD for bundle in bundles)
     loose_bundle = next(bundle for bundle in bundles if bundle.record_type == StructuredRecordType.LOOSE_RECORD)
-    assert loose_bundle.llm_prompt_packet.task_name == "loose_record_explicit_context"
+    assert loose_bundle.record_type == StructuredRecordType.LOOSE_RECORD
 
 
 def test_claim_units_project_deterministic_facts_as_atomic_retrieval_units():
@@ -364,7 +359,7 @@ def test_claim_units_project_deterministic_facts_as_atomic_retrieval_units():
     assert claim_unit.source_record_id == first_bundle.record_id
     assert claim_unit.source_family == "dossier_entry"
     assert claim_unit.source_status == DocumentStatus.PRIMARY_CANON
-    assert claim_unit.source_authority == "planning_dossier"
+    assert claim_unit.source_authority == "structured_record:dossier_entry"
     assert claim_unit.source_authority_weight == document_status_authority_weight(DocumentStatus.PRIMARY_CANON)
     assert claim_unit.proposal_state.value == "deterministic_proposal"
     assert claim_unit.review_state.value == "unreviewed"
@@ -429,10 +424,9 @@ def test_loose_record_claim_units_are_low_structure_fallback_claims():
     assert "literal_local" in claim_units[0].retrieval_channel_tags
 
 
-def test_structured_review_artifact_includes_claim_units(tmp_path):
-    # The JSON artifact is the bridge toward database insertion. It must carry
-    # claim units alongside review bundles so later persistence work does not
-    # need to rederive retrieval-shaped output from text reports.
+def test_structured_review_artifact_uses_shared_handoff_envelope(tmp_path):
+    # Structured artifacts should now use the shared handoff envelope so
+    # manuscript and structured sources converge before provider execution.
     json_path, report_path, _llm_report_path = run_structured_review_experiment(
         "examples/world context/human history.txt",
         str(tmp_path),
@@ -442,19 +436,22 @@ def test_structured_review_artifact_includes_claim_units(tmp_path):
     json_text = json_path.read_text(encoding="utf-8")
     report_text = report_path.read_text(encoding="utf-8")
 
-    assert '"claim_units"' in json_text
+    assert '"review_bundle_artifact_version": "1"' in json_text
+    assert '"source_kind": "structured_record"' in json_text
+    assert '"review_bundle_kind": "record_review_bundle_list"' in json_text
+    assert '"review_bundle"' in json_text
+    assert '"llm_task_packets"' in json_text
+    assert '"llm_task_diagnostics"' in json_text
     assert '"document_type": "world_context"' in json_text
     assert '"document_status": "primary_canon"' in json_text
-    assert '"result_level": "claim_unit"' in json_text
-    assert "CLAIM UNIT SUMMARY" in report_text
     assert "document_type: world_context" in report_text
     assert "document_status: primary_canon" in report_text
 
 
 def test_structured_review_artifact_preserves_document_status_manifest(tmp_path):
     # Status is provenance metadata for database insertion. It should travel
-    # through diagnostics, review bundles, prompt packets, and claim units
-    # without changing the record-family segmentation result.
+    # through diagnostics, review bundles, and task packets without changing
+    # the record-family segmentation result.
     manifest_path = tmp_path / "metadata.json"
     manifest_path.write_text(
         """
@@ -480,7 +477,6 @@ def test_structured_review_artifact_preserves_document_status_manifest(tmp_path)
     report_text = report_path.read_text(encoding="utf-8")
 
     assert '"document_status": "historical"' in json_text
-    assert '"source_status": "historical"' in json_text
     assert '"source_authority_weight": 0.85' in json_text
     assert "document_status: historical" in report_text
     assert "reference_section" in report_text
@@ -540,9 +536,8 @@ def test_scene_and_arc_headings_do_not_segment_as_dossier_entries():
 
 
 def test_experiment_writes_not_run_yet_placeholders(tmp_path):
-    # The first experiment is deliberately pre-LLM. The persisted scaffold must
-    # still expose explicit placeholder slots so the next phase can fill them
-    # without redesigning the bundle shape.
+    # The experiment remains deterministic. It now writes shared task-packet
+    # artifacts instead of mutable in-bundle LLM placeholder fields.
     json_path, report_path, llm_report_path = run_structured_review_experiment(
         "examples/story planning/prologue crew summaries.txt",
         str(tmp_path),
@@ -553,11 +548,9 @@ def test_experiment_writes_not_run_yet_placeholders(tmp_path):
     report_text = report_path.read_text(encoding="utf-8")
     llm_report_text = llm_report_path.read_text(encoding="utf-8")
 
-    assert '"status": "not_run_yet"' in json_text
-    assert "llm_subject_proposal: not_run_yet" not in report_text
-    assert "llm_fact_proposals: not_run_yet" not in report_text
-    assert "llm_subject_proposal: not_run_yet" in llm_report_text
-    assert "llm_fact_proposals: not_run_yet" in llm_report_text
+    assert '"llm_task_packets"' in json_text
+    assert '"llm_task_diagnostics"' in json_text
+    assert "LLM TASK PACKETS" in llm_report_text
     assert "STRUCTURED REVIEW BUNDLES" in report_text
     assert "🌊" not in json_text
     assert "☀️" not in json_text
@@ -565,323 +558,3 @@ def test_experiment_writes_not_run_yet_placeholders(tmp_path):
     assert "☀️" not in report_text
     assert "🌊" not in llm_report_text
     assert "☀️" not in llm_report_text
-
-
-def test_review_bundle_includes_explicit_llm_prompt_packet_with_weak_hints():
-    # The next phase should plug a model into a frozen handoff contract, not
-    # redesign the bundle. The prompt packet therefore needs to preserve the
-    # narrow structured task plus the full deterministic seed inventory,
-    # including suppressed hints that manuscript-biased filtering would
-    # otherwise hide.
-    path = "examples/story planning/estuary crew summaries.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
-    records = segment_structured_records(doc)
-
-    bundles, _diagnostics = build_structured_review_bundles(
-        records,
-        entity_records,
-        reference_candidates,
-    )
-
-    first_bundle = next(
-        bundle for bundle in bundles
-        if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
-        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
-    )
-
-    assert first_bundle.llm_prompt_packet.task_name == "dossier_subject_and_explicit_facts"
-    assert first_bundle.llm_prompt_packet.document_type == DocumentType.STORY_PLANNING
-    assert first_bundle.llm_prompt_packet.document_status == DocumentStatus.PRIMARY_CANON
-    assert first_bundle.llm_prompt_packet.source_authority == "planning_dossier"
-    assert first_bundle.llm_prompt_packet.source_authority_weight == 1.0
-    assert "🌊" not in first_bundle.llm_prompt_packet.header_line
-    assert first_bundle.llm_prompt_packet.header_line.startswith("WATANABE YŌ")
-    assert any(
-        "explicit subject facts" in constraint.lower()
-        or "explicit subject facts" in first_bundle.llm_prompt_packet.task_goal.lower()
-        for constraint in first_bundle.llm_prompt_packet.task_constraints
-    )
-    assert (
-        len(first_bundle.llm_prompt_packet.deterministic_seed_bundle.entity_candidates)
-        == len(first_bundle.deterministic_seed_bundle.entity_candidates)
-    )
-    assert any(
-        any(candidate.bucket.value == "suppressed" for candidate in bundle.llm_prompt_packet.deterministic_seed_bundle.entity_candidates)
-        for bundle in bundles
-    )
-
-
-def test_llm_pass_fills_completed_payloads_and_comparison_fields():
-    # The first live LLM step must enrich the existing bundle rather than
-    # replacing it. This test locks that a completed response fills the
-    # subject slot, fact slot, and side-by-side comparison fields from the
-    # same deterministic baseline.
-    path = "examples/story planning/estuary crew summaries.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
-    records = segment_structured_records(doc)
-    bundles, _diagnostics = build_structured_review_bundles(
-        records,
-        entity_records,
-        reference_candidates,
-    )
-    first_bundle = next(
-        bundle for bundle in bundles
-        if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
-        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
-    )
-
-    def fake_responder(_bundle, _model):
-        return ({
-            "subject": {
-                "subject_name": "Watanabe Yō",
-                "alternate_names": ["Yō"],
-                "evidence_quotes": ["WATANABE YŌ CAPTAIN / PIONEER-ADMIRAL"],
-                "certainty_note": "Header line names the subject directly.",
-                "unresolved": False,
-            },
-            "fact_proposals": [
-                {
-                    "label": "Role",
-                    "value": "Commanding Officer, Radiant Estuary",
-                    "evidence_quote": "Role: Commanding Officer, Radiant Estuary",
-                    "certainty_note": "Explicit label-value line.",
-                },
-                {
-                    "label": "header_rank",
-                    "value": "CAPTAIN",
-                    "evidence_quote": "WATANABE YŌ — CAPTAIN / PIONEER-ADMIRAL (O‑9)",
-                    "certainty_note": "Explicit header rank text.",
-                },
-            ],
-            "open_questions": ["Should 'Pioneer-Admiral (O‑9)' be stored as a second rank entry?"],
-        }, "resp_test_123")
-
-    updated_bundle = run_structured_llm_pass(
-        first_bundle,
-        model="gpt-4o-mini",
-        responder=fake_responder,
-    )
-
-    assert updated_bundle.llm_subject_proposal.status == "completed"
-    assert updated_bundle.llm_subject_proposal.payload["subject_name"] == "Watanabe Yō"
-    assert updated_bundle.llm_fact_proposals.status == "completed"
-    assert updated_bundle.llm_fact_proposals.payload["items"][0]["label"] == "Role"
-    assert "subject:Watanabe Yō" in updated_bundle.agreement_items
-    assert "Role: Commanding Officer, Radiant Estuary" in updated_bundle.agreement_items
-    assert "header_rank: PIONEER-ADMIRAL (O‑9)" in updated_bundle.deterministic_only_items
-    assert updated_bundle.open_questions == [
-        "Should 'Pioneer-Admiral (O‑9)' be stored as a second rank entry?"
-    ]
-
-
-def test_completed_llm_pass_produces_separate_review_required_claim_units():
-    # LLM proposals should become database-ready claim units without replacing
-    # deterministic claims or being treated as canon. They need their own
-    # proposal state, semantic retrieval tag, and evidence quote.
-    path = "examples/story planning/estuary crew summaries.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
-    records = segment_structured_records(doc)
-    bundles, _diagnostics = build_structured_review_bundles(
-        records,
-        entity_records,
-        reference_candidates,
-    )
-    first_bundle = next(
-        bundle for bundle in bundles
-        if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
-        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
-    )
-
-    def fake_responder(_bundle, _model):
-        return ({
-            "subject": {
-                "subject_name": "Watanabe Yō",
-                "alternate_names": ["Yō"],
-                "evidence_quotes": ["WATANABE YŌ CAPTAIN / PIONEER-ADMIRAL"],
-                "certainty_note": "Header line names the subject directly.",
-                "unresolved": False,
-            },
-            "fact_proposals": [
-                {
-                    "label": "Role",
-                    "value": "Commanding Officer, Radiant Estuary",
-                    "evidence_quote": "Role: Commanding Officer, Radiant Estuary",
-                    "certainty_note": "Explicit label-value line.",
-                }
-            ],
-            "open_questions": [],
-        }, "resp_test_claim_unit")
-
-    updated_bundle = run_structured_llm_pass(
-        first_bundle,
-        model="gpt-4o-mini",
-        responder=fake_responder,
-    )
-
-    claim_units = build_claim_units_from_review_bundles([updated_bundle])
-    llm_claims = [
-        claim_unit
-        for claim_unit in claim_units
-        if claim_unit.proposal_state.value == "llm_proposal"
-    ]
-
-    assert len(llm_claims) == 1
-    assert llm_claims[0].review_state.value == "review_required"
-    assert llm_claims[0].primary_subject_guess == "Watanabe Yō"
-    assert llm_claims[0].claim_label == "Role"
-    assert llm_claims[0].primary_evidence.quote == "Role: Commanding Officer, Radiant Estuary"
-    assert llm_claims[0].retrieval_channel_tags == ["semantic_inferred"]
-    assert llm_claims[0].raw_claim_payload["response_id"] == "resp_test_claim_unit"
-    assert any(
-        claim_unit.proposal_state.value == "deterministic_proposal"
-        for claim_unit in claim_units
-    )
-
-
-def test_llm_report_lists_projected_llm_claim_units():
-    # The separate LLM log should show the database-shaped projection, not only
-    # the raw model payload. Otherwise manual inspection can miss that a
-    # completed fact proposal failed to become a reviewable claim unit.
-    path = "examples/story planning/estuary crew summaries.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
-    records = segment_structured_records(doc)
-    bundles, diagnostics = build_structured_review_bundles(
-        records,
-        entity_records,
-        reference_candidates,
-    )
-    first_bundle = next(
-        bundle for bundle in bundles
-        if bundle.record_type == StructuredRecordType.DOSSIER_ENTRY
-        and "WATANABE YŌ" in bundle.deterministic_seed_bundle.header_line
-    )
-
-    def fake_responder(_bundle, _model):
-        return ({
-            "subject": {
-                "subject_name": "Watanabe Yō",
-                "alternate_names": ["Yō"],
-                "evidence_quotes": ["WATANABE YŌ CAPTAIN / PIONEER-ADMIRAL"],
-                "certainty_note": "Header line names the subject directly.",
-                "unresolved": False,
-            },
-            "fact_proposals": [
-                {
-                    "label": "Role",
-                    "value": "Commanding Officer, Radiant Estuary",
-                    "evidence_quote": "Role: Commanding Officer, Radiant Estuary",
-                    "certainty_note": "Explicit label-value line.",
-                }
-            ],
-            "open_questions": [],
-        }, "resp_test_llm_report_claim")
-
-    updated_bundle = run_structured_llm_pass(
-        first_bundle,
-        model="gpt-4o-mini",
-        responder=fake_responder,
-    )
-    report_text = render_structured_llm_report(
-        diagnostics,
-        [updated_bundle],
-        max_records=1,
-    )
-
-    assert "llm_claim_units:" in report_text
-    assert "fact Role: Commanding Officer, Radiant Estuary" in report_text
-    assert "subject=Watanabe Yō" in report_text
-    assert "review=review_required" in report_text
-
-
-def test_unresolved_llm_subject_does_not_force_claim_subject():
-    # An LLM can extract useful facts while leaving the subject unresolved. The
-    # claim unit should preserve that ambiguity instead of copying an
-    # unresolved subject into the primary subject field.
-    path = "examples/world context/human history.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
-    records = segment_structured_records(doc)
-    bundles, _diagnostics = build_structured_review_bundles(
-        records,
-        entity_records,
-        reference_candidates,
-    )
-    loose_bundle = next(bundle for bundle in bundles if bundle.record_type == StructuredRecordType.LOOSE_RECORD)
-
-    def fake_responder(_bundle, _model):
-        return ({
-            "subject": {
-                "subject_name": "unclear",
-                "alternate_names": ["Triumvirate history"],
-                "evidence_quotes": [],
-                "certainty_note": "The prelude is broad context rather than a subject record.",
-                "unresolved": True,
-            },
-            "fact_proposals": [
-                {
-                    "label": "context_summary",
-                    "value": "Human history converges from three arcs.",
-                    "evidence_quote": "three long, partially overlapping arcs",
-                    "certainty_note": "Explicitly stated in the prelude.",
-                }
-            ],
-            "open_questions": ["Should this be attached to Triumvirate history?"],
-        }, "resp_unresolved_subject")
-
-    updated_bundle = run_structured_llm_pass(
-        loose_bundle,
-        model="gpt-4o-mini",
-        responder=fake_responder,
-    )
-    llm_claim = next(
-        claim_unit
-        for claim_unit in build_claim_units_from_review_bundles([updated_bundle])
-        if claim_unit.proposal_state.value == "llm_proposal"
-    )
-
-    assert llm_claim.primary_subject_guess == ""
-    assert llm_claim.alternate_subject_candidates == ["Triumvirate history"]
-    assert llm_claim.claim_value == "Human history converges from three arcs."
-
-
-def test_chat_completion_json_extractor_tolerates_fenced_output():
-    # NVIDIA-style chat completions may wrap the JSON body in markdown fences
-    # or prepend a short explanation. The live pass must still recover the
-    # first structured object, otherwise failures only show up at runtime
-    # against the provider.
-    text = """
-Here is the extracted JSON:
-
-```json
-{"subject":{"subject_name":"Watanabe Yō","alternate_names":[],"evidence_quotes":[],"certainty_note":"header","unresolved":false},"fact_proposals":[],"open_questions":[]}
-```
-"""
-
-    assert _extract_json_object_text(text) == (
-        '{"subject":{"subject_name":"Watanabe Yō","alternate_names":[],"evidence_quotes":[],"certainty_note":"header","unresolved":false},"fact_proposals":[],"open_questions":[]}'
-    )
-
-
-def test_deterministic_report_excludes_llm_details_but_llm_report_keeps_them(tmp_path):
-    # The structured scaffold writes two text logs. The main report should stay
-    # focused on deterministic record structure, while the separate LLM log
-    # carries model status, comparisons, and review questions.
-    json_path, report_path, llm_report_path = run_structured_review_experiment(
-        "examples/story planning/estuary crew summaries.txt",
-        str(tmp_path),
-        max_report_records=1,
-        run_llm=True,
-        max_llm_records=1,
-    )
-
-    _ = json_path
-    report_text = report_path.read_text(encoding="utf-8")
-    llm_report_text = llm_report_path.read_text(encoding="utf-8")
-
-    assert "llm_subject_proposal:" not in report_text
-    assert "llm_fact_proposals:" not in report_text
-    assert "agreement_items:" not in report_text
-    assert "open_questions:" not in report_text
-
-    assert "llm_subject_proposal:" in llm_report_text
-    assert "llm_fact_proposals:" in llm_report_text
-    assert "open_questions:" in llm_report_text

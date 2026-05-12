@@ -636,7 +636,7 @@ class LLMRecordPromptPacket:
 
 @dataclass
 class RecordReviewBundle:
-    """Side-by-side deterministic and pending-LLM review packet for one record.
+    """Deterministic review packet for one structured record.
 
     Args:
         record_id: Structured record identifier.
@@ -648,16 +648,10 @@ class RecordReviewBundle:
         metadata_conflicts: Reviewable metadata conflicts.
         document_path: Source document path.
         raw_text: Raw record text.
-        llm_prompt_packet: Explicit future LLM input packet for this record.
         deterministic_seed_bundle: Deterministic structure and candidate packet.
         deterministic_subject_guess: Best non-final subject guess.
         deterministic_fact_candidates: Shallow fact-like candidates from the
             record.
-        llm_subject_proposal: Placeholder for future LLM subject extraction.
-        llm_fact_proposals: Placeholder for future LLM fact extraction.
-        agreement_items: Reserved side-by-side comparison output.
-        deterministic_only_items: Reserved side-by-side comparison output.
-        llm_only_items: Reserved side-by-side comparison output.
         open_questions: Reserved review questions attached to the record.
     """
 
@@ -670,16 +664,193 @@ class RecordReviewBundle:
     metadata_conflicts: list[str]
     document_path: str
     raw_text: str
-    llm_prompt_packet: LLMRecordPromptPacket
     deterministic_seed_bundle: DeterministicSeedBundle
     deterministic_subject_guess: Optional[DeterministicGuess]
     deterministic_fact_candidates: list[DeterministicFactCandidate]
-    llm_subject_proposal: PendingLLMResponse
-    llm_fact_proposals: PendingLLMResponse
-    agreement_items: list[str] = field(default_factory=list)
-    deterministic_only_items: list[str] = field(default_factory=list)
-    llm_only_items: list[str] = field(default_factory=list)
     open_questions: list[str] = field(default_factory=list)
+
+
+class LLMTaskFamily(Enum):
+    """Shared first-pass LLM task families."""
+
+    RECORD_FACT_EXTRACTION = "record_fact_extraction"
+    MANUSCRIPT_ENTITY_PROFILE = "manuscript_entity_profile"
+    MANUSCRIPT_REFERENCE_ATTACHMENT = "manuscript_reference_attachment"
+    MANUSCRIPT_CATEGORY_RESOLUTION = "manuscript_category_resolution"
+
+
+@dataclass(frozen=True)
+class LLMTaskEvidenceItem:
+    """Bounded evidence attached to an LLM task packet."""
+
+    evidence_id: str
+    document_path: str
+    source_anchor: SpanAnchor
+    quote: str
+    context_before: str
+    context_after: str
+    source_object_id: str
+    visibility_bucket: str
+    suppression_reason: str = ""
+    confidence_score: float | None = None
+
+
+@dataclass(frozen=True)
+class LLMTaskPacket:
+    """Shared structured LLM task packet.
+
+    Provider runners transform this packet into model-specific messages later.
+    """
+
+    task_id: str
+    task_family: LLMTaskFamily
+    schema_id: str
+    source_bundle_kind: str
+    source_object_kind: str
+    source_object_id: str
+    source_document_paths: list[str]
+    document_type: DocumentType
+    document_status: DocumentStatus
+    source_authority: str
+    source_authority_weight: float
+    task_goal: str
+    task_constraints: list[str]
+    evidence_payload: list[LLMTaskEvidenceItem]
+    selection_reason: str
+    payload: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class LLMTaskSelectionDiagnostic:
+    """Selection diagnostic for LLM task packet generation."""
+
+    source_bundle_kind: str
+    source_object_kind: str
+    source_object_id: str
+    document_path: str
+    task_family: LLMTaskFamily
+    selected: bool
+    reason: str
+    evidence_counts: dict[str, int] = field(default_factory=dict)
+
+
+class LLMTaskResultStatus(Enum):
+    """Execution status for one shared LLM task result."""
+
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+
+
+@dataclass(frozen=True)
+class LLMTaskResult:
+    """Provider execution result for one shared LLM task packet."""
+
+    task_id: str
+    task_family: LLMTaskFamily
+    schema_id: str
+    status: LLMTaskResultStatus
+    model: str
+    provider: str
+    response_id: str = ""
+    payload: dict[str, Any] = field(default_factory=dict)
+    error: str = ""
+
+
+class DatabaseProposalKind(Enum):
+    """Shared proposal kinds for indexing-layer handoff."""
+
+    CLAIM = "claim"
+    ENTITY_PROFILE = "entity_profile"
+    ALIAS_LINK = "alias_link"
+    REFERENCE_ATTACHMENT = "reference_attachment"
+    CATEGORY_RESOLUTION = "category_resolution"
+    OPEN_REVIEW_QUESTION = "open_review_question"
+
+
+class DatabaseProposalState(Enum):
+    """Authority state for database proposals."""
+
+    DETERMINISTIC_PROPOSAL = "deterministic_proposal"
+    LLM_PROPOSAL = "llm_proposal"
+    CANONICAL = "canonical"
+
+
+class DatabaseProposalReviewState(Enum):
+    """Workflow review state for database proposals."""
+
+    UNREVIEWED = "unreviewed"
+    REVIEW_REQUIRED = "review_required"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class DatabaseProposalApprovalState(Enum):
+    """Canon-approval state for database proposals."""
+
+    NOT_REVIEWED = "not_reviewed"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class DatabaseProposalInsertabilityState(Enum):
+    """Technical insertability state for database proposals."""
+
+    INSERTABLE = "insertable"
+    NOT_INSERTABLE = "not_insertable"
+    NEEDS_NORMALIZATION = "needs_normalization"
+
+
+@dataclass(frozen=True)
+class DatabaseProposalEvidenceRef:
+    """Structured evidence reference for one database proposal."""
+
+    evidence_id: str
+    document_path: str
+    anchor: SpanAnchor
+    evidence_role: str = "primary"
+
+
+@dataclass
+class DatabaseProposal:
+    """Shared convergence object for deterministic and LLM outputs."""
+
+    proposal_id: str
+    proposal_kind: DatabaseProposalKind
+    proposal_state: DatabaseProposalState
+    review_state: DatabaseProposalReviewState
+    approval_state: DatabaseProposalApprovalState
+    insertability_state: DatabaseProposalInsertabilityState
+    source_bundle_kind: str
+    source_object_kind: str
+    source_object_id: str
+    source_document_paths: list[str]
+    document_type: DocumentType
+    document_status: DocumentStatus
+    source_authority: str
+    source_authority_weight: float
+    evidence_refs: list[DatabaseProposalEvidenceRef]
+    evidence_quotes: list[str]
+    subject_keys: list[str]
+    retrieval_tags: list[str]
+    parent_proposal_ids: list[str] = field(default_factory=list)
+    source_result_ids: list[str] = field(default_factory=list)
+    payload: dict[str, Any] = field(default_factory=dict)
+    raw_source_payload: dict[str, Any] = field(default_factory=dict)
+    validation_errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class IndexingDiagnostic:
+    """Diagnostic emitted during proposal projection or validation."""
+
+    code: str
+    level: str
+    source_bundle_kind: str
+    source_object_kind: str
+    source_object_id: str
+    message: str
+    context: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

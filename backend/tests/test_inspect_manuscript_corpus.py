@@ -196,15 +196,22 @@ def test_artifact_writer_persists_machine_readable_bundle_next_to_report(tmp_pat
         ],
     )
 
-    report_path, json_path = _write_manuscript_artifacts(
+    report_path, json_path, llm_task_report_path = _write_manuscript_artifacts(
         bundle,
         str(tmp_path / "manuscript-report.txt"),
     )
 
     artifact = json.loads(json_path.read_text(encoding="utf-8"))
     report = report_path.read_text(encoding="utf-8")
+    llm_task_report = llm_task_report_path.read_text(encoding="utf-8")
     assert json_path == tmp_path / "manuscript-report.json"
-    assert artifact["canonical_entities"][0]["absorbed_surface_forms"] == ["Captain Aldous"]
-    assert artifact["review_tasks"][0]["ranked_speaker_keys"] == ["kohaku"]
+    assert artifact["review_bundle_artifact_version"] == "1"
+    assert artifact["source_kind"] == "manuscript"
+    assert artifact["review_bundle_kind"] == "manuscript_review_bundle"
+    assert artifact["review_bundle"]["canonical_entities"][0]["absorbed_surface_forms"] == ["Captain Aldous"]
+    assert artifact["review_bundle"]["review_tasks"][0]["ranked_speaker_keys"] == ["kohaku"]
+    assert "llm_task_packets" in artifact
+    assert "llm_task_diagnostics" in artifact
+    assert "LLM TASK PACKETS" in llm_task_report
     assert "Semantic handoff stops at review questions in this report." in report
     assert "🚢" not in report
