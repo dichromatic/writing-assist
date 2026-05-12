@@ -40,6 +40,8 @@ def _evidence_item(
     anchor: SpanAnchor,
     quote: str,
     visibility_bucket: str,
+    context_before: str,
+    context_after: str,
     suppression_reason: str = "",
     confidence_score: float | None = None,
 ) -> LLMTaskEvidenceItem:
@@ -56,8 +58,8 @@ def _evidence_item(
         document_path=anchor.path,
         source_anchor=anchor,
         quote=quote,
-        context_before="",
-        context_after="",
+        context_before=context_before,
+        context_after=context_after,
         source_object_id=source_object_id,
         visibility_bucket=visibility_bucket,
         suppression_reason=suppression_reason,
@@ -81,16 +83,39 @@ def _entity_selected(entity: CorpusEntity) -> tuple[bool, str]:
 def _entity_evidence(entity: CorpusEntity) -> list[LLMTaskEvidenceItem]:
     """Build bounded evidence for one corpus entity profile task."""
     items: list[LLMTaskEvidenceItem] = []
+    dropped_no_context = 0
     for record in entity.member_records[:_ENTITY_EVIDENCE_LIMIT]:
-        if not record.anchors:
+        if not record.anchors or not record.evidence_windows:
+            continue
+        anchor = record.anchors[0]
+        window = next(
+            (
+                item
+                for item in record.evidence_windows
+                if (
+                    item.anchor.path == anchor.path
+                    and item.anchor.span_ordinal == anchor.span_ordinal
+                    and item.anchor.start_char == anchor.start_char
+                    and item.anchor.end_char == anchor.end_char
+                )
+            ),
+            None,
+        )
+        if window is None:
+            dropped_no_context += 1
+            continue
+        if not window.context_before.strip() and not window.context_after.strip():
+            dropped_no_context += 1
             continue
         quote = record.surface_forms[0] if record.surface_forms else record.normalized_key
         items.append(
             _evidence_item(
                 source_object_id=entity.canonical_key,
-                anchor=record.anchors[0],
+                anchor=anchor,
                 quote=quote,
                 visibility_bucket=record.bucket.value,
+                context_before=window.context_before,
+                context_after=window.context_after,
                 suppression_reason=(
                     record.suppression_reason.value
                     if record.suppression_reason is not None
@@ -99,6 +124,28 @@ def _entity_evidence(entity: CorpusEntity) -> list[LLMTaskEvidenceItem]:
                 confidence_score=record.confidence_score,
             )
         )
+    if dropped_no_context and not items:
+        # Keep one weak fallback item when every window was dropped so we do
+        # not erase the task entirely; later quality gates can decide reviewability.
+        record = entity.member_records[0]
+        if record.anchors:
+            quote = record.surface_forms[0] if record.surface_forms else record.normalized_key
+            items.append(
+                _evidence_item(
+                    source_object_id=entity.canonical_key,
+                    anchor=record.anchors[0],
+                    quote=quote,
+                    visibility_bucket=record.bucket.value,
+                    context_before="",
+                    context_after="",
+                    suppression_reason=(
+                        record.suppression_reason.value
+                        if record.suppression_reason is not None
+                        else ""
+                    ),
+                    confidence_score=record.confidence_score,
+                )
+            )
     return items
 
 
@@ -121,6 +168,8 @@ def _reference_evidence(cluster: ReferenceCluster) -> list[LLMTaskEvidenceItem]:
                 anchor=anchor,
                 quote=cluster.surface_forms[0] if cluster.surface_forms else cluster.normalized,
                 visibility_bucket=cluster.reference_type.value,
+                context_before="",
+                context_after="",
             )
         )
     return items
@@ -144,6 +193,8 @@ def _conflict_evidence(
                 anchor=record.anchors[0],
                 quote=record.surface_forms[0] if record.surface_forms else record.normalized_key,
                 visibility_bucket="conflict_support",
+                context_before="",
+                context_after="",
                 confidence_score=record.confidence_score,
             )
         )
@@ -197,6 +248,12 @@ def build_manuscript_task_packets(
 
     for entity in bundle.canonical_entities:
         selected, reason = _entity_selected(entity)
+        entity_evidence = _entity_evidence(entity) if selected else []
+        context_kept = sum(
+            1
+            for item in entity_evidence
+            if item.context_before.strip() or item.context_after.strip()
+        )
         diagnostics.append(
             LLMTaskSelectionDiagnostic(
                 source_bundle_kind="manuscript_review_bundle",
@@ -210,6 +267,8 @@ def build_manuscript_task_packets(
                     "member_records": len(entity.member_records),
                     "supporting_documents": len(entity.supporting_document_paths),
                     "absorbed_surface_forms": len(entity.absorbed_surface_forms),
+                    "context_kept": context_kept,
+                    "context_dropped": max(0, len(entity.member_records[:_ENTITY_EVIDENCE_LIMIT]) - context_kept),
                 },
             )
         )
@@ -239,7 +298,7 @@ def build_manuscript_task_packets(
                     "Keep unresolved or conflicting signals explicit.",
                     "Do not resolve canon conflicts as factual truth.",
                 ],
-                evidence_payload=_entity_evidence(entity),
+                evidence_payload=entity_evidence,
                 selection_reason=reason,
                 payload={
                     "canonical_key": entity.canonical_key,

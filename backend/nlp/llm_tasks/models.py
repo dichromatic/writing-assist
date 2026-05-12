@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from backend.nlp.types import LLMTaskFamily
 
@@ -100,6 +100,21 @@ class ManuscriptEntityProfileResponse(BaseModel):
     conflicts: list[str] = Field(default_factory=list)
     notes: str | None = None
     evidence: list[LLMEvidencePayload] = Field(default_factory=list)
+
+    @field_validator(
+        "source_keys",
+        "aliases",
+        "conflicting_categories",
+        "reasons",
+        "conflicts",
+        mode="before",
+    )
+    @classmethod
+    def _coerce_nullable_lists(cls, value):
+        """Accept null list fields from model output as empty lists."""
+        if value is None:
+            return []
+        return value
 
 
 class ManuscriptReferenceAttachmentCandidate(BaseModel):
