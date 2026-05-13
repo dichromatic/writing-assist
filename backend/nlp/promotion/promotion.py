@@ -41,6 +41,7 @@ from backend.nlp.types import (
 )
 from backend.nlp.harvesting.shared import (
     TITLE_PREFIXES_LOWER,
+    has_generic_action_noun_sense,
     has_generic_modifier_profile,
     has_generic_verb_sense,
     is_stopword,
@@ -91,6 +92,41 @@ def _should_suppress_generic_verb_noise(
         and not cluster.linked_definitions
         and not cluster.linked_seeds
         and has_generic_verb_sense(cluster.normalized_key)
+    )
+
+
+def _should_suppress_generic_action_noun_noise(
+    cluster: MentionCluster,
+    classification,
+    signals,
+    score: float,
+) -> bool:
+    """Return True for weak single-token unresolved action/state noun noise.
+
+    This guard is intentionally narrow and mirrors generic verb suppression:
+    no title or linkage support, no attribution support, unresolved class, and
+    a generic action-like noun profile from WordNet.
+    """
+    return (
+        " " not in cluster.normalized_key
+        and classification.winning_category
+        in {
+            LexiconCategory.UNRESOLVED,
+            LexiconCategory.PLACE,
+            LexiconCategory.OBJECT,
+            LexiconCategory.EVENT,
+            LexiconCategory.CONCEPT,
+        }
+        and signals.rule_tier <= 2
+        and signals.attribution_count == 0
+        and cluster.occurrence_count <= 2
+        and signals.scene_count <= 1
+        and score < PROMOTE_THRESHOLD
+        and not cluster.has_title_support
+        and not cluster.linked_fields
+        and not cluster.linked_definitions
+        and not cluster.linked_seeds
+        and has_generic_action_noun_sense(cluster.normalized_key)
     )
 
 
@@ -404,6 +440,17 @@ def promote(
                 detail=(
                     f"'{cluster.normalized_key}' behaves like an ordinary verb "
                     f"lemma without entity support"
+                ),
+            ))
+            continue
+
+        if _should_suppress_generic_action_noun_noise(cluster, classification, signals, score):
+            suppressed.append(SuppressedCandidate(
+                cluster=cluster,
+                reason=SuppressReason.GENERIC_ACTION_NOUN_NOISE,
+                detail=(
+                    f"'{cluster.normalized_key}' behaves like a generic "
+                    f"action/state noun without entity support"
                 ),
             ))
             continue

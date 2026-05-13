@@ -24,6 +24,7 @@ from backend.nlp.types import (
     LLMTaskSelectionDiagnostic,
     ManuscriptReviewBundle,
     ReferenceCluster,
+    ReferenceCandidateType,
     ReviewTaskKind,
     SpanAnchor,
     stable_hash_id,
@@ -68,7 +69,9 @@ def _evidence_item(
 
 
 def _entity_selected(entity: CorpusEntity) -> tuple[bool, str]:
-    """Return whether a corpus entity should receive an entity-profile task."""
+    """Return whether a corpus entity should receive an entity-triage task."""
+    if entity.canonical_key in {"everyone"}:
+        return False, "generic_pronoun_noise"
     if entity.review_required:
         return True, "review_required_conflict"
     if len(entity.supporting_document_paths) > 1:
@@ -78,6 +81,21 @@ def _entity_selected(entity: CorpusEntity) -> tuple[bool, str]:
     if len(entity.source_keys) > 1:
         return True, "multiple_source_keys"
     return False, "thin_unresolved_entity"
+
+
+def _reference_normalized_keys(clusters: list[ReferenceCluster]) -> set[str]:
+    """Return normalized reference keys that should route to attachment lane."""
+    routed_types = {
+        ReferenceCandidateType.BOUND_TITLE_ROLE,
+        ReferenceCandidateType.BARE_TITLE_ROLE,
+        ReferenceCandidateType.BOUND_RELATION_ROLE,
+        ReferenceCandidateType.BARE_RELATION_ROLE,
+    }
+    return {
+        cluster.normalized
+        for cluster in clusters
+        if cluster.reference_type in routed_types
+    }
 
 
 def _entity_evidence(entity: CorpusEntity) -> list[LLMTaskEvidenceItem]:
@@ -245,9 +263,12 @@ def build_manuscript_task_packets(
     diagnostics: list[LLMTaskSelectionDiagnostic] = []
     entities_by_key = {entity.canonical_key: entity for entity in bundle.canonical_entities}
     review_prompts_by_reference = _review_task_index(bundle)
+    reference_keys = _reference_normalized_keys(bundle.reference_clusters)
 
     for entity in bundle.canonical_entities:
         selected, reason = _entity_selected(entity)
+        if selected and entity.canonical_key in reference_keys and not entity.review_required:
+            selected, reason = False, "routed_to_reference_attachment"
         entity_evidence = _entity_evidence(entity) if selected else []
         context_kept = sum(
             1

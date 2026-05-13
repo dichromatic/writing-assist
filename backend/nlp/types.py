@@ -1235,6 +1235,7 @@ class SuppressReason(Enum):
     HEADING_ONLY_SINGLETON = "heading_only_singleton"
     DIALOGUE_INTERNAL = "dialogue_internal"
     GENERIC_LEXICAL_NOISE = "generic_lexical_noise"
+    GENERIC_ACTION_NOUN_NOISE = "generic_action_noun_noise"
     COMPONENT_OVERLAP_NOISE = "component_overlap_noise"
     LOW_ENTITYHOOD = "low_entityhood"
     LOW_CONFIDENCE = "low_confidence"

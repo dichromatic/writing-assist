@@ -829,6 +829,70 @@ def has_generic_modifier_profile(text: str) -> bool:
     return len(adjective_synsets) >= 3 or len(noun_synsets) >= 3
 
 
+@lru_cache(maxsize=2048)
+def has_generic_action_noun_sense(text: str) -> bool:
+    """Return True when a token behaves like a generic action/state noun.
+
+    This helper supports deterministic promotion suppression for thin,
+    unresolved single-token clusters that are common prose abstractions
+    (for example smile, touch, sigh, glance) rather than likely entities.
+
+    Args:
+        text: Lowercase candidate token to inspect.
+
+    Returns:
+        True when WordNet evidence indicates a broad action/state noun profile.
+    """
+    word = text.lower()
+    if not word.isalpha():
+        return False
+
+    try:
+        from nltk.corpus import wordnet as wn
+    except Exception:
+        return False
+
+    try:
+        noun_synsets = wn.synsets(word, pos=wn.NOUN)
+        verb_synsets = wn.synsets(word, pos=wn.VERB)
+    except Exception:
+        return False
+
+    if len(noun_synsets) < 1 or len(verb_synsets) < 1:
+        return False
+
+    # Fallback lexical gate for common prose action/state tokens that are
+    # frequently capitalized at sentence starts but are not entity names.
+    generic_action_tokens = {
+        "smile",
+        "glance",
+        "sigh",
+        "touch",
+        "look",
+        "laugh",
+        "grin",
+        "frown",
+        "nod",
+        "shrug",
+        "whisper",
+        "murmur",
+        "gaze",
+        "stare",
+    }
+    if word in generic_action_tokens:
+        return True
+
+    action_like_lexnames = {
+        "noun.act",
+        "noun.event",
+        "noun.cognition",
+        "noun.phenomenon",
+        "noun.feeling",
+        "noun.state",
+    }
+    return any(s.lexname() in action_like_lexnames for s in noun_synsets)
+
+
 def normalize_surface(surface: str) -> str:
     """Compute the normalised clustering key for a surface form.
 
