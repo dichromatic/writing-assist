@@ -146,6 +146,26 @@ def _canonicalize_manuscript_review_semantics(
     normalized["review_required"] = review_required
     normalized["uncertainty_reason"] = uncertainty_reason
     normalized["conflicting_categories"] = conflicting_categories
+    failing = normalized.get("failing")
+    if not isinstance(failing, bool):
+        failing = review_required
+    passing = normalized.get("passing")
+    if not isinstance(passing, bool):
+        passing = not failing
+    rationale_confidence = normalized.get("rationale_confidence")
+    if rationale_confidence is None:
+        rationale_confidence = normalized.get("confidence")
+    if rationale_confidence is not None:
+        try:
+            rationale_confidence = float(rationale_confidence)
+        except (TypeError, ValueError):
+            rationale_confidence = None
+    if isinstance(rationale_confidence, float):
+        rationale_confidence = max(0.0, min(1.0, rationale_confidence))
+
+    normalized["passing"] = passing
+    normalized["failing"] = failing
+    normalized["rationale_confidence"] = rationale_confidence
     return normalized
 
 

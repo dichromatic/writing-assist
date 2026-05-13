@@ -84,12 +84,17 @@ def score_character_evidence(
         score += 0.70
         reasons.append("appears with a title prefix")
 
+    # Possessive syntax is only a weak character hint. Places, vessels, and
+    # organizations also appear in possessive form, so this should not carry
+    # resolution weight by itself.
     if cluster.has_possessive_support:
-        score += 0.35
+        score += 0.20
         reasons.append("appears in possessive form")
 
+    # Compound shape is a broad structural hint, not direct behavioral proof.
+    # Keep it below resolution threshold unless stronger evidence is present.
     if _looks_like_personal_compound(cluster):
-        score += 0.55
+        score += 0.25
         reasons.append("appears as a personal-style multi-token compound")
 
     if cluster.occurrence_count >= 2:

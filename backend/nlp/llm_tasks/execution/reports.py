@@ -104,6 +104,15 @@ def render_llm_task_result_comparison_report(
     lines.append(f"  completed: {completed}")
     lines.append(f"  failed: {failed}")
     lines.append(f"  skipped: {skipped}")
+    triage_payloads = [
+        ((item.payload or {}).get("proposal_payload", {}))
+        for item in results
+        if item.status == LLMTaskResultStatus.COMPLETED
+    ]
+    passing_count = sum(1 for payload in triage_payloads if payload.get("passing") is True)
+    failing_count = sum(1 for payload in triage_payloads if payload.get("failing") is True)
+    lines.append(f"  passing_count: {passing_count}")
+    lines.append(f"  failing_count: {failing_count}")
 
     for result in results[:max_tasks]:
         packet = packet_by_id.get(result.task_id)

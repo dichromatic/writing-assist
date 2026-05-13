@@ -210,3 +210,6 @@ def test_manuscript_llm_review_semantics_are_canonicalized():
     assert payload["review_required"] is False
     assert payload["uncertainty_reason"] == ""
     assert payload["conflicting_categories"] == []
+    assert payload["passing"] is True
+    assert payload["failing"] is False
+    assert payload["rationale_confidence"] is None

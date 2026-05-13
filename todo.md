@@ -37,6 +37,16 @@ Current note:
 - Use `documentation/structured-review-reference-and-flow.md` as the terminology
   reference for document type, record family, document status, review bundles,
   LLM task packets, database proposals, and index-database handoff.
+- Deferred for now:
+  - Do not finalize index-database schema from proposal outputs yet.
+  - Do not implement deterministic + LLM proposal merge lanes yet
+    (`ready_for_insert`, `review_queue`, `rejected`).
+  - Keep current work focused on:
+    - deterministic extraction and suppression refinement
+    - LLM pass output quality checks and normalization hardening
+    - evidence and review-signal fidelity (`passing`, `failing`,
+      `rationale_confidence`, `review_required`)
+  - Revisit schema and insertion-lane design only after this refinement cycle.
 
 ### Phase P.1: Pipeline types and data model
 
@@ -968,6 +978,112 @@ Out of scope:
 - implementing frontend panes
 - finalizing database tables
 - choosing vector, relational, or hybrid storage
+
+### Deterministic refinement gate: classification rebalancing and inductive titles
+
+Status:
+
+- planned
+
+Goal:
+
+- improve deterministic classification precision before further database design
+- keep LLM passes as verification and escalation, not as a patch for avoidable deterministic errors
+- require explicit before and after comparisons for every refinement slice
+
+Execution order:
+
+1. classification evidence rebalancing
+2. inductive title prefix discovery
+
+#### Phase A: classification evidence rebalancing
+
+Reference:
+
+- `documentation/classification-rebalancing.md`
+
+Scope:
+
+- reduce character shape-only over-resolution
+- widen place locative detection for article-intervened forms
+- relax place locative gate so contextual check can fire
+
+Out of scope:
+
+- broad object scorer expansion unless required after comparison
+- large vocabulary growth not directly tied to observed misclassifications
+
+Mandatory before and after comparison:
+
+- capture baseline artifact set before any edits
+- rerun the exact same corpus commands after edits
+- compare at minimum:
+  - number of `character` resolved corpus entities
+  - number of `unresolved` corpus entities
+  - targeted entities from the doc (`radiant firth`, `starlight prologue`, `takami inn`, `rosette nebula`, `exploration wing`, `proxima centauri`)
+  - alias absorption outcomes for shorthand heads (`firth`, `prologue`)
+  - LLM pass 1 triage distribution (`passing`, `failing`, `review_required`, `rationale_confidence` coverage)
+
+Phase A regression checks:
+
+- well-supported characters still resolve as `character`
+- no drop in anchor or evidence window fidelity
+- no increase in invalid LLM normalization artifacts for the same sample run config
+
+Done when:
+
+- targeted false-character compounds are reduced
+- no material regression in known strong characters
+- comparison report explicitly states both gains and regressions
+
+#### Phase B: inductive title prefix discovery
+
+Reference:
+
+- `documentation/inductive-title-prefix-discovery.md`
+
+Scope:
+
+- add inductive title discovery and diagnostics
+- apply inducted titles to deterministic extraction flow
+- confirm compound and noise cleanup from induced titles
+
+Implementation guardrails:
+
+- include induction diagnostics for each candidate token:
+  - support count
+  - supporting character keys
+  - reject reason when filtered
+- do not silently induct tokens without audit trail
+
+Mandatory before and after comparison:
+
+- capture baseline artifacts with current static title set
+- rerun exact same corpus commands after induction
+- compare at minimum:
+  - inducted title list
+  - entity count delta for title-led compounds
+  - `explorer kohaku` style compound collapse into canonical character
+  - standalone bare-title routing behavior
+  - noise compound reduction (`without explorer kohaku`, `processing kohaku`, `hey kohaku`)
+  - LLM pass 1 triage delta on the same packet cap and model settings
+
+Phase B regression checks:
+
+- no character-name tokens are wrongly inducted as titles
+- no loss of genuine non-title compounds
+- no degradation in insertable proposal rate for matched run configs
+
+Done when:
+
+- induced titles are auditable and stable
+- title-led noise compounds are reduced without harming canonical entities
+- comparison report explicitly states both gains and regressions
+
+Documentation:
+
+- add one concise phase note under `documentation/extraction_phasing/` for each phase
+- include commands used, artifact paths, key deltas, and explicit regression calls
 - finalizing the canonical world model
 
 TDD applies:

@@ -132,15 +132,16 @@ class TestClassification:
         assert decision.winning_category == LexiconCategory.GROUP
         assert decision.resolved is True
 
-    def test_compound_person_name_resolves_character(self):
-        # A recurring adjacent two-token personal name should resolve as a
-        # character compound, not remain trapped as two unrelated singles.
+    def test_compound_person_name_without_behavior_stays_unresolved(self):
+        # Structural shape and recurrence alone are no longer enough to resolve
+        # character identity. This keeps non-character compounds from being
+        # overclassified as CHARACTER when no behavioral evidence is present.
         text = "Tsushima Yoshiko arrived. Tsushima Yoshiko nodded."
         pre, clusters = harvest_and_cluster(text)
         yoshiko = next(c for c in clusters if c.normalized_key == "tsushima yoshiko")
         decision = classify_cluster(yoshiko, pre, [])
-        assert decision.winning_category == LexiconCategory.CHARACTER
-        assert decision.resolved is True
+        assert decision.winning_category == LexiconCategory.UNRESOLVED
+        assert decision.resolved is False
 
     def test_compound_group_name_resolves_group(self):
         # A compound institutional name should carry its suffix semantics as a

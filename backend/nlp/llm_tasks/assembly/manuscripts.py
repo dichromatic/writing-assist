@@ -313,11 +313,11 @@ def build_manuscript_task_packets(
                 document_status=status,
                 source_authority="manuscript_corpus",
                 source_authority_weight=document_status_authority_weight(status),
-                task_goal="Build an evidence-backed entity profile proposal for manuscript retrieval.",
+                task_goal="Triage deterministic entity categorization using evidence-backed review signals.",
                 task_constraints=[
                     "Use only evidence from provided anchors.",
                     "Keep unresolved or conflicting signals explicit.",
-                    "Do not resolve canon conflicts as factual truth.",
+                    "Do not write narrative profiles or summaries in this pass.",
                 ],
                 evidence_payload=entity_evidence,
                 selection_reason=reason,

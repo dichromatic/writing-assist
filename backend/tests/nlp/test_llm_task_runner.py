@@ -193,3 +193,79 @@ def test_review_resolution_does_not_set_candidate_when_uncertainty_present():
     )
     assert envelope.is_valid is True
     assert envelope.proposal_payload["resolution_candidate"] is False
+
+
+def test_pass1_semantics_derive_failing_and_rationale_confidence():
+    # Pass-1 triage responses may use legacy confidence naming. The normalizer
+    # should preserve review semantics under the new passing/failing contract.
+    envelope = normalize_llm_payload(
+        task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE,
+        raw_payload={
+            "canonical_key": "admiral",
+            "dominant_category": "character",
+            "review_required": True,
+            "confidence": 0.72,
+        },
+    )
+    assert envelope.is_valid is True
+    assert envelope.proposal_payload["failing"] is True
+    assert envelope.proposal_payload["passing"] is False
+    assert envelope.proposal_payload["rationale_confidence"] == 0.72
+
+
+def test_pass1_empty_payload_is_rejected_by_completeness_guard():
+    # Completed pass-1 results with empty proposal payload must not be treated
+    # as valid because triage routing depends on explicit flags.
+    envelope = normalize_llm_payload(
+        task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE,
+        raw_payload={},
+    )
+    assert envelope.is_valid is False
+    assert any("missing required triage booleans" in item for item in envelope.validation_errors)
+
+
+def test_pass1_confidence_label_is_coerced_to_numeric():
+    # Some model variants emit confidence labels. Coercion should preserve
+    # strict schema validation while keeping outputs usable.
+    envelope = normalize_llm_payload(
+        task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE,
+        raw_payload={
+            "canonical_key": "dia",
+            "dominant_category": "character",
+            "passing": True,
+            "failing": False,
+            "review_required": False,
+            "rationale_confidence": "high",
+        },
+    )
+    assert envelope.is_valid is True
+    assert envelope.proposal_payload["rationale_confidence"] == 0.85
+
+
+def test_pass2_empty_payload_is_rejected_by_completeness_guard():
+    # Completed pass-2 results with empty proposal payload must be rejected so
+    # unresolved entities do not appear silently resolved.
+    envelope = normalize_llm_payload(
+        task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION,
+        raw_payload={},
+    )
+    assert envelope.is_valid is False
+    assert any("missing required resolution key" in item for item in envelope.validation_errors)
+
+
+def test_pass2_backfills_missing_canonical_key_from_packet_fallback():
+    # Missing canonical key should be recoverable from deterministic packet
+    # identity during normalization.
+    envelope = normalize_llm_payload(
+        task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION,
+        raw_payload={
+            "resolved": False,
+            "passing": False,
+            "failing": True,
+            "review_required": True,
+            "remaining_uncertainty": "ambiguous",
+        },
+        fallback_canonical_key="admiralty",
+    )
+    assert envelope.is_valid is True
+    assert envelope.proposal_payload["canonical_key"] == "admiralty"

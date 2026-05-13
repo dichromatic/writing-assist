@@ -43,6 +43,14 @@ def _proposal_payload(result: LLMTaskResult) -> dict[str, Any]:
     return proposal if isinstance(proposal, dict) else {}
 
 
+def _needs_second_pass(proposal: dict[str, Any]) -> bool:
+    """Return true when first-pass triage marks the entity as unresolved."""
+    failing = proposal.get("failing")
+    if isinstance(failing, bool):
+        return failing
+    return bool(proposal.get("review_required", False))
+
+
 def _snippet_from_evidence_item(item) -> dict[str, Any]:
     """Convert one packet evidence item into queue snippet shape."""
     return {
@@ -161,7 +169,7 @@ def build_manuscript_review_queue(
         if result.task_family != LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE:
             continue
         proposal = _proposal_payload(result)
-        if not bool(proposal.get("review_required", False)):
+        if not _needs_second_pass(proposal):
             continue
         canonical_key = str(
             proposal.get("canonical_key")
@@ -218,6 +226,9 @@ def build_manuscript_review_queue(
                     "deterministic_reasons": list(packet.payload.get("reasons", [])),
                 },
                 first_pass_assessment={
+                    "passing": bool(proposal.get("passing", False)),
+                    "failing": bool(proposal.get("failing", proposal.get("review_required", False))),
+                    "rationale_confidence": proposal.get("rationale_confidence"),
                     "review_required": bool(proposal.get("review_required", False)),
                     "uncertainty_reason": str(proposal.get("uncertainty_reason", "")),
                     "conflicting_categories": list(proposal.get("conflicting_categories", [])),

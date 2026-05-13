@@ -59,8 +59,12 @@ def _system_prompt_for_packet(packet: LLMTaskPacket) -> str:
     if packet.task_family.value == "manuscript_entity_profile":
         return (
             base
-            + " Build an entity profile from evidence snippets and context windows. "
-            + "When evidence is sparse or role-title only, keep uncertainty explicit."
+            + " This is pass-1 triage, not profile writing. "
+            + "Return category judgment fields only: canonical_key, dominant_category (or category), "
+            + "passing, failing, rationale_confidence, review_required, uncertainty_reason, conflicting_categories. "
+            + "Set passing=true only when deterministic category is supported by evidence. "
+            + "Set failing=true when deterministic category is contradicted or evidence is insufficient. "
+            + "Keep uncertainty explicit and concise."
         )
     if packet.task_family.value == "manuscript_reference_attachment":
         return (
@@ -78,7 +82,8 @@ def _system_prompt_for_packet(packet: LLMTaskPacket) -> str:
             + " You are resolving a flagged entity from a previous review pass. "
             + "The prior pass profile, uncertainty reason, and broader scene context are provided. "
             + "Resolve category and identity only when evidence supports it. "
-            + "If evidence remains insufficient, keep review_required true and explain what is missing."
+            + "If evidence remains insufficient, keep review_required true and explain what is missing. "
+            + "Always include passing, failing, and rationale_confidence with your resolution rationale."
         )
     return base
 
@@ -263,6 +268,7 @@ def run_llm_task_packets(
             normalized = normalize_llm_payload(
                 task_family=packet.task_family,
                 raw_payload=payload,
+                fallback_canonical_key=packet.source_object_id,
             )
             results.append(
                 LLMTaskResult(

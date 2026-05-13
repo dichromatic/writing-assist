@@ -87,7 +87,7 @@ def _resident_place_support(cluster: MentionCluster, pre: PreprocessedDocument |
 
 def _locative_strength(cluster: MentionCluster, pre: PreprocessedDocument | None) -> tuple[float, list[str], list[str]]:
     """Refine harvest-time location flags using neighboring token context."""
-    if pre is None or not cluster.has_location_support:
+    if pre is None:
         return 0.0, [], []
 
     strong_hits = 0
@@ -99,6 +99,8 @@ def _locative_strength(cluster: MentionCluster, pre: PreprocessedDocument | None
             continue
 
         preceding = tokens[index - 1].text.lower()
+        if preceding in {"the", "a", "an"} and index >= 2:
+            preceding = tokens[index - 2].text.lower()
         following = tokens[index + 1].text if index + 1 < len(tokens) else ""
 
         if preceding in STRONG_LOCATIVE_PREPOSITIONS:
