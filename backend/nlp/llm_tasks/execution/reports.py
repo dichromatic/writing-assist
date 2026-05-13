@@ -75,6 +75,15 @@ def _truncate(text: str, *, limit: int = 240) -> str:
     return compact[: max(0, limit - 3)] + "..."
 
 
+def _first_present_text(payload: dict, keys: list[str]) -> str:
+    """Return the first non-empty text field from payload by key order."""
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
 def render_llm_task_result_comparison_report(
     packets: list[LLMTaskPacket],
     results: list[LLMTaskResult],
@@ -100,6 +109,7 @@ def render_llm_task_result_comparison_report(
         packet = packet_by_id.get(result.task_id)
         lines.append(_hr(f"TASK {result.task_id}"))
         lines.append(f"  family: {result.task_family.value}")
+        lines.append(f"  pass_stage: {result.pass_stage.value}")
         lines.append(f"  status: {result.status.value}")
         lines.append(f"  provider: {result.provider}")
         lines.append(f"  model: {result.model}")
@@ -143,6 +153,23 @@ def render_llm_task_result_comparison_report(
                 lines.append(f"    - {key}: {_truncate(str(value), limit=220)}")
         else:
             lines.append("    - None")
+        rationale = _first_present_text(
+            proposal_payload,
+            [
+                "resolution_rationale",
+                "remaining_uncertainty",
+                "uncertainty_reason",
+                "rationale",
+                "justification",
+                "resolution_notes",
+                "profile_summary",
+                "notes",
+                "profile_notes",
+            ],
+        )
+        if rationale:
+            lines.append("  llm_rationale:")
+            lines.append(f"    {_truncate(rationale, limit=1200)}")
 
     lines.append(_hr())
     return strip_emoji("\n".join(lines) + "\n")

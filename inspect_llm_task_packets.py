@@ -19,9 +19,21 @@ _workspace = _os.path.dirname(_os.path.realpath(__file__))
 if _workspace not in _sys.path:
     _sys.path.insert(0, _workspace)
 
-from backend.nlp.llm_tasks.io import load_task_packets_from_artifact, write_task_result_artifact
-from backend.nlp.llm_tasks.provider import make_nvidia_nim_chat_responder, run_llm_task_packets
-from backend.nlp.llm_tasks.reports import render_llm_task_result_comparison_report
+from backend.nlp.llm_tasks.execution.io import (
+    load_task_packets_from_artifact,
+    write_task_result_artifact,
+)
+from backend.nlp.llm_tasks.execution.provider import (
+    make_nvidia_nim_chat_responder,
+    run_llm_task_packets,
+)
+from backend.nlp.llm_tasks.execution.reports import (
+    render_llm_task_result_comparison_report,
+)
+from backend.nlp.llm_tasks.review.review_resolution import (
+    build_review_resolution_task_packets,
+)
+from backend.nlp.types import LLMTaskPassStage
 from backend.nlp.text_filtering import strip_emoji
 
 
@@ -93,12 +105,32 @@ def _build_parser() -> argparse.ArgumentParser:
         help="NVIDIA NIM request timeout in seconds. Default: 60",
     )
     parser.add_argument(
+        "--prompt-variant",
+        default="baseline",
+        choices=["baseline", "downgraded", "refute_first"],
+        help=(
+            "Prompt strategy variant for provider-side system prompts. "
+            "Default: baseline."
+        ),
+    )
+    parser.add_argument(
         "--report-output",
         default="",
         help=(
             "Optional path for a human-readable deterministic-vs-LLM comparison "
             "report. Default: derived from --output with .txt suffix."
         ),
+    )
+    parser.add_argument(
+        "--review-resolution",
+        action="store_true",
+        help="Run sequential second-pass review-resolution tasks after first pass.",
+    )
+    parser.add_argument(
+        "--max-review-resolution-tasks",
+        type=int,
+        default=None,
+        help="Optional cap on second-pass review-resolution tasks.",
     )
     return parser
 
@@ -141,19 +173,39 @@ def main() -> int:
             top_p=args.nim_top_p,
             max_tokens=args.nim_max_tokens,
             timeout_seconds=args.nim_timeout_seconds,
+            prompt_variant=args.prompt_variant,
         )
 
-    results = run_llm_task_packets(
+    first_pass_results = run_llm_task_packets(
         all_packets,
         model=args.model,
         provider=args.provider,
         responder=responder,
+        pass_stage=LLMTaskPassStage.FIRST_PASS,
     )
+    results = list(first_pass_results)
+    if args.review_resolution:
+        rr_packets, _rr_diagnostics = build_review_resolution_task_packets(
+            first_pass_packets=all_packets,
+            first_pass_results=first_pass_results,
+            max_tasks=args.max_review_resolution_tasks,
+        )
+        if rr_packets:
+            rr_results = run_llm_task_packets(
+                rr_packets,
+                model=args.model,
+                provider=args.provider,
+                responder=responder,
+                pass_stage=LLMTaskPassStage.REVIEW_RESOLUTION,
+            )
+            results.extend(rr_results)
+            all_packets = all_packets + rr_packets
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     write_task_result_artifact(
         output_path=str(output_path),
         source_artifact_paths=list(args.artifact_paths),
+        packets=all_packets,
         results=results,
     )
     report_output = (

@@ -677,11 +677,35 @@ class LLMTaskFamily(Enum):
     MANUSCRIPT_ENTITY_PROFILE = "manuscript_entity_profile"
     MANUSCRIPT_REFERENCE_ATTACHMENT = "manuscript_reference_attachment"
     MANUSCRIPT_CATEGORY_RESOLUTION = "manuscript_category_resolution"
+    MANUSCRIPT_ENTITY_REVIEW_RESOLUTION = "manuscript_entity_review_resolution"
+
+
+class LLMTaskPassStage(Enum):
+    """Execution stage for one shared LLM task result."""
+
+    FIRST_PASS = "first_pass"
+    REVIEW_RESOLUTION = "review_resolution"
 
 
 @dataclass(frozen=True)
 class LLMTaskEvidenceItem:
-    """Bounded evidence attached to an LLM task packet."""
+    """Bounded evidence attached to an LLM task packet.
+
+    Args:
+        evidence_id: Stable evidence identifier.
+        document_path: Source document path for this evidence.
+        source_anchor: Exact source anchor for provenance and traceability.
+        quote: Mention or quote text anchored by `source_anchor`.
+        context_before: Left context text near the quote.
+        context_after: Right context text near the quote.
+        source_object_id: Parent task source object identifier.
+        visibility_bucket: Deterministic evidence bucket label.
+        suppression_reason: Optional suppression reason when evidence comes
+            from review-only or suppressed sources.
+        confidence_score: Optional deterministic confidence score.
+        evidence_metadata: Optional structured metadata for retrieval-time
+            materialization, such as scene references and scene excerpts.
+    """
 
     evidence_id: str
     document_path: str
@@ -693,6 +717,7 @@ class LLMTaskEvidenceItem:
     visibility_bucket: str
     suppression_reason: str = ""
     confidence_score: float | None = None
+    evidence_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -752,6 +777,7 @@ class LLMTaskResult:
     status: LLMTaskResultStatus
     model: str
     provider: str
+    pass_stage: LLMTaskPassStage = LLMTaskPassStage.FIRST_PASS
     response_id: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
     error: str = ""

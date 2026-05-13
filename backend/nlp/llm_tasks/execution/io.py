@@ -13,6 +13,7 @@ from backend.nlp.types import (
     LLMTaskEvidenceItem,
     LLMTaskFamily,
     LLMTaskPacket,
+    LLMTaskPassStage,
     LLMTaskResult,
     LLMTaskResultStatus,
     SpanAnchor,
@@ -33,6 +34,11 @@ def _packet_from_dict(payload: dict[str, Any]) -> LLMTaskPacket:
             visibility_bucket=item["visibility_bucket"],
             suppression_reason=item.get("suppression_reason", ""),
             confidence_score=item.get("confidence_score"),
+            evidence_metadata=(
+                dict(item.get("evidence_metadata", {}))
+                if isinstance(item.get("evidence_metadata", {}), dict)
+                else {}
+            ),
         )
         for item in payload.get("evidence_payload", [])
     ]
@@ -67,11 +73,13 @@ def write_task_result_artifact(
     *,
     output_path: str,
     source_artifact_paths: list[str],
+    packets: list[LLMTaskPacket] | None,
     results: list[LLMTaskResult],
 ) -> None:
-    """Write one JSON artifact containing task results."""
+    """Write one JSON artifact containing task packets and task results."""
     payload = {
         "source_artifact_paths": list(source_artifact_paths),
+        "llm_task_packets": to_llm_safe_jsonable(packets or []),
         "llm_task_results": to_llm_safe_jsonable(results),
     }
     Path(output_path).write_text(
@@ -94,6 +102,7 @@ def load_task_results_from_artifact(path: str) -> list[LLMTaskResult]:
                 status=LLMTaskResultStatus(item["status"]),
                 model=item.get("model", ""),
                 provider=item.get("provider", ""),
+                pass_stage=LLMTaskPassStage(item.get("pass_stage", "first_pass")),
                 response_id=item.get("response_id", ""),
                 payload=dict(item.get("payload", {})),
                 error=item.get("error", ""),

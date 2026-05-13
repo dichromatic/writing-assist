@@ -1,6 +1,6 @@
 """Tests for manuscript task-packet generation from manuscript review bundles."""
 
-from backend.nlp.llm_tasks.manuscripts import build_manuscript_task_packets
+from backend.nlp.llm_tasks.assembly.manuscripts import build_manuscript_task_packets
 from backend.nlp.types import (
     CharacterSemanticSummary,
     ConflictRecord,

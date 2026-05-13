@@ -35,6 +35,120 @@ from backend.nlp.types import (
     stable_hash_id,
 )
 
+
+def _quality_annotations_for_result(
+    *,
+    packet: LLMTaskPacket,
+    proposal_payload: dict[str, Any],
+) -> list[dict[str, Any]]:
+    """Return non-blocking quality annotations for one LLM proposal."""
+    annotations: list[dict[str, Any]] = []
+
+    if packet.task_family == LLMTaskFamily.RECORD_FACT_EXTRACTION:
+        facts = proposal_payload.get("facts", [])
+        if isinstance(facts, list):
+            heading_like = [
+                item for item in facts
+                if isinstance(item, dict)
+                and str(item.get("statement", "")).strip().lower().startswith("section heading")
+            ]
+            if heading_like:
+                annotations.append(
+                    {
+                        "code": "quality_heading_metadata_fact",
+                        "message": "Detected heading-style metadata emitted as lore fact.",
+                        "count": len(heading_like),
+                    }
+                )
+            if packet.payload.get("record_type") == "loose_record":
+                raw_text = str(packet.payload.get("raw_record_text", ""))
+                parroted = [
+                    item for item in facts
+                    if isinstance(item, dict)
+                    and str(item.get("statement", "")).strip()
+                    and str(item.get("statement", "")).strip() in raw_text
+                    and len(str(item.get("statement", "")).strip()) >= 120
+                ]
+                if parroted:
+                    annotations.append(
+                        {
+                            "code": "quality_parroted_source",
+                            "message": "Detected likely verbatim long-form source parroting.",
+                            "count": len(parroted),
+                        }
+                    )
+
+    if packet.task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE:
+        evidence = packet.evidence_payload
+        if evidence:
+            thin = sum(
+                1
+                for item in evidence
+                if not item.context_before.strip() and not item.context_after.strip()
+            )
+            if thin == len(evidence):
+                annotations.append(
+                    {
+                        "code": "quality_context_too_thin",
+                        "message": "All supporting evidence items have empty context windows.",
+                        "count": thin,
+                    }
+                )
+        review_required = bool(proposal_payload.get("review_required", False))
+        uncertainty_reason = str(proposal_payload.get("uncertainty_reason", "")).strip()
+        category = str(
+            proposal_payload.get("dominant_category", proposal_payload.get("category", ""))
+        ).strip().lower()
+        if review_required:
+            if uncertainty_reason:
+                annotations.append(
+                    {
+                        "code": "quality_deferral_justified",
+                        "message": "Deferral includes explicit uncertainty rationale.",
+                    }
+                )
+            else:
+                annotations.append(
+                    {
+                        "code": "quality_deferral_unjustified",
+                        "message": "Deferral lacks explicit uncertainty rationale.",
+                    }
+                )
+            if category in {"character", "place", "group", "organization"} and not uncertainty_reason:
+                annotations.append(
+                    {
+                        "code": "quality_over_deferral_risk",
+                        "message": "Deferred despite resolved category without rationale.",
+                    }
+                )
+    return annotations
+
+
+def _canonicalize_manuscript_review_semantics(
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Return manuscript payload with stable review-semantic keys."""
+    normalized = dict(payload)
+    review_required = normalized.get("review_required")
+    if not isinstance(review_required, bool):
+        review_required = False
+
+    uncertainty_reason = normalized.get("uncertainty_reason")
+    if not isinstance(uncertainty_reason, str):
+        uncertainty_reason = ""
+    uncertainty_reason = uncertainty_reason.strip()
+
+    conflicting = normalized.get("conflicting_categories")
+    if not isinstance(conflicting, list):
+        conflicting = []
+    conflicting_categories = [str(item).strip() for item in conflicting if str(item).strip()]
+
+    normalized["review_required"] = review_required
+    normalized["uncertainty_reason"] = uncertainty_reason
+    normalized["conflicting_categories"] = conflicting_categories
+    return normalized
+
+
 def _result_payload_and_validation(
     result_payload: dict[str, Any],
 ) -> tuple[dict[str, Any], bool, list[str], dict[str, Any]]:
@@ -283,6 +397,7 @@ def _kind_from_task_family(task_family: LLMTaskFamily) -> DatabaseProposalKind:
         LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE: DatabaseProposalKind.ENTITY_PROFILE,
         LLMTaskFamily.MANUSCRIPT_REFERENCE_ATTACHMENT: DatabaseProposalKind.REFERENCE_ATTACHMENT,
         LLMTaskFamily.MANUSCRIPT_CATEGORY_RESOLUTION: DatabaseProposalKind.CATEGORY_RESOLUTION,
+        LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION: DatabaseProposalKind.ENTITY_PROFILE,
     }
     return mapping[task_family]
 
@@ -342,6 +457,7 @@ def project_llm_task_results_to_database_proposals(
     proposals: list[DatabaseProposal] = []
     diagnostics: list[IndexingDiagnostic] = []
     packet_by_id = {packet.task_id: packet for packet in task_packets}
+    first_pass_entity_proposal_id_by_key: dict[str, str] = {}
     for result in results:
         packet = packet_by_id.get(result.task_id)
         if packet is None:
@@ -371,6 +487,8 @@ def project_llm_task_results_to_database_proposals(
         proposal_payload, is_valid, validation_errors, raw_payload = _result_payload_and_validation(
             result.payload
         )
+        if result.task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE:
+            proposal_payload = _canonicalize_manuscript_review_semantics(proposal_payload)
         evidence_refs = [
             DatabaseProposalEvidenceRef(
                 evidence_id=item.evidence_id,
@@ -419,6 +537,44 @@ def project_llm_task_results_to_database_proposals(
             },
             source_result_ids=[result.response_id] if result.response_id else [],
         )
+        if result.task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE:
+            canonical = str(
+                proposal_payload.get("canonical_key")
+                or proposal_payload.get("entity_key")
+                or proposal.source_object_id
+            )
+            if canonical:
+                first_pass_entity_proposal_id_by_key[canonical] = proposal.proposal_id
+        if result.task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION:
+            proposal.retrieval_tags.append("review_resolution")
+            resolved = bool(proposal_payload.get("resolved", False))
+            if resolved:
+                proposal.payload["review_resolution_priority"] = "prefer_over_first_pass"
+            canonical = str(
+                proposal_payload.get("canonical_key")
+                or proposal.source_object_id
+            )
+            parent_id = first_pass_entity_proposal_id_by_key.get(canonical)
+            if parent_id:
+                proposal.parent_proposal_ids.append(parent_id)
+        quality_annotations = _quality_annotations_for_result(
+            packet=packet,
+            proposal_payload=proposal_payload,
+        )
+        if quality_annotations:
+            proposal.raw_source_payload["quality_annotations"] = quality_annotations
+            for annotation in quality_annotations:
+                diagnostics.append(
+                    IndexingDiagnostic(
+                        code=str(annotation.get("code", "quality_annotation")),
+                        level="info",
+                        source_bundle_kind=packet.source_bundle_kind,
+                        source_object_kind=packet.source_object_kind,
+                        source_object_id=packet.source_object_id,
+                        message=str(annotation.get("message", "LLM quality annotation.")),
+                        context={"proposal_id": proposal.proposal_id, **annotation},
+                    )
+                )
         proposal.review_state = DatabaseProposalReviewState.REVIEW_REQUIRED
         proposals.append(proposal)
     return proposals, diagnostics

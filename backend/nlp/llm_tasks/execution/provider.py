@@ -22,8 +22,9 @@ from urllib import request
 from urllib.error import HTTPError
 from typing import Callable
 
-from backend.nlp.llm_tasks.models import normalize_llm_payload
+from backend.nlp.llm_tasks.execution.models import normalize_llm_payload
 from backend.nlp.types import (
+    LLMTaskPassStage,
     LLMTaskPacket,
     LLMTaskResult,
     LLMTaskResultStatus,
@@ -32,6 +33,54 @@ from backend.nlp.types import (
 Responder = Callable[[LLMTaskPacket, str], tuple[dict, str]]
 
 _JSON_BLOCK_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _system_prompt_for_packet(packet: LLMTaskPacket) -> str:
+    """Return task-family specific system prompt instructions."""
+    base = (
+        "Return only one JSON object. Do not include markdown fences. "
+        "Ground every output claim in provided evidence payload items."
+    )
+    if packet.task_family.value == "record_fact_extraction":
+        return (
+            base
+            + " Extract atomic lore facts only. "
+            + "Do not output section headings, labels, or record metadata as facts. "
+            + "Do not copy full paragraphs verbatim when they contain multiple claims; split into atomic statements."
+            + " Never emit facts like 'Section heading is ...', 'record type is ...', or restatements of heading/title lines."
+            + " If an evidence item is a heading label, use it only to contextualize adjacent prose facts, not as its own fact."
+            + " Example good decomposition: "
+            + "'History is a convergence of three arcs' + "
+            + "'Arc one is common-lineage civilization' + "
+            + "'Arc two is Lunarian custodianship' + "
+            + "'Arc three is magician lineage'. "
+            + " Example bad decomposition: one paragraph-long restatement of the whole source text."
+        )
+    if packet.task_family.value == "manuscript_entity_profile":
+        return (
+            base
+            + " Build an entity profile from evidence snippets and context windows. "
+            + "When evidence is sparse or role-title only, keep uncertainty explicit."
+        )
+    if packet.task_family.value == "manuscript_reference_attachment":
+        return (
+            base
+            + " Propose attachment targets conservatively and keep unresolved outcomes explicit."
+        )
+    if packet.task_family.value == "manuscript_category_resolution":
+        return (
+            base
+            + " Resolve category only when evidence supports it; otherwise keep review_required true."
+        )
+    if packet.task_family.value == "manuscript_entity_review_resolution":
+        return (
+            base
+            + " You are resolving a flagged entity from a previous review pass. "
+            + "The prior pass profile, uncertainty reason, and broader scene context are provided. "
+            + "Resolve category and identity only when evidence supports it. "
+            + "If evidence remains insufficient, keep review_required true and explain what is missing."
+        )
+    return base
 
 
 def _extract_json_object_text(text: str) -> str:
@@ -81,6 +130,7 @@ def _packet_prompt(packet: LLMTaskPacket) -> str:
                 "visibility_bucket": item.visibility_bucket,
                 "suppression_reason": item.suppression_reason,
                 "confidence_score": item.confidence_score,
+                "evidence_metadata": item.evidence_metadata,
             }
             for item in packet.evidence_payload
         ],
@@ -96,6 +146,7 @@ def make_nvidia_nim_chat_responder(
     top_p: float = 0.9,
     max_tokens: int = 4096,
     timeout_seconds: float = 60.0,
+    prompt_variant: str = "baseline",
 ) -> Responder:
     """Build a responder that calls NVIDIA NIM chat completions."""
 
@@ -105,12 +156,22 @@ def make_nvidia_nim_chat_responder(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    system_prompt = (
-        "You extract structured, evidence-grounded proposals from provided packet JSON. "
-        "Return only one JSON object. Do not include markdown fences."
-    )
-
     def responder(packet: LLMTaskPacket, model: str) -> tuple[dict, str]:
+        system_prompt = _system_prompt_for_packet(packet)
+        if packet.task_family.value == "manuscript_entity_profile":
+            normalized_variant = prompt_variant.strip().lower()
+            if normalized_variant == "downgraded":
+                system_prompt += (
+                    " Treat deterministic category hints as non-authoritative priors. "
+                    "Prefer unresolved when context does not clearly support a category. "
+                    "If review_required is true, include uncertainty_reason."
+                )
+            elif normalized_variant == "refute_first":
+                system_prompt += (
+                    " Use refutation-first verification: try to disconfirm deterministic assumptions first. "
+                    "Only keep deterministic category when evidence context explicitly supports it. "
+                    "If contradiction or insufficiency exists, set review_required true and include uncertainty_reason."
+                )
         body = {
             "model": model,
             "messages": [
@@ -166,6 +227,7 @@ def run_llm_task_packets(
     model: str,
     provider: str,
     responder: Responder | None = None,
+    pass_stage: LLMTaskPassStage = LLMTaskPassStage.FIRST_PASS,
 ) -> list[LLMTaskResult]:
     """Run shared LLM task packets and return structured results.
 
@@ -191,6 +253,7 @@ def run_llm_task_packets(
                     status=LLMTaskResultStatus.SKIPPED,
                     model=model,
                     provider=provider,
+                    pass_stage=pass_stage,
                     error="no responder configured",
                 )
             )
@@ -209,6 +272,7 @@ def run_llm_task_packets(
                     status=LLMTaskResultStatus.COMPLETED,
                     model=model,
                     provider=provider,
+                    pass_stage=pass_stage,
                     response_id=response_id,
                     payload=normalized.model_dump(mode="json"),
                 )
@@ -222,6 +286,7 @@ def run_llm_task_packets(
                     status=LLMTaskResultStatus.FAILED,
                     model=model,
                     provider=provider,
+                    pass_stage=pass_stage,
                     error=str(exc),
                 )
             )

@@ -26,7 +26,10 @@ class LLMEvidencePayload(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     evidence_id: str
-    document_path: str = Field(validation_alias=AliasChoices("document_path", "document"))
+    document_path: str = Field(
+        default="",
+        validation_alias=AliasChoices("document_path", "document"),
+    )
     quote: str
     confidence_score: float | None = Field(
         default=None,
@@ -155,6 +158,35 @@ class ManuscriptCategoryResolutionResponse(BaseModel):
     alternatives: list[str] = Field(default_factory=list)
 
 
+class ManuscriptEntityReviewResolutionResponse(BaseModel):
+    """Typed response model for second-pass manuscript review resolution."""
+
+    model_config = ConfigDict(extra="allow")
+
+    canonical_key: str | None = None
+    resolved: bool = False
+    resolved_category: str | None = None
+    resolved_canonical_name: str | None = None
+    resolved_aliases: list[str] = Field(default_factory=list)
+    resolution_confidence: float | None = None
+    resolution_rationale: str | None = None
+    remaining_uncertainty: str | None = None
+    review_required: bool = True
+    evidence: list[LLMEvidencePayload] = Field(default_factory=list)
+    synthesis_notes: str | None = None
+
+    @model_validator(mode="after")
+    def _enforce_resolution_review_consistency(self) -> "ManuscriptEntityReviewResolutionResponse":
+        """Force unresolved outcomes to remain review-required.
+
+        A second-pass response that leaves an entity unresolved must keep
+        review_required true so downstream workflows do not treat it as closed.
+        """
+        if self.resolved is False:
+            self.review_required = True
+        return self
+
+
 class NormalizedLLMResponseEnvelope(BaseModel):
     """Serializable envelope persisted in LLMTaskResult.payload."""
 
@@ -175,6 +207,8 @@ def _model_for_family(task_family: LLMTaskFamily) -> type[BaseModel]:
         return ManuscriptReferenceAttachmentResponse
     if task_family == LLMTaskFamily.MANUSCRIPT_CATEGORY_RESOLUTION:
         return ManuscriptCategoryResolutionResponse
+    if task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION:
+        return ManuscriptEntityReviewResolutionResponse
     raise ValueError(f"Unsupported task_family for validation: {task_family.value}")
 
 
@@ -204,9 +238,29 @@ def normalize_llm_payload(
             validation_errors=[str(err) for err in exc.errors()],
             raw_payload=raw_payload,
         )
+    proposal_payload = validated.model_dump(mode="json", exclude_none=True)
+    if task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION:
+        unresolved = bool(proposal_payload.get("resolved") is False)
+        has_category = bool(str(proposal_payload.get("resolved_category", "")).strip())
+        has_uncertainty = bool(str(proposal_payload.get("remaining_uncertainty", "")).strip())
+        rationale_text = (
+            str(proposal_payload.get("resolution_rationale", "")).strip()
+            or str(proposal_payload.get("justification", "")).strip()
+            or str(proposal_payload.get("resolution_notes", "")).strip()
+            or str(proposal_payload.get("notes", "")).strip()
+        )
+        # Conservative promotion signal for unresolved-but-strongly-argued
+        # outputs. This does not auto-resolve; it flags a candidate for the
+        # next decision layer.
+        if unresolved and has_category and rationale_text and not has_uncertainty:
+            proposal_payload["resolution_candidate"] = True
+            proposal_payload["candidate_reason"] = rationale_text
+        else:
+            proposal_payload["resolution_candidate"] = False
+
     return NormalizedLLMResponseEnvelope(
         is_valid=True,
-        proposal_payload=validated.model_dump(mode="json", exclude_none=True),
+        proposal_payload=proposal_payload,
         validation_errors=[],
         raw_payload=raw_payload,
     )

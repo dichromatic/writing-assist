@@ -14,7 +14,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from backend.nlp.document_metadata import document_status_authority_weight
-from backend.nlp.llm_tasks.schemas import schema_id_for
+from backend.nlp.llm_tasks.assembly.schemas import schema_id_for
 from backend.nlp.types import (
     ConflictRecord,
     CorpusEntity,

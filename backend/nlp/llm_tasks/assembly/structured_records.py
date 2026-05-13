@@ -15,7 +15,7 @@ Structured-record LLM task builder - deterministic review bundle to shared task 
 from __future__ import annotations
 
 from backend.nlp.document_metadata import document_status_authority_weight
-from backend.nlp.llm_tasks.schemas import schema_id_for
+from backend.nlp.llm_tasks.assembly.schemas import schema_id_for
 from backend.nlp.types import (
     DeterministicFactCandidate,
     DocumentEntityRecord,
@@ -101,12 +101,19 @@ def _fact_evidence(bundle: RecordReviewBundle) -> list[LLMTaskEvidenceItem]:
 
 def _task_constraints(record_type: str) -> list[str]:
     """Return conservative constraints for record-fact extraction."""
-    return [
+    constraints = [
         "Extract evidence-backed proposals only.",
         "Keep unresolved subjects unresolved when evidence is ambiguous.",
         "Do not infer canon authority from writing style.",
+        "Do not extract section headings, record labels, or structural metadata as lore facts.",
+        "Each fact must be atomic and testable. Do not parrot full paragraphs.",
         f"Record family is {record_type}; preserve this context in the output.",
     ]
+    if record_type == "loose_record":
+        constraints.append(
+            "For loose_record prose, decompose into multiple atomic facts when multiple claims are present."
+        )
+    return constraints
 
 
 def build_structured_record_task_packets(

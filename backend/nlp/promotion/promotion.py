@@ -20,6 +20,7 @@ buckets and returns promotion outputs for downstream stages.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 
 from backend.nlp.classification.arbitration import classify_clusters
 from backend.nlp.classification.compound_shapes import compound_parts
@@ -51,7 +52,7 @@ from backend.nlp.promotion.scoring import PROMOTE_THRESHOLD, SUPPRESS_THRESHOLD,
 # The actual window is snapped inward to the nearest sentence boundary, so
 # context strings always contain complete sentences. 150 characters is the
 # outer bound; the real edge is the sentence start or end closest to that limit.
-_CONTEXT_RADIUS = 150
+_CONTEXT_RADIUS = int(os.getenv("NLP_CONTEXT_RADIUS", "150"))
 
 @dataclass
 class PromotionResult:

@@ -13,8 +13,8 @@ Shared LLM task builder dispatcher.
 
 from __future__ import annotations
 
-from backend.nlp.llm_tasks.manuscripts import build_manuscript_task_packets
-from backend.nlp.llm_tasks.structured_records import build_structured_record_task_packets
+from backend.nlp.llm_tasks.assembly.manuscripts import build_manuscript_task_packets
+from backend.nlp.llm_tasks.assembly.structured_records import build_structured_record_task_packets
 from backend.nlp.types import LLMTaskPacket, LLMTaskSelectionDiagnostic, ManuscriptReviewBundle, RecordReviewBundle
 
 

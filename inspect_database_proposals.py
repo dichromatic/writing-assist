@@ -26,7 +26,7 @@ from backend.nlp.indexing import (
     validate_database_proposals,
 )
 from backend.nlp.indexing.reports import render_database_proposal_report
-from backend.nlp.llm_tasks.io import (
+from backend.nlp.llm_tasks.execution.io import (
     load_task_packets_from_artifact,
     load_task_results_from_artifact,
 )

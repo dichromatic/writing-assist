@@ -4,7 +4,9 @@ from pathlib import Path
 
 from backend.nlp.experiments.structured_review.cli import run_structured_review_experiment
 from backend.nlp.experiments.structured_review.review_bundle import build_structured_review_bundles
-from backend.nlp.llm_tasks.structured_records import build_structured_record_task_packets
+from backend.nlp.llm_tasks.assembly.structured_records import (
+    build_structured_record_task_packets,
+)
 from backend.nlp.pipeline import run_document_pipeline
 from backend.nlp.parsing.document_parser import parse
 from backend.nlp.structured_records import segment_structured_records

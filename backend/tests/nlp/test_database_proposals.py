@@ -148,3 +148,65 @@ def test_validation_sets_insertability_states():
     assert by_state_invalid["deterministic_proposal"] == "insertable"
     assert by_state_invalid["llm_proposal"] == "needs_normalization"
     assert any(item.code == "llm_observed_not_normalized" for item in diagnostics_valid + diagnostics_invalid)
+
+
+def test_manuscript_llm_review_semantics_are_canonicalized():
+    # Manuscript entity-profile payloads should always expose stable review
+    # semantics keys even when model output omits or drifts them.
+    packet = LLMTaskPacket(
+        task_id="task-m-1",
+        task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE,
+        schema_id="manuscript_entity_profile.v1",
+        source_bundle_kind="manuscript_review_bundle",
+        source_object_kind="corpus_entity",
+        source_object_id="entity-1",
+        source_document_paths=["doc.md"],
+        document_type=DocumentType.MANUSCRIPT,
+        document_status=DocumentStatus.PRIMARY_CANON,
+        source_authority="manuscript_corpus",
+        source_authority_weight=1.0,
+        task_goal="Build entity profile.",
+        task_constraints=["Use evidence only."],
+        evidence_payload=[
+            LLMTaskEvidenceItem(
+                evidence_id="ev-m-1",
+                document_path="doc.md",
+                source_anchor=SpanAnchor(path="doc.md", span_ordinal=0, start_char=0, end_char=7),
+                quote="Captain",
+                context_before="",
+                context_after="",
+                source_object_id="entity-1",
+                visibility_bucket="review_only",
+            )
+        ],
+        selection_reason="selected",
+        payload={},
+    )
+    proposals, _diagnostics = project_llm_task_results_to_database_proposals(
+        [
+            LLMTaskResult(
+                task_id="task-m-1",
+                task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE,
+                schema_id="manuscript_entity_profile.v1",
+                status=LLMTaskResultStatus.COMPLETED,
+                model="test-model",
+                provider="test-provider",
+                response_id="resp-m-1",
+                payload={
+                    "proposal_payload": {
+                        "canonical_key": "captain",
+                        "dominant_category": "unresolved",
+                    },
+                    "is_valid": True,
+                    "validation_errors": [],
+                    "raw_payload": {},
+                },
+            )
+        ],
+        [packet],
+    )
+    assert len(proposals) == 1
+    payload = proposals[0].payload
+    assert payload["review_required"] is False
+    assert payload["uncertainty_reason"] == ""
+    assert payload["conflicting_categories"] == []

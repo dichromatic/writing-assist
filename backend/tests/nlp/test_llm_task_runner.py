@@ -3,8 +3,12 @@
 import json
 from pathlib import Path
 
-from backend.nlp.llm_tasks.io import load_task_packets_from_artifact
-from backend.nlp.llm_tasks.provider import _extract_json_object_text, run_llm_task_packets
+from backend.nlp.llm_tasks.execution.io import load_task_packets_from_artifact
+from backend.nlp.llm_tasks.execution.models import normalize_llm_payload
+from backend.nlp.llm_tasks.execution.provider import (
+    _extract_json_object_text,
+    run_llm_task_packets,
+)
 from backend.nlp.types import (
     DocumentStatus,
     DocumentType,
@@ -135,3 +139,57 @@ def test_json_object_extractor_handles_fenced_model_content():
 ```
 """
     assert _extract_json_object_text(text) == '{"items":[{"label":"Role","value":"Captain"}]}'
+
+
+def test_review_resolution_unresolved_forces_review_required_true():
+    # Second-pass unresolved results must stay open for review regardless of
+    # model-provided review_required value.
+    envelope = normalize_llm_payload(
+        task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION,
+        raw_payload={
+            "canonical_key": "admiral",
+            "resolved": False,
+            "review_required": False,
+            "remaining_uncertainty": "insufficient context",
+        },
+    )
+    assert envelope.is_valid is True
+    assert envelope.proposal_payload["resolved"] is False
+    assert envelope.proposal_payload["review_required"] is True
+
+
+def test_review_resolution_sets_resolution_candidate_when_strong_but_unresolved():
+    # Unresolved responses with explicit category plus rationale and no
+    # remaining uncertainty should be marked as resolution candidates.
+    envelope = normalize_llm_payload(
+        task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION,
+        raw_payload={
+            "canonical_key": "admiralty",
+            "resolved": False,
+            "resolved_category": "organization",
+            "review_required": True,
+            "resolution_notes": "Usage consistently indicates institutional authority.",
+            "remaining_uncertainty": "",
+        },
+    )
+    assert envelope.is_valid is True
+    assert envelope.proposal_payload["resolution_candidate"] is True
+    assert "institutional authority" in envelope.proposal_payload["candidate_reason"]
+
+
+def test_review_resolution_does_not_set_candidate_when_uncertainty_present():
+    # When uncertainty remains explicit, unresolved outputs should stay
+    # non-candidate and continue through review.
+    envelope = normalize_llm_payload(
+        task_family=LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION,
+        raw_payload={
+            "canonical_key": "admiral",
+            "resolved": False,
+            "resolved_category": "character",
+            "review_required": True,
+            "resolution_rationale": "Some supporting narrative context exists.",
+            "remaining_uncertainty": "Multiple distinct admirals remain possible.",
+        },
+    )
+    assert envelope.is_valid is True
+    assert envelope.proposal_payload["resolution_candidate"] is False
