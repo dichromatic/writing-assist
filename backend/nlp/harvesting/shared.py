@@ -74,7 +74,7 @@ _BASE_RELATION_ROLE_NOUNS: frozenset[str] = frozenset({
 LOCATIVE_PREPOSITIONS: frozenset[str] = frozenset({
     # Position
     "in", "at", "on", "near", "by", "beside", "between", "among",
-    "amid", "amidst", "within", "outside", "inside", "around",
+    "amid", "amidst", "within", "outside", "inside", "around", "aboard",
     "across", "along", "through", "beyond", "beneath", "below",
     "above", "over", "under", "underneath", "opposite", "behind",
     # Origin and path - reliable place indicators even when directional
@@ -91,7 +91,7 @@ LOCATIVE_PREPOSITIONS: frozenset[str] = frozenset({
 # Cosmic Time") and adjectival demonyms ("by Lunarian druids").
 # ---------------------------------------------------------------------------
 STRONG_LOCATIVE_PREPOSITIONS: frozenset[str] = frozenset({
-    "in", "at", "from", "into", "onto", "within", "inside", "outside",
+    "in", "at", "from", "into", "onto", "within", "inside", "outside", "aboard",
     "near", "on",
 })
 

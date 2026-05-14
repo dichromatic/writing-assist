@@ -42,6 +42,11 @@ from backend.nlp.harvesting.shared import (
 )
 from backend.nlp.types import Token
 
+_ARTICLE_TOKENS: frozenset[str] = frozenset({"the", "a", "an"})
+_ARTICLE_SKIP_SAFE_LOCATIVES: frozenset[str] = frozenset(
+    {"aboard", "onboard"}
+)
+
 
 def _is_name_word(token: Token) -> bool:
     """Return True if the token looks like the start of a proper name.
@@ -57,6 +62,27 @@ def _is_name_word(token: Token) -> bool:
         True if the token begins with an uppercase alphabetic character.
     """
     return bool(token.text) and token.text[0].isalpha() and token.text[0].isupper()
+
+
+def _has_locative_left_context(tokens: list[Token], index: int) -> bool:
+    """Return True when a token index is preceded by a locative preposition.
+
+    Direct preposition adjacency is always accepted. One-token article skip is
+    allowed only for a conservative subset of locatives that are rarely used
+    as verb complements.
+    """
+    if index <= 0:
+        return False
+    preceding = tokens[index - 1].text.lower()
+    if preceding in LOCATIVE_PREPOSITIONS:
+        return True
+    if (
+        preceding in _ARTICLE_TOKENS
+        and index >= 2
+        and tokens[index - 2].text.lower() in _ARTICLE_SKIP_SAFE_LOCATIVES
+    ):
+        return True
+    return False
 
 
 def _extract_from_span(
@@ -234,9 +260,7 @@ def _extract_from_span(
                 continue
 
             surface = " ".join(token.text for token in phrase_tokens)
-            preceding_is_locative = (
-                i > 0 and tokens[i - 1].text.lower() in LOCATIVE_PREPOSITIONS
-            )
+            preceding_is_locative = _has_locative_left_context(tokens, i)
             candidates.append(make_candidate(
                 surface=surface,
                 start_char=phrase_tokens[0].start_char,
@@ -265,9 +289,7 @@ def _extract_from_span(
             continue
         # A capitalized token immediately following a locative preposition is
         # strong evidence of a place name rather than a character name.
-        preceding_is_locative = (
-            i > 0 and tokens[i - 1].text.lower() in LOCATIVE_PREPOSITIONS
-        )
+        preceding_is_locative = _has_locative_left_context(tokens, i)
         candidates.append(make_candidate(
             surface=token.text,
             start_char=token.start_char,

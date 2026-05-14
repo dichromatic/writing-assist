@@ -87,7 +87,7 @@ def _resident_place_support(cluster: MentionCluster, pre: PreprocessedDocument |
 
 def _locative_strength(cluster: MentionCluster, pre: PreprocessedDocument | None) -> tuple[float, list[str], list[str]]:
     """Refine harvest-time location flags using neighboring token context."""
-    if pre is None:
+    if pre is None or not cluster.has_location_support:
         return 0.0, [], []
 
     strong_hits = 0

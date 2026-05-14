@@ -523,6 +523,15 @@ def _merge_non_character_modifier_aliases(
         if not set(modifier_entity.supporting_document_paths).issubset(set(anchor_paths)):
             continue
 
+        # Don't absorb a modifier that is mentioned more often than the compound.
+        # If the shorter form is the more frequent reference, it is likely the
+        # primary entity and the compound is a fuller variant of it, not the
+        # other way around.
+        modifier_occ = sum(r.occurrence_count for r in modifier_entity.member_records)
+        compound_occ = sum(r.occurrence_count for r in by_key[key].member_records)
+        if modifier_occ > compound_occ:
+            continue
+
         eligible_compounds[key] = (modifier, anchor_records)
         modifier_to_compounds[modifier].add(key)
 
@@ -609,10 +618,12 @@ def _merge_non_character_contained_aliases(
             continue
 
         anchor_paths = sorted({record.document_anchor.path for record in anchor_records})
-        candidate_aliases = {
-            " ".join(parts[1:]),
-            " ".join(parts[:-1]),
-        }
+        # Only consider suffix aliases (remove leading modifier word, e.g. "remembrance
+        # gardens" from "amerhinn remembrance gardens"). Prefix aliases (remove trailing
+        # qualifier, e.g. "east lagoon" from "east lagoon villa") have the wrong
+        # absorption direction: the shorter form is the primary place name and the
+        # trailing word is a type qualifier, not a geographic modifier.
+        candidate_aliases = {" ".join(parts[1:])}
         for alias_key in candidate_aliases:
             alias_parts = alias_key.split()
             if len(alias_parts) < 2:
@@ -631,6 +642,14 @@ def _merge_non_character_contained_aliases(
             if alias_entity.review_required and alias_entity.dominant_category != compound_entity.dominant_category:
                 continue
             if not set(alias_entity.supporting_document_paths).issubset(set(anchor_paths)):
+                continue
+
+            # Don't absorb an alias that is mentioned more often than the compound.
+            # If the shorter phrase is the more frequent reference, it is the
+            # primary entity and the longer compound is a variant, not canonical.
+            alias_occ = sum(r.occurrence_count for r in alias_entity.member_records)
+            compound_occ = sum(r.occurrence_count for r in compound_entity.member_records)
+            if alias_occ > compound_occ:
                 continue
 
             eligible_compounds[key].append((alias_key, anchor_records))

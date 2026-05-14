@@ -90,6 +90,14 @@ def assess_entityhood(
     else:
         weaknesses.append("appears only once")
 
+    # A recurring multi-token compound carries more naming weight than a
+    # recurring single word. Two adjacent capitalized words appearing 2+ times
+    # is strong evidence of a deliberate named reference, independent of whether
+    # the classification layer could resolve its category.
+    if len(cluster.normalized_key.split()) >= 2 and cluster.occurrence_count >= 2:
+        score += 0.30
+        reasons.append("recurs as a multi-token compound")
+
     if (
         not cluster.has_title_support
         and not cluster.has_possessive_support
