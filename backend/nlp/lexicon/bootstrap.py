@@ -43,6 +43,8 @@ from backend.nlp.clustering.clustering import cluster_mentions
 from backend.nlp.clustering.linking import link_clusters
 from backend.nlp.lexicon.induction import induce_lexicon
 from backend.nlp.lexicon.matcher import compile_automaton, match_text
+from backend.nlp.lexicon.title_induction import TitleInductionDiagnostic, induce_title_prefixes
+from backend.nlp.harvesting.shared import TITLE_PREFIXES
 
 
 @dataclass
@@ -65,6 +67,8 @@ class BootstrapResult:
     candidates: list[MentionCandidate]
     passes_run: int
     new_entries_per_pass: list[int]
+    induced_title_prefixes: frozenset[str] = field(default_factory=frozenset)
+    title_induction_diagnostics: list[TitleInductionDiagnostic] = field(default_factory=list)
 
 
 def _match_all_spans(
@@ -183,10 +187,36 @@ def bootstrap(
         if new_count == 0:
             break  # Converged.
 
+    induced_titles, title_diagnostics = induce_title_prefixes(
+        clusters=clusters,
+        candidates=candidates,
+        lexicon=lexicon,
+    )
+    if induced_titles:
+        expanded_prefixes = TITLE_PREFIXES | induced_titles
+        reharvested_candidates = harvest_manuscript(pre, title_prefixes=expanded_prefixes)
+        if lexicon:
+            automaton = compile_automaton(lexicon)
+            lexicon_candidates = _match_all_spans(automaton, pre, doc.path)
+            all_candidates = _deduplicate_candidates(reharvested_candidates + lexicon_candidates)
+        else:
+            all_candidates = reharvested_candidates
+        clusters = cluster_mentions(all_candidates)
+        link_clusters(clusters, [], [], [])
+        induced_lexicon = induce_lexicon(clusters, doc.path, induction_pass=passes_run)
+        induced_phrases: set[str] = {entry.normalized_phrase for entry in induced_lexicon}
+        new_entries_per_pass.append(len(induced_phrases - prev_phrases))
+        lexicon = induced_lexicon
+        prev_phrases = induced_phrases
+        candidates = all_candidates
+        passes_run += 1
+
     return BootstrapResult(
         lexicon=lexicon,
         clusters=clusters,
         candidates=candidates,
         passes_run=passes_run,
         new_entries_per_pass=new_entries_per_pass,
+        induced_title_prefixes=induced_titles,
+        title_induction_diagnostics=title_diagnostics,
     )

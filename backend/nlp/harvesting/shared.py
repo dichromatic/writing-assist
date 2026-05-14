@@ -741,7 +741,18 @@ def _load_stopwords() -> frozenset[str]:
     })
 
 
-STOPWORDS: frozenset[str] = _load_stopwords()
+# Indefinite pronouns that NLTK omits because they carry semantic weight in
+# information retrieval. For entity extraction they are categorically not
+# proper names and should be suppressed like any other function word.
+_INDEFINITE_PRONOUNS: frozenset[str] = frozenset({
+    'everyone', 'everybody', 'everything',
+    'someone', 'somebody', 'something',
+    'anyone', 'anybody', 'anything',
+    'nobody', 'nothing',
+    'another', 'each', 'either', 'neither',
+})
+
+STOPWORDS: frozenset[str] = _load_stopwords() | _INDEFINITE_PRONOUNS
 
 
 def is_stopword(text: str) -> bool:
@@ -893,7 +904,10 @@ def has_generic_action_noun_sense(text: str) -> bool:
     return any(s.lexname() in action_like_lexnames for s in noun_synsets)
 
 
-def normalize_surface(surface: str) -> str:
+def normalize_surface(
+    surface: str,
+    title_prefixes: frozenset[str] = TITLE_PREFIXES,
+) -> str:
     """Compute the normalised clustering key for a surface form.
 
     Strips a leading title prefix and a trailing possessive suffix, then
@@ -907,7 +921,7 @@ def normalize_surface(surface: str) -> str:
         Normalised form, e.g. "aldous".
     """
     parts = surface.split()
-    if parts and parts[0] in TITLE_PREFIXES:
+    if parts and parts[0] in title_prefixes:
         parts = parts[1:]
     if not parts:
         return surface.lower().strip()

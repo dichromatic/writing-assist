@@ -31,6 +31,7 @@ from backend.nlp.promotion.attribution import AttributionRecord, attribute_dialo
 from backend.nlp.promotion.promotion import PromotionResult, promote
 from backend.nlp.reconciliation.document_entities import summarize_document_entities
 from backend.nlp.semantic_review.review import extract_reference_candidates
+from backend.nlp.harvesting.shared import TITLE_PREFIXES_LOWER
 from backend.nlp.types import (
     DocumentEntityRecord,
     ParsedMarkdownDocument,
@@ -91,8 +92,17 @@ def run_document_pipeline(path: str, raw_text: str) -> DocumentPipelineResult:
     doc = parse(path, raw_text)
     pre = preprocess(doc)
     bootstrap_result = bootstrap(doc, pre=pre)
+    combined_titles_lower = TITLE_PREFIXES_LOWER | frozenset(
+        title.lower() for title in bootstrap_result.induced_title_prefixes
+    )
     attribution_records = attribute_dialogue(pre, bootstrap_result.clusters)
-    promotion_result = promote(pre, bootstrap_result.clusters, bootstrap_result.lexicon, attribution_records)
+    promotion_result = promote(
+        pre,
+        bootstrap_result.clusters,
+        bootstrap_result.lexicon,
+        attribution_records,
+        title_prefixes_lower=combined_titles_lower,
+    )
     promotion_bundle = promotion_result.bundle
     entity_records = summarize_document_entities(
         pre,

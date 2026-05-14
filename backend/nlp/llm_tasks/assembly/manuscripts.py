@@ -70,8 +70,6 @@ def _evidence_item(
 
 def _entity_selected(entity: CorpusEntity) -> tuple[bool, str]:
     """Return whether a corpus entity should receive an entity-triage task."""
-    if entity.canonical_key in {"everyone"}:
-        return False, "generic_pronoun_noise"
     if entity.review_required:
         return True, "review_required_conflict"
     if len(entity.supporting_document_paths) > 1:
@@ -80,7 +78,7 @@ def _entity_selected(entity: CorpusEntity) -> tuple[bool, str]:
         return True, "absorbed_surface_forms"
     if len(entity.source_keys) > 1:
         return True, "multiple_source_keys"
-    return False, "thin_unresolved_entity"
+    return True, "thin_unresolved_entity"
 
 
 def _reference_normalized_keys(clusters: list[ReferenceCluster]) -> set[str]:

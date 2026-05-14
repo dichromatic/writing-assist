@@ -20,6 +20,7 @@ _ENTITYHOOD_THRESHOLD = 0.55
 def assess_entityhood(
     cluster: MentionCluster,
     evidence_by_category: dict[LexiconCategory, ClassEvidence],
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> EntityhoodDecision:
     """Score whether a cluster is plausible enough to survive as an entity.
 
@@ -42,7 +43,7 @@ def assess_entityhood(
     if cluster.has_title_support:
         score += 0.75
         reasons.append("appears with a title prefix")
-    elif cluster.normalized_key in TITLE_PREFIXES_LOWER:
+    elif cluster.normalized_key in title_prefixes_lower:
         score += 0.55
         reasons.append("is used as a bare title reference")
 

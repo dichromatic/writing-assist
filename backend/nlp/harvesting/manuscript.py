@@ -90,6 +90,7 @@ def _extract_from_span(
     tokens: list[Token],
     span_ordinal: int,
     quote_end_chars: set[int],
+    title_prefixes: frozenset[str] = TITLE_PREFIXES,
 ) -> list[MentionCandidate]:
     """Extract raw MentionCandidate records from a single span's tokens.
 
@@ -133,7 +134,7 @@ def _extract_from_span(
         )
         return MentionCandidate(
             surface=surface,
-            normalized=normalize_surface(surface),
+            normalized=normalize_surface(surface, title_prefixes=title_prefixes),
             anchor=anchor,
             has_title_prefix=has_title_prefix,
             has_possessive=has_possessive,
@@ -148,7 +149,7 @@ def _extract_from_span(
     # ------------------------------------------------------------------
     i = 0
     while i < len(tokens):
-        if tokens[i].text in TITLE_PREFIXES and i not in consumed:
+        if tokens[i].text in title_prefixes and i not in consumed:
             j = i + 1
             # Skip a period that follows an abbreviated title (Dr., Mr., etc.)
             if j < len(tokens) and tokens[j].text == '.':
@@ -250,7 +251,7 @@ def _extract_from_span(
         for i in range(len(tokens) - compound_length + 1):
             phrase_tokens = tokens[i:i + compound_length]
 
-            if any(token.text in TITLE_PREFIXES for token in phrase_tokens):
+            if any(token.text in title_prefixes for token in phrase_tokens):
                 continue
             if not all(_is_name_word(token) for token in phrase_tokens):
                 continue
@@ -364,7 +365,10 @@ def _suppress_sentence_initial_only(
     return result
 
 
-def harvest_manuscript(pre: PreprocessedDocument) -> list[MentionCandidate]:
+def harvest_manuscript(
+    pre: PreprocessedDocument,
+    title_prefixes: frozenset[str] = TITLE_PREFIXES,
+) -> list[MentionCandidate]:
     """Extract MentionCandidate records from all prose spans in the document.
 
     Processes headings and paragraphs (anything with tokens in tokens_by_span).
@@ -393,6 +397,14 @@ def harvest_manuscript(pre: PreprocessedDocument) -> list[MentionCandidate]:
         tokens = pre.tokens_by_span[span_ordinal]
         if not tokens:
             continue
-        raw.extend(_extract_from_span(pre.source.path, tokens, span_ordinal, quote_end_chars))
+        raw.extend(
+            _extract_from_span(
+                pre.source.path,
+                tokens,
+                span_ordinal,
+                quote_end_chars,
+                title_prefixes=title_prefixes,
+            )
+        )
 
     return _suppress_sentence_initial_only(raw, sentence_initial_chars)

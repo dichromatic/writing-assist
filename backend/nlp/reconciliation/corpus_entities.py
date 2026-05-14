@@ -135,6 +135,7 @@ def _is_safe_character_component(
 def _merge_character_compound_aliases(
     entities: list[CorpusEntity],
     all_records_by_key: dict[str, list[DocumentEntityRecord]],
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> list[CorpusEntity]:
     """Merge unambiguous character full-name compounds over exact-key entities.
 
@@ -189,7 +190,7 @@ def _merge_character_compound_aliases(
             continue
         merge_plans[key] = parts
         if (
-            left in TITLE_PREFIXES_LOWER
+            left in title_prefixes_lower
             or (
                 by_key[left].dominant_category != LexiconCategory.CHARACTER
                 and by_key[right].dominant_category == LexiconCategory.CHARACTER
@@ -265,6 +266,7 @@ def _merge_character_compound_aliases(
 def _merge_generic_leading_character_aliases(
     entities: list[CorpusEntity],
     all_records_by_key: dict[str, list[DocumentEntityRecord]],
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> list[CorpusEntity]:
     """Defer generic-leading character compounds to the trailing personal key.
 
@@ -274,6 +276,16 @@ def _merge_generic_leading_character_aliases(
     cleaner personal key as the corpus canonical.
     """
     by_key = {entity.canonical_key: entity for entity in entities}
+    # Build a reverse index so that a bare last-token ("yoshiko", "watanabe")
+    # that has already been absorbed into a compound canonical can still be
+    # resolved to its parent entity. This allows "Explorer Yoshiko" to defer
+    # to "tsushima yoshiko" even though "yoshiko" is not a standalone entity.
+    source_to_canonical: dict[str, str] = {
+        src: entity.canonical_key
+        for entity in entities
+        for src in entity.source_keys
+        if src != entity.canonical_key
+    }
     merge_targets: dict[str, list[tuple[str, list[DocumentEntityRecord]]]] = defaultdict(list)
     absorbed_keys: set[str] = set()
 
@@ -285,7 +297,15 @@ def _merge_generic_leading_character_aliases(
         tail = parts[-1]
         tail_entity = by_key.get(tail)
         if tail_entity is None:
-            continue
+            # The last token may have been folded into a compound canonical
+            # (e.g. "yoshiko" → "tsushima yoshiko"). Redirect to that parent.
+            canonical_tail = source_to_canonical.get(tail)
+            if canonical_tail is None:
+                continue
+            tail_entity = by_key.get(canonical_tail)
+            if tail_entity is None:
+                continue
+            tail = canonical_tail
         if key in tail_entity.source_keys:
             continue
 
@@ -294,7 +314,7 @@ def _merge_generic_leading_character_aliases(
             continue
 
         if not all(
-            part in TITLE_PREFIXES_LOWER or has_generic_modifier_profile(part)
+            part in title_prefixes_lower or has_generic_modifier_profile(part)
             for part in parts[:-1]
         ):
             continue
@@ -644,11 +664,18 @@ def _merge_non_character_contained_aliases(
             if not set(alias_entity.supporting_document_paths).issubset(set(anchor_paths)):
                 continue
 
-            # Don't absorb an alias that is mentioned more often than the compound.
-            # If the shorter phrase is the more frequent reference, it is the
-            # primary entity and the longer compound is a variant, not canonical.
-            alias_occ = sum(r.occurrence_count for r in alias_entity.member_records)
-            compound_occ = sum(r.occurrence_count for r in compound_entity.member_records)
+            # Don't absorb an alias that is mentioned more often than the
+            # compound in its own direct form. Source-key-expanded member
+            # records may already include previously absorbed children and can
+            # overcount alias usage for this local containment decision.
+            alias_occ = sum(
+                r.occurrence_count
+                for r in all_records_by_key.get(alias_key, [])
+            )
+            compound_occ = sum(
+                r.occurrence_count
+                for r in all_records_by_key.get(key, [])
+            )
             if alias_occ > compound_occ:
                 continue
 
@@ -804,6 +831,7 @@ def reconcile_document_entities(
     records: list[DocumentEntityRecord],
     *,
     include_suppressed: bool = False,
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> CorpusReconciliationResult:
     """Merge document-local entity records into corpus-level canonical entities.
 
@@ -840,8 +868,16 @@ def reconcile_document_entities(
             reasons=["exact normalized key matched across documents"],
         ))
 
-    canonical_entities = _merge_character_compound_aliases(exact_entities, all_grouped)
-    canonical_entities = _merge_generic_leading_character_aliases(canonical_entities, all_grouped)
+    canonical_entities = _merge_character_compound_aliases(
+        exact_entities,
+        all_grouped,
+        title_prefixes_lower=title_prefixes_lower,
+    )
+    canonical_entities = _merge_generic_leading_character_aliases(
+        canonical_entities,
+        all_grouped,
+        title_prefixes_lower=title_prefixes_lower,
+    )
     canonical_entities = _merge_non_character_head_aliases(canonical_entities, all_grouped)
     canonical_entities = _merge_non_character_modifier_aliases(canonical_entities, all_grouped)
     canonical_entities = _merge_non_character_contained_aliases(canonical_entities, all_grouped)

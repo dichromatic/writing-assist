@@ -183,6 +183,7 @@ def compute_signals(
     attribution_counts: dict[str, int],
     pre: PreprocessedDocument,
     tfidf_scores: dict[str, float],
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> ConfidenceSignals:
     """Compute the ConfidenceSignals for a single cluster.
 
@@ -205,7 +206,7 @@ def compute_signals(
     # title_prefix candidate because no name follows, so has_title_support is
     # False, but they carry title semantics and must reach PROMOTE_THRESHOLD so
     # that promotion.py's bare-title intercept can route them to review_only.
-    if cluster.has_title_support or cluster.normalized_key in TITLE_PREFIXES_LOWER:
+    if cluster.has_title_support or cluster.normalized_key in title_prefixes_lower:
         rule_tier = 3
     elif cluster.has_possessive_support:
         rule_tier = 2
@@ -271,6 +272,7 @@ def score_all(
     clusters: list[MentionCluster],
     attribution_records: list[AttributionRecord],
     pre: PreprocessedDocument,
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> dict[str, tuple[ConfidenceSignals, float]]:
     """Score all clusters and return their signals and confidence scores.
 
@@ -290,7 +292,13 @@ def score_all(
 
     result: dict[str, tuple[ConfidenceSignals, float]] = {}
     for cluster in clusters:
-        signals = compute_signals(cluster, attribution_counts, pre, tfidf_scores)
+        signals = compute_signals(
+            cluster,
+            attribution_counts,
+            pre,
+            tfidf_scores,
+            title_prefixes_lower=title_prefixes_lower,
+        )
         score = score_cluster(signals)
         result[cluster.normalized_key] = (signals, score)
 

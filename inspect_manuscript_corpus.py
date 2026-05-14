@@ -42,28 +42,31 @@ from backend.nlp.semantic_review import (
     manuscript_bundle_to_jsonable,
     render_manuscript_review_report,
 )
+from backend.nlp.harvesting.shared import TITLE_PREFIXES_LOWER
 from backend.nlp.types import DocumentEntityRecord, ManuscriptReviewBundle, ReferenceCandidate
 
 
 def _collect_document_outputs(
     paths: list[Path],
-) -> tuple[list[DocumentEntityRecord], list[ReferenceCandidate]]:
+) -> tuple[list[DocumentEntityRecord], list[ReferenceCandidate], frozenset[str]]:
     """Run the existing document pipeline for each manuscript path.
 
     Args:
         paths: Source document paths to inspect.
 
     Returns:
-        Document-local entity summaries and raw semantic reference candidates
-        for the whole corpus run.
+        Document-local entity summaries, raw semantic reference candidates, and
+        unioned induced title prefixes for the whole corpus run.
     """
     records: list[DocumentEntityRecord] = []
     references: list[ReferenceCandidate] = []
+    induced_titles: set[str] = set()
     for path in paths:
         result = run_document_pipeline(str(path), path.read_text(encoding="utf-8"))
         records.extend(result.entity_records)
         references.extend(result.reference_candidates)
-    return records, references
+        induced_titles.update(result.bootstrap_result.induced_title_prefixes)
+    return records, references, frozenset(induced_titles)
 
 
 def _build_manuscript_review_bundle(paths: list[Path]) -> ManuscriptReviewBundle:
@@ -76,8 +79,9 @@ def _build_manuscript_review_bundle(paths: list[Path]) -> ManuscriptReviewBundle
         Persisted manuscript review bundle that drives both report rendering
         and JSON serialization.
     """
-    records, references = _collect_document_outputs(paths)
-    corpus = reconcile_document_entities(records)
+    records, references, induced_titles = _collect_document_outputs(paths)
+    title_prefixes_lower = TITLE_PREFIXES_LOWER | frozenset(title.lower() for title in induced_titles)
+    corpus = reconcile_document_entities(records, title_prefixes_lower=title_prefixes_lower)
     conflicts = build_conflict_records(corpus.canonical_entities)
     reference_clusters = build_reference_clusters(references, records)
     character_summaries = build_character_summaries(

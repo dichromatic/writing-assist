@@ -28,6 +28,7 @@ from backend.nlp.classification.types import (
     ClassificationDecision,
     EntityhoodDecision,
 )
+from backend.nlp.harvesting.shared import TITLE_PREFIXES_LOWER
 from backend.nlp.types import LexiconCategory, MentionCluster, PreprocessedDocument
 
 _RESOLUTION_THRESHOLD = 0.60
@@ -88,6 +89,7 @@ def classify_cluster(
     cluster: MentionCluster,
     pre: PreprocessedDocument | None,
     attribution_records: list,
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> ClassificationDecision:
     """Classify one cluster using shared document context.
 
@@ -109,7 +111,11 @@ def classify_cluster(
         runner_up_category=decision.runner_up_category,
         runner_up_score=decision.runner_up_score,
         evidence_by_category=decision.evidence_by_category,
-        entityhood=assess_entityhood(cluster, evidence_by_category),
+        entityhood=assess_entityhood(
+            cluster,
+            evidence_by_category,
+            title_prefixes_lower=title_prefixes_lower,
+        ),
         resolved=decision.resolved,
     )
 
@@ -118,6 +124,7 @@ def classify_clusters(
     clusters: list[MentionCluster],
     pre: PreprocessedDocument | None,
     attribution_records: list,
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> dict[str, ClassificationDecision]:
     """Classify every cluster in the document.
 
@@ -130,6 +137,11 @@ def classify_clusters(
         Mapping from normalized cluster key to classification decision.
     """
     return {
-        cluster.normalized_key: classify_cluster(cluster, pre, attribution_records)
+        cluster.normalized_key: classify_cluster(
+            cluster,
+            pre,
+            attribution_records,
+            title_prefixes_lower=title_prefixes_lower,
+        )
         for cluster in clusters
     }

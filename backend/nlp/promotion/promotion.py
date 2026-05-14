@@ -371,6 +371,7 @@ def promote(
     clusters: list[MentionCluster],
     lexicon: list[BootstrappedLexiconEntry],
     attribution_records: list[AttributionRecord],
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> PromotionResult:
     """Classify clusters and return the complete PromotedEvidenceBundle.
 
@@ -390,8 +391,18 @@ def promote(
         classification maps for downstream stages.
     """
     doc = pre.source
-    scores = score_all(clusters, attribution_records, pre)
-    classifications = classify_clusters(clusters, pre, attribution_records)
+    scores = score_all(
+        clusters,
+        attribution_records,
+        pre,
+        title_prefixes_lower=title_prefixes_lower,
+    )
+    classifications = classify_clusters(
+        clusters,
+        pre,
+        attribution_records,
+        title_prefixes_lower=title_prefixes_lower,
+    )
     accepted_compound_anchors_by_span = _build_accepted_compound_anchor_index(
         clusters,
         classifications,
@@ -493,7 +504,7 @@ def promote(
 
         if (
             score >= PROMOTE_THRESHOLD
-            and cluster.normalized_key not in TITLE_PREFIXES_LOWER
+            and cluster.normalized_key not in title_prefixes_lower
             and review_reason is None
         ):
             promoted.append(PromotedCandidate(
@@ -511,7 +522,7 @@ def promote(
             # well when it recurs frequently, but without an accompanying name it
             # is ambiguous - the same title could refer to different people in
             # different scenes. Human review is required before promoting.
-            if score >= PROMOTE_THRESHOLD and cluster.normalized_key in TITLE_PREFIXES_LOWER:
+            if score >= PROMOTE_THRESHOLD and cluster.normalized_key in title_prefixes_lower:
                 reason = (
                     f"'{cluster.normalized_key}' is a bare title prefix; "
                     f"confidence {score:.3f} is above promotion threshold "
