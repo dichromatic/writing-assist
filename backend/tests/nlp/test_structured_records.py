@@ -10,14 +10,12 @@ from backend.nlp.document_type import classify_document_type
 from backend.nlp.experiments.structured_review.claim_units import build_claim_units_from_review_bundles
 from backend.nlp.experiments.structured_review.cli import run_structured_review_experiment
 from backend.nlp.experiments.structured_review.review_bundle import build_structured_review_bundles
-from backend.nlp.lexicon.bootstrap import bootstrap
 from backend.nlp.parsing.document_parser import parse
-from backend.nlp.parsing.preprocessing import preprocess
-from backend.nlp.promotion.attribution import attribute_dialogue
-from backend.nlp.promotion.promotion import promote
-from backend.nlp.reconciliation.document_entities import summarize_document_entities
-from backend.nlp.semantic_review import extract_reference_candidates
-from backend.nlp.structured_records import build_record_seed_bundle, segment_structured_records
+from backend.nlp.structured_records import (
+    build_record_seed_bundle,
+    extract_structural_entities,
+    segment_structured_records,
+)
 from backend.nlp.types import (
     ClaimKind,
     DocumentStatus,
@@ -28,29 +26,19 @@ from backend.nlp.types import (
 
 
 def _document_outputs(path: str):
-    """Run the current document pipeline on one source file.
+    """Build parsed document and structured entity inventory for one file.
 
     Args:
         path: Source document path.
 
     Returns:
-        Parsed document plus document-level entity and reference hints.
+        Parsed document plus deterministic structured entity inventory.
     """
     raw_text = Path(path).read_text(encoding="utf-8")
     doc = parse(path, raw_text)
-    pre = preprocess(doc)
-    result = bootstrap(doc)
-    attribution_records = attribute_dialogue(pre, result.clusters)
-    promotion_result = promote(pre, result.clusters, result.lexicon, attribution_records)
-    entity_records = summarize_document_entities(
-        pre,
-        result.clusters,
-        promotion_result.bundle,
-        promotion_result.scores,
-        promotion_result.classifications,
-    )
-    reference_candidates = extract_reference_candidates(pre, entity_records, attribution_records)
-    return doc, entity_records, reference_candidates
+    records = segment_structured_records(doc)
+    entity_inventory = extract_structural_entities(records)
+    return doc, entity_inventory
 
 
 def test_document_type_classifier_preserves_corpus_file_classification():
@@ -183,12 +171,31 @@ def test_inline_character_synthesis_headers_become_dossier_entries_without_rank_
     assert not any(heading.startswith("Mari — Pioneer O‑9") for heading in dossier_headings)
 
 
+def test_structural_entity_inventory_recovers_subjects_and_rejects_generic_noise():
+    # Structured entity extraction should use record structure directly and
+    # avoid capitalization-only false positives that came from manuscript
+    # harvesting on non-manuscript notes.
+    path = "examples/story planning/estuary crew summaries.txt"
+    doc = parse(path, Path(path).read_text(encoding="utf-8"))
+    records = segment_structured_records(doc)
+
+    inventory = extract_structural_entities(records)
+    names = {item.normalized_name for item in inventory.mentions}
+
+    assert "watanabe yō" in names
+    assert "takami chika" in names
+    assert any(name.startswith("pioneer-admiral (o") for name in names)
+    assert "captain" in names
+    assert "everyone" not in names
+    assert "studies" not in names
+
+
 def test_dossier_seed_bundle_preserves_header_fields_and_subject_guess():
     # The deterministic seed bundle is the handoff contract. It must recover
     # shallow structure like the subject header, role field, and section-style
     # subheads without pretending to resolve the entry semantically.
     path = "examples/story planning/estuary crew summaries.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
+    doc, entity_inventory = _document_outputs(path)
     dossier_record = next(
         record for record in segment_structured_records(doc)
         if record.record_type == StructuredRecordType.DOSSIER_ENTRY
@@ -197,8 +204,7 @@ def test_dossier_seed_bundle_preserves_header_fields_and_subject_guess():
 
     seed_bundle, subject_guess, fact_candidates = build_record_seed_bundle(
         dossier_record,
-        entity_records,
-        reference_candidates,
+        entity_inventory,
     )
 
     assert subject_guess is not None
@@ -223,13 +229,12 @@ def test_world_context_file_builds_reference_section_bundles():
     # proposal-bearing units. If they still collapse to diagnostics-only, the
     # shared structured-note path has not actually widened.
     path = "examples/world context/human history.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
+    doc, entity_inventory = _document_outputs(path)
     records = segment_structured_records(doc)
 
     bundles, diagnostics = build_structured_review_bundles(
         records,
-        entity_records,
-        reference_candidates,
+        entity_inventory,
     )
 
     assert bundles
@@ -263,7 +268,7 @@ def test_reference_section_seed_bundle_preserves_heading_and_prose_statements():
     # explicit fact-like candidates, otherwise later normalization has no
     # structured handle for the core world-lore assertions.
     path = "examples/world context/human history.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
+    doc, entity_inventory = _document_outputs(path)
     reference_record = next(
         record for record in segment_structured_records(doc)
         if record.record_type == StructuredRecordType.REFERENCE_SECTION
@@ -272,8 +277,7 @@ def test_reference_section_seed_bundle_preserves_heading_and_prose_statements():
 
     seed_bundle, subject_guess, fact_candidates = build_record_seed_bundle(
         reference_record,
-        entity_records,
-        reference_candidates,
+        entity_inventory,
     )
 
     assert subject_guess is None
@@ -288,7 +292,7 @@ def test_loose_record_seed_bundle_preserves_prelude_prose():
     # first section. Treating that prelude as diagnostic noise would lose
     # source-grounded context that later retrieval and LLM passes need.
     path = "examples/world context/human history.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
+    doc, entity_inventory = _document_outputs(path)
     loose_record = next(
         record for record in segment_structured_records(doc)
         if record.record_type == StructuredRecordType.LOOSE_RECORD
@@ -296,8 +300,7 @@ def test_loose_record_seed_bundle_preserves_prelude_prose():
 
     seed_bundle, subject_guess, fact_candidates = build_record_seed_bundle(
         loose_record,
-        entity_records,
-        reference_candidates,
+        entity_inventory,
     )
 
     assert subject_guess is None
@@ -311,13 +314,12 @@ def test_review_bundle_includes_loose_records_as_supported_family():
     # bundle builder drops them, front matter and messy notes never reach the
     # same review path as more structured records.
     path = "examples/world context/human history.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
+    doc, entity_inventory = _document_outputs(path)
     records = segment_structured_records(doc)
 
     bundles, diagnostics = build_structured_review_bundles(
         records,
-        entity_records,
-        reference_candidates,
+        entity_inventory,
     )
 
     assert diagnostics.candidate_record_counts["loose_record"] > 0
@@ -331,12 +333,11 @@ def test_claim_units_project_deterministic_facts_as_atomic_retrieval_units():
     # candidate. Bundling an entire record into one claim would make ranking,
     # citation, and later review too coarse.
     path = "examples/story planning/estuary crew summaries.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
+    doc, entity_inventory = _document_outputs(path)
     records = segment_structured_records(doc)
     bundles, _diagnostics = build_structured_review_bundles(
         records,
-        entity_records,
-        reference_candidates,
+        entity_inventory,
     )
     first_bundle = next(
         bundle for bundle in bundles
@@ -371,12 +372,11 @@ def test_claim_units_group_same_source_line_neighbors():
     # without forcing multiple facts into one blob. Header rank claims share a
     # field bundle and should point at each other as neighbors.
     path = "examples/story planning/estuary crew summaries.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
+    doc, entity_inventory = _document_outputs(path)
     records = segment_structured_records(doc)
     bundles, _diagnostics = build_structured_review_bundles(
         records,
-        entity_records,
-        reference_candidates,
+        entity_inventory,
     )
     first_bundle = next(
         bundle for bundle in bundles
@@ -404,12 +404,11 @@ def test_loose_record_claim_units_are_low_structure_fallback_claims():
     # structure quality and no invented subject. That preserves usefulness
     # without overstating confidence.
     path = "examples/world context/human history.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
+    doc, entity_inventory = _document_outputs(path)
     records = segment_structured_records(doc)
     bundles, _diagnostics = build_structured_review_bundles(
         records,
-        entity_records,
-        reference_candidates,
+        entity_inventory,
     )
     loose_bundle = next(bundle for bundle in bundles if bundle.record_type == StructuredRecordType.LOOSE_RECORD)
 
@@ -487,7 +486,7 @@ def test_outline_beat_seed_bundle_preserves_heading_and_bullets():
     # explicitly, otherwise the shared note path still cannot carry planning
     # records forward into proposal normalization.
     path = "examples/story planning/Dia recovery arc.txt"
-    doc, entity_records, reference_candidates = _document_outputs(path)
+    doc, entity_inventory = _document_outputs(path)
     beat_record = next(
         record for record in segment_structured_records(doc)
         if record.record_type == StructuredRecordType.OUTLINE_BEAT
@@ -496,8 +495,7 @@ def test_outline_beat_seed_bundle_preserves_heading_and_bullets():
 
     seed_bundle, subject_guess, fact_candidates = build_record_seed_bundle(
         beat_record,
-        entity_records,
-        reference_candidates,
+        entity_inventory,
     )
 
     assert subject_guess is None

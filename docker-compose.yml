@@ -13,6 +13,8 @@ services:
       - ./:/workspace
       - frontend-node-modules:/workspace/frontend/node_modules
       - uv-cache:/root/.cache/uv
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - '${API_PORT:-8000}:${API_PORT:-8000}'
       - '${VITE_PORT:-5180}:${VITE_PORT:-5180}'

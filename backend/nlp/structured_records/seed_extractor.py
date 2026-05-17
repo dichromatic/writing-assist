@@ -21,8 +21,8 @@ from backend.nlp.types import (
     DeterministicFactCandidate,
     DeterministicGuess,
     DeterministicSeedBundle,
-    DocumentEntityRecord,
-    ReferenceCandidate,
+    StructuredEntityInventory,
+    StructuredEntityMention,
     StructuredFieldLine,
     StructuredFieldLineType,
     StructuredRecord,
@@ -34,20 +34,6 @@ _BULLET_RE = re.compile(r"^\s*[-*]\s+")
 _SUBHEAD_RE = re.compile(r"^[A-Z][A-Za-z0-9&/'() \-]{1,60}$")
 _HEADER_SPLIT_RE = re.compile(r"\s*[—–-]\s*")
 _SCENE_BREAK_TEXTS = {"---", "***", "___"}
-
-
-def _overlaps_record(record: StructuredRecord, start_char: int, end_char: int) -> bool:
-    """Return True when a source span overlaps a structured record.
-
-    Args:
-        record: Structured record boundary.
-        start_char: Candidate inclusive start offset.
-        end_char: Candidate exclusive end offset.
-
-    Returns:
-        True when the candidate lies inside or overlaps the record.
-    """
-    return record.start_char < end_char and start_char < record.end_char
 
 
 def _field_lines(record: StructuredRecord) -> list[StructuredFieldLine]:
@@ -384,16 +370,14 @@ def _loose_record_fact_candidates(
 
 def build_record_seed_bundle(
     record: StructuredRecord,
-    entity_records: list[DocumentEntityRecord],
-    reference_candidates: list[ReferenceCandidate],
+    entity_inventory: StructuredEntityInventory,
 ) -> tuple[DeterministicSeedBundle, DeterministicGuess | None, list[DeterministicFactCandidate]]:
     """Build the deterministic seed packet for one supported structured record.
 
     Args:
         record: Structured record to seed.
-        entity_records: Whole-document entity summaries used as weak hints.
-        reference_candidates: Whole-document deferred references used as weak
-            hints.
+        entity_inventory: Structured-entity inventory built directly from
+            segmented records.
 
     Returns:
         The deterministic seed bundle, subject guess, and fact candidates.
@@ -420,48 +404,18 @@ def build_record_seed_bundle(
         rank_texts = []
         fact_candidates = []
 
-    overlapping_entities = [
-        entity_record
-        for entity_record in entity_records
-        if any(
-            _overlaps_record(record, anchor.start_char, anchor.end_char)
-            for anchor in entity_record.anchors
-        )
-    ]
-    overlapping_references = [
-        reference_candidate
-        for reference_candidate in reference_candidates
-        if _overlaps_record(
-            record,
-            reference_candidate.anchor.start_char,
-            reference_candidate.anchor.end_char,
-        )
-    ]
-    known_canon_matches = [
-        entity_record.normalized_key
-        for entity_record in sorted(
-            overlapping_entities,
-            key=lambda item: (-item.confidence_score, item.normalized_key),
-        )
-    ]
+    inventory_mentions: list[StructuredEntityMention] = list(
+        entity_inventory.mentions_by_record.get(record.record_id, [])
+    )
+    known_canon_matches: list[str] = sorted({item.normalized_name for item in inventory_mentions})
     bundle = DeterministicSeedBundle(
         record_id=record.record_id,
         header_line=record.heading_text,
         suspected_subject_guess=subject_guess,
         candidate_rank_texts=rank_texts,
         field_lines=grouped_lines,
-        entity_candidates=sorted(
-            overlapping_entities,
-            key=lambda item: (item.bucket.value, -item.confidence_score, item.normalized_key),
-        ),
-        reference_candidates=sorted(
-            overlapping_references,
-            key=lambda item: (
-                item.anchor.start_char,
-                item.reference_type.value,
-                item.normalized,
-            ),
-        ),
+        entity_candidates=inventory_mentions,
+        reference_candidates=[],
         known_canon_matches=known_canon_matches,
         structural_flags=list(record.structural_flags),
     )

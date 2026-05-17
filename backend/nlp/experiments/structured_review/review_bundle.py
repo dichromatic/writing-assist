@@ -5,10 +5,9 @@ Structured-record review bundle builder - packages deterministic record-side evi
 
     flowchart TD
         A[StructuredRecord list] --> B[Keep supported record types]
-        C[DocumentEntityRecord list] --> D[Filter overlapping entities]
-        E[ReferenceCandidate list] --> F[Filter overlapping references]
+        C[StructuredEntityInventory] --> D[Per-record entity mentions]
         M[DocumentMetadata] --> N[Document type and status]
-        B & D & F & N --> G[Build DeterministicSeedBundle]
+        B & D & N --> G[Build DeterministicSeedBundle]
         G --> H[Build RecordReviewBundle]
         H --> I[List of structured review bundles]
 """
@@ -19,9 +18,8 @@ from backend.nlp.document_metadata import resolve_document_metadata
 from backend.nlp.structured_records.seed_extractor import build_record_seed_bundle
 from backend.nlp.types import (
     DocumentMetadata,
-    DocumentEntityRecord,
     RecordReviewBundle,
-    ReferenceCandidate,
+    StructuredEntityInventory,
     StructuredDocumentDiagnostics,
     StructuredRecord,
     StructuredRecordType,
@@ -37,17 +35,15 @@ _SUPPORTED_RECORD_TYPES = {
 
 def build_structured_review_bundles(
     records: list[StructuredRecord],
-    entity_records: list[DocumentEntityRecord],
-    reference_candidates: list[ReferenceCandidate],
+    entity_inventory: StructuredEntityInventory,
     document_metadata: DocumentMetadata | None = None,
 ) -> tuple[list[RecordReviewBundle], StructuredDocumentDiagnostics]:
     """Build phase-1 structured-note review bundles from structured records.
 
     Args:
         records: Structured records segmented from one note document.
-        entity_records: Whole-document entity summaries used as weak hints.
-        reference_candidates: Whole-document deferred references used as weak
-            hints.
+        entity_inventory: Deterministic structured-entity inventory
+            for the source document.
         document_metadata: Optional pre-resolved document metadata.
 
     Returns:
@@ -86,8 +82,7 @@ def build_structured_review_bundles(
     for record in supported_records:
         seed_bundle, subject_guess, fact_candidates = build_record_seed_bundle(
             record,
-            entity_records,
-            reference_candidates,
+            entity_inventory=entity_inventory,
         )
         bundles.append(RecordReviewBundle(
             record_id=record.record_id,

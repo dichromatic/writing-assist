@@ -14,6 +14,7 @@ from __future__ import annotations
 from backend.nlp.text_filtering import strip_emoji
 from backend.nlp.types import (
     LLMTaskPacket,
+    LLMTaskFamily,
     LLMTaskResult,
     LLMTaskResultStatus,
     LLMTaskSelectionDiagnostic,
@@ -180,5 +181,71 @@ def render_llm_task_result_comparison_report(
             lines.append("  llm_rationale:")
             lines.append(f"    {_truncate(rationale, limit=1200)}")
 
+    lines.append(_hr())
+    return strip_emoji("\n".join(lines) + "\n")
+
+
+def render_structured_tagged_extraction_report(
+    packets: list[LLMTaskPacket],
+    results: list[LLMTaskResult],
+    *,
+    max_tasks: int = 40,
+    max_items_per_task: int = 12,
+) -> str:
+    """Render a focused report for structured tagged extraction task outputs."""
+    packet_by_id = {packet.task_id: packet for packet in packets}
+    tagged_results = [
+        item
+        for item in results
+        if item.task_family == LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION
+    ]
+    lines: list[str] = []
+    lines.append(_hr("STRUCTURED TAGGED EXTRACTION"))
+    lines.append(f"  tagged_task_count: {len(tagged_results)}")
+    if not tagged_results:
+        lines.append("  None.")
+        lines.append(_hr())
+        return strip_emoji("\n".join(lines) + "\n")
+
+    completed = sum(1 for item in tagged_results if item.status == LLMTaskResultStatus.COMPLETED)
+    failed = sum(1 for item in tagged_results if item.status == LLMTaskResultStatus.FAILED)
+    skipped = sum(1 for item in tagged_results if item.status == LLMTaskResultStatus.SKIPPED)
+    lines.append(f"  completed: {completed}")
+    lines.append(f"  failed: {failed}")
+    lines.append(f"  skipped: {skipped}")
+
+    for result in tagged_results[:max_tasks]:
+        packet = packet_by_id.get(result.task_id)
+        lines.append(_hr(f"TASK {result.task_id}"))
+        lines.append(f"  status: {result.status.value}")
+        lines.append(f"  model: {result.model}")
+        if packet is not None:
+            lines.append(f"  source_record: {packet.source_object_id}")
+            lines.append(f"  record_type: {packet.payload.get('record_type', '')}")
+            lines.append(f"  document_path: {packet.source_document_paths[0] if packet.source_document_paths else ''}")
+        if result.error:
+            lines.append(f"  error: {_truncate(result.error)}")
+
+        envelope = result.payload or {}
+        is_valid = bool(envelope.get("is_valid", False))
+        lines.append(f"  valid: {is_valid}")
+        errors = envelope.get("validation_errors", [])
+        if errors:
+            lines.append("  validation_errors:")
+            for error in errors[:6]:
+                lines.append(f"    - {_truncate(str(error), limit=220)}")
+
+        proposal_payload = envelope.get("proposal_payload", {})
+        items = proposal_payload.get("extraction_items", [])
+        lines.append(f"  extraction_item_count: {len(items)}")
+        for item in items[:max_items_per_task]:
+            type_tag = item.get("type_tag", "")
+            subject_names = item.get("subject_names", [])
+            subject_text = ", ".join(subject_names) if isinstance(subject_names, list) else str(subject_names)
+            content = _truncate(str(item.get("content", "")), limit=260)
+            evidence_quote = _truncate(str(item.get("evidence_quote", "")), limit=220)
+            lines.append(f"    - type={type_tag} subjects=[{subject_text}]")
+            lines.append(f"      content={content}")
+            lines.append(f"      evidence={evidence_quote}")
     lines.append(_hr())
     return strip_emoji("\n".join(lines) + "\n")

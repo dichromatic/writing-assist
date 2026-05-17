@@ -294,6 +294,15 @@ class StructuredFieldLineType(Enum):
     PROSE = "prose"
 
 
+class StructuredEntitySource(Enum):
+    """How one structured entity mention was discovered."""
+
+    SUBJECT_HEADER = "subject_header"
+    RELATIONSHIP_KEY = "relationship_key"
+    RANK_TEXT = "rank_text"
+    INVENTORY_MATCH = "inventory_match"
+
+
 class ClaimKind(Enum):
     """Coarse kind for one retrieval-shaped claim unit."""
 
@@ -387,6 +396,46 @@ class StructuredFieldLine:
     raw_text: str
     label: str = ""
     value: str = ""
+
+
+@dataclass(frozen=True)
+class StructuredEntityMention:
+    """One entity mention recovered from structured-document signals.
+
+    Args:
+        name: Surface entity text.
+        normalized_name: Canonical lowercase form used for matching.
+        source: Structural extraction source.
+        anchor: Source span anchor.
+        record_id: Parent structured record identifier.
+        document_path: Source document path.
+        source_label: Local structural context label.
+    """
+
+    name: str
+    normalized_name: str
+    source: StructuredEntitySource
+    anchor: SpanAnchor
+    record_id: str
+    document_path: str
+    source_label: str = ""
+
+
+@dataclass
+class StructuredEntityInventory:
+    """Cross-record structured entity inventory for one document.
+
+    Args:
+        mentions: Mentions in deterministic document order.
+        names: Unique normalized names in this inventory.
+        mentions_by_record: Mentions grouped by parent record id.
+        records_by_name: Record ids grouped by normalized entity name.
+    """
+
+    mentions: list[StructuredEntityMention] = field(default_factory=list)
+    names: frozenset[str] = field(default_factory=frozenset)
+    mentions_by_record: dict[str, list[StructuredEntityMention]] = field(default_factory=dict)
+    records_by_name: dict[str, list[str]] = field(default_factory=dict)
 
 
 @dataclass
@@ -541,10 +590,10 @@ class DeterministicSeedBundle:
         suspected_subject_guess: Non-final subject guess when available.
         candidate_rank_texts: Header-derived titles, ranks, or role phrases.
         field_lines: Shallow grouped field lines from the record body.
-        entity_candidates: Overlapping document-level entity records treated as
-            weak hints only.
-        reference_candidates: Overlapping deferred references treated as weak
+        entity_candidates: Structured entity mentions treated as deterministic
             hints only.
+        reference_candidates: Reserved deferred references. This currently
+            remains empty on the reference extraction path.
         known_canon_matches: Deterministic known-canon matches surfaced from
             the same local record orbit.
         structural_flags: Record-level structure cues preserved for later use.
@@ -555,7 +604,7 @@ class DeterministicSeedBundle:
     suspected_subject_guess: Optional[DeterministicGuess]
     candidate_rank_texts: list[str]
     field_lines: list[StructuredFieldLine]
-    entity_candidates: list["DocumentEntityRecord"]
+    entity_candidates: list["StructuredEntityMention"]
     reference_candidates: list["ReferenceCandidate"]
     known_canon_matches: list[str]
     structural_flags: list[str]
@@ -674,6 +723,7 @@ class LLMTaskFamily(Enum):
     """Shared first-pass LLM task families."""
 
     RECORD_FACT_EXTRACTION = "record_fact_extraction"
+    STRUCTURED_RECORD_TAGGED_EXTRACTION = "structured_record_tagged_extraction"
     MANUSCRIPT_ENTITY_PROFILE = "manuscript_entity_profile"
     MANUSCRIPT_REFERENCE_ATTACHMENT = "manuscript_reference_attachment"
     MANUSCRIPT_CATEGORY_RESOLUTION = "manuscript_category_resolution"

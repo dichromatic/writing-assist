@@ -6,6 +6,7 @@ from backend.nlp.types import LLMTaskFamily
 
 TASK_SCHEMA_IDS: dict[LLMTaskFamily, str] = {
     LLMTaskFamily.RECORD_FACT_EXTRACTION: "record_fact_extraction.v1",
+    LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION: "structured_record_tagged_extraction.v1",
     LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE: "manuscript_entity_profile.v1",
     LLMTaskFamily.MANUSCRIPT_REFERENCE_ATTACHMENT: "manuscript_reference_attachment.v1",
     LLMTaskFamily.MANUSCRIPT_CATEGORY_RESOLUTION: "manuscript_category_resolution.v1",

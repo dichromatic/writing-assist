@@ -84,6 +84,48 @@ class RecordFactExtractionResponse(BaseModel):
     )
 
 
+class StructuredTaggedExtractionItem(BaseModel):
+    """One tagged extraction item for structured reference records."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type_tag: Literal[
+        "entity_mention",
+        "fact_about",
+        "relationship_between",
+        "event_description",
+        "unclassified",
+    ]
+    subject_names: list[str] = Field(default_factory=list)
+    content: str = ""
+    evidence_quote: str = ""
+
+    @field_validator("content", "evidence_quote")
+    @classmethod
+    def _require_non_empty_text(cls, value: str) -> str:
+        """Reject degenerate tagged extraction items with empty core fields."""
+        text = value.strip()
+        if not text:
+            raise ValueError("must be non-empty")
+        return text
+
+
+class StructuredTaggedExtractionResponse(BaseModel):
+    """Typed response model for structured tagged extraction tasks."""
+
+    model_config = ConfigDict(extra="allow")
+
+    task_id: str | None = None
+    record_family: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("record_family", "record_type"),
+    )
+    extraction_items: list[StructuredTaggedExtractionItem] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("extraction_items", "items"),
+    )
+
+
 class ManuscriptEntityProfileResponse(BaseModel):
     """Typed response model for manuscript pass-1 triage tasks."""
 
@@ -212,6 +254,14 @@ class ManuscriptEntityReviewResolutionResponse(BaseModel):
         review_required true so downstream workflows do not treat it as closed.
         """
         if self.resolved is False:
+            has_resolution_signal = bool(
+                (self.resolved_category or "").strip()
+                and (self.review_required is False or self.passing is True)
+            )
+            if has_resolution_signal:
+                self.resolved = True
+
+        if self.resolved is False:
             self.review_required = True
             self.failing = True
             self.passing = False
@@ -241,6 +291,8 @@ def _model_for_family(task_family: LLMTaskFamily) -> type[BaseModel]:
     """Return the typed response model expected for one task family."""
     if task_family == LLMTaskFamily.RECORD_FACT_EXTRACTION:
         return RecordFactExtractionResponse
+    if task_family == LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION:
+        return StructuredTaggedExtractionResponse
     if task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE:
         return ManuscriptEntityProfileResponse
     if task_family == LLMTaskFamily.MANUSCRIPT_REFERENCE_ATTACHMENT:
@@ -301,6 +353,31 @@ def normalize_llm_payload(
                     payload[key] = candidate[key]
             if "evidence" not in payload and isinstance(candidate.get("evidence"), list):
                 payload["evidence"] = candidate["evidence"]
+    if task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION:
+        # Recover common field-name drift from pass-2 prompts.
+        if "resolved_category" not in payload and isinstance(payload.get("category"), str):
+            payload["resolved_category"] = payload.get("category")
+        if "resolved_canonical_name" not in payload:
+            identity = payload.get("identity")
+            if not isinstance(identity, str):
+                identity = payload.get("resolved_identity")
+            if isinstance(identity, str):
+                payload["resolved_canonical_name"] = identity
+        if "resolution_rationale" not in payload and isinstance(payload.get("rationale"), str):
+            payload["resolution_rationale"] = payload.get("rationale")
+
+        # Backfill triage booleans from available pass-2 signals and coerce
+        # malformed non-bool outputs.
+        for key in ("passing", "failing", "review_required"):
+            if isinstance(payload.get(key), bool):
+                continue
+            payload.pop(key, None)
+        if "review_required" not in payload:
+            payload["review_required"] = False if payload.get("resolved_category") else True
+        if "passing" not in payload:
+            payload["passing"] = bool(payload.get("resolved_category")) and payload["review_required"] is False
+        if "failing" not in payload:
+            payload["failing"] = not bool(payload.get("passing"))
 
     try:
         validated = model_cls.model_validate(payload)
@@ -350,6 +427,19 @@ def normalize_llm_payload(
             completeness_errors.append(
                 "missing required resolution signal: one of resolved_category, remaining_uncertainty, resolution_rationale"
             )
+    if task_family == LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION:
+        items = proposal_payload.get("extraction_items")
+        if not isinstance(items, list):
+            completeness_errors.append("missing required extraction_items list")
+        else:
+            for index, item in enumerate(items):
+                if not isinstance(item, dict):
+                    completeness_errors.append(f"extraction_items[{index}] is not an object")
+                    continue
+                if not str(item.get("content", "")).strip():
+                    completeness_errors.append(f"extraction_items[{index}] missing non-empty content")
+                if not str(item.get("evidence_quote", "")).strip():
+                    completeness_errors.append(f"extraction_items[{index}] missing non-empty evidence_quote")
     if completeness_errors:
         return NormalizedLLMResponseEnvelope(
             is_valid=False,

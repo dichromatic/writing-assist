@@ -695,6 +695,17 @@ FIELD_LABELS: frozenset[str] = frozenset({
     'description', 'appearance', 'personality', 'motivation',
     'goal', 'goals',
     'relationship', 'relationships', 'family',
+    'tone', 'result', 'sensory', 'condition',
+    'timeframe', 'timing', 'paraphrase',
+    'summary', 'context', 'background',
+    'theme', 'mood', 'atmosphere',
+    'outcome', 'consequence',
+    'purpose', 'objective',
+    'action', 'reaction',
+    'dialogue', 'subtext',
+    'transition', 'stakes',
+    'focus', 'emphasis',
+    'vibe',
     'note', 'notes', 'misc', 'other',
 })
 

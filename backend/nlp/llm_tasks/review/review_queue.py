@@ -45,10 +45,10 @@ def _proposal_payload(result: LLMTaskResult) -> dict[str, Any]:
 
 def _needs_second_pass(proposal: dict[str, Any]) -> bool:
     """Return true when first-pass triage marks the entity as unresolved."""
-    failing = proposal.get("failing")
-    if isinstance(failing, bool):
-        return failing
-    return bool(proposal.get("review_required", False))
+    passing = proposal.get("passing")
+    if isinstance(passing, bool):
+        return not passing
+    return True
 
 
 def _snippet_from_evidence_item(item) -> dict[str, Any]:

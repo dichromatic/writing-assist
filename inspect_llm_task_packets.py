@@ -24,16 +24,18 @@ from backend.nlp.llm_tasks.execution.io import (
     write_task_result_artifact,
 )
 from backend.nlp.llm_tasks.execution.provider import (
+    make_openai_compatible_chat_responder,
     make_nvidia_nim_chat_responder,
     run_llm_task_packets,
 )
 from backend.nlp.llm_tasks.execution.reports import (
     render_llm_task_result_comparison_report,
+    render_structured_tagged_extraction_report,
 )
 from backend.nlp.llm_tasks.review.review_resolution import (
     build_review_resolution_task_packets,
 )
-from backend.nlp.types import LLMTaskPassStage
+from backend.nlp.types import LLMTaskFamily, LLMTaskPassStage
 from backend.nlp.text_filtering import strip_emoji
 
 
@@ -132,6 +134,20 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional cap on second-pass review-resolution tasks.",
     )
+    parser.add_argument(
+        "--task-family",
+        default="all",
+        choices=[
+            "all",
+            "record_fact_extraction",
+            "structured_record_tagged_extraction",
+            "manuscript_entity_profile",
+            "manuscript_reference_attachment",
+            "manuscript_category_resolution",
+            "manuscript_entity_review_resolution",
+        ],
+        help="Optional task-family filter applied before execution.",
+    )
     return parser
 
 
@@ -156,6 +172,10 @@ def main() -> int:
     all_packets = []
     for path in args.artifact_paths:
         all_packets.extend(load_task_packets_from_artifact(path))
+    if args.task_family != "all":
+        all_packets = [
+            packet for packet in all_packets if packet.task_family.value == args.task_family
+        ]
     if args.max_tasks is not None:
         all_packets = all_packets[: max(0, args.max_tasks)]
 
@@ -175,6 +195,56 @@ def main() -> int:
             timeout_seconds=args.nim_timeout_seconds,
             prompt_variant=args.prompt_variant,
         )
+    elif provider in {"openai_compatible", "openai_compat", "openai"}:
+        api_key = (
+            _os.getenv("OPENAI_API_KEY")
+            or _os.getenv("NVIDIA_API_KEY")
+            or _os.getenv("NIM_API_KEY")
+            or ""
+        )
+        responder = make_openai_compatible_chat_responder(
+            api_key=api_key,
+            base_url=args.nim_base_url,
+            temperature=args.nim_temperature,
+            top_p=args.nim_top_p,
+            max_tokens=args.nim_max_tokens,
+            timeout_seconds=args.nim_timeout_seconds,
+            prompt_variant=args.prompt_variant,
+        )
+
+    output_path = Path(args.output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    report_output = (
+        Path(args.report_output)
+        if args.report_output
+        else output_path.with_name(f"{output_path.stem}-comparison.txt")
+    )
+    report_output.parent.mkdir(parents=True, exist_ok=True)
+    all_packets_for_write = list(all_packets)
+    rolling_results = []
+
+    def _persist_progress(result) -> None:
+        """Persist artifact after each task result for long-running visibility."""
+        rolling_results.append(result)
+        write_task_result_artifact(
+            output_path=str(output_path),
+            source_artifact_paths=list(args.artifact_paths),
+            packets=all_packets_for_write,
+            results=rolling_results,
+        )
+        report_output.write_text(
+            render_llm_task_result_comparison_report(all_packets_for_write, rolling_results),
+            encoding="utf-8",
+        )
+        if any(
+            packet.task_family == LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION
+            for packet in all_packets_for_write
+        ):
+            tagged_report_output = report_output.with_name(f"{report_output.stem}-tagged.txt")
+            tagged_report_output.write_text(
+                render_structured_tagged_extraction_report(all_packets_for_write, rolling_results),
+                encoding="utf-8",
+            )
 
     first_pass_results = run_llm_task_packets(
         all_packets,
@@ -182,6 +252,7 @@ def main() -> int:
         provider=args.provider,
         responder=responder,
         pass_stage=LLMTaskPassStage.FIRST_PASS,
+        on_result=_persist_progress,
     )
     results = list(first_pass_results)
     if args.review_resolution:
@@ -197,27 +268,32 @@ def main() -> int:
                 provider=args.provider,
                 responder=responder,
                 pass_stage=LLMTaskPassStage.REVIEW_RESOLUTION,
+                on_result=_persist_progress,
             )
             results.extend(rr_results)
             all_packets = all_packets + rr_packets
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+            all_packets_for_write[:] = all_packets
     write_task_result_artifact(
         output_path=str(output_path),
         source_artifact_paths=list(args.artifact_paths),
         packets=all_packets,
         results=results,
     )
-    report_output = (
-        Path(args.report_output)
-        if args.report_output
-        else output_path.with_name(f"{output_path.stem}-comparison.txt")
-    )
-    report_output.parent.mkdir(parents=True, exist_ok=True)
     report_output.write_text(
         render_llm_task_result_comparison_report(all_packets, results),
         encoding="utf-8",
     )
+    tagged_packets = [
+        packet for packet in all_packets
+        if packet.task_family == LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION
+    ]
+    if tagged_packets:
+        tagged_report_output = report_output.with_name(f"{report_output.stem}-tagged.txt")
+        tagged_report_output.write_text(
+            render_structured_tagged_extraction_report(all_packets, results),
+            encoding="utf-8",
+        )
+        print(f"Wrote structured tagged extraction report to {tagged_report_output}")
     print(_render_summary(results))
     print(f"Wrote shared LLM task results to {output_path}")
     print(f"Wrote LLM comparison report to {report_output}")

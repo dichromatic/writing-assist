@@ -18,13 +18,13 @@ from backend.nlp.document_metadata import document_status_authority_weight
 from backend.nlp.llm_tasks.assembly.schemas import schema_id_for
 from backend.nlp.types import (
     DeterministicFactCandidate,
-    DocumentEntityRecord,
     LLMTaskEvidenceItem,
     LLMTaskFamily,
     LLMTaskPacket,
     LLMTaskSelectionDiagnostic,
     RecordReviewBundle,
     SpanAnchor,
+    StructuredEntityMention,
     stable_hash_id,
 )
 
@@ -62,7 +62,7 @@ def _evidence_item(
 
 def _entity_evidence(
     bundle: RecordReviewBundle,
-    entity_candidates: list[DocumentEntityRecord],
+    entity_candidates: list[StructuredEntityMention],
 ) -> list[LLMTaskEvidenceItem]:
     """Convert deterministic entity candidates into bounded evidence items."""
     items: list[LLMTaskEvidenceItem] = []
@@ -70,15 +70,10 @@ def _entity_evidence(
         items.append(
             _evidence_item(
                 source_object_id=bundle.record_id,
-                anchor=candidate.anchors[0],
-                quote=(candidate.surface_forms[0] if candidate.surface_forms else candidate.normalized_key),
-                visibility_bucket=candidate.bucket.value,
-                suppression_reason=(
-                    candidate.suppression_reason.value
-                    if candidate.suppression_reason is not None
-                    else ""
-                ),
-                confidence_score=candidate.confidence_score,
+                anchor=candidate.anchor,
+                quote=candidate.name,
+                visibility_bucket=f"structured_entity:{candidate.source.value}",
+                confidence_score=None,
             )
         )
     return items
@@ -112,6 +107,29 @@ def _task_constraints(record_type: str) -> list[str]:
     if record_type == "loose_record":
         constraints.append(
             "For loose_record prose, decompose into multiple atomic facts when multiple claims are present."
+        )
+    return constraints
+
+
+def _tagged_extraction_constraints(record_type: str) -> list[str]:
+    """Return record-type-specific constraints for tagged extraction tasks."""
+    constraints = [
+        "Use only one of the allowed type_tag values.",
+        "Ground each item in a short quoted evidence span from this record.",
+        "Do not force unresolved semantics into a hard category.",
+        "Do not emit section headings or structural metadata as entity_mention items.",
+    ]
+    if record_type == "dossier_entry":
+        constraints.append(
+            "When a dossier subject is explicit in header hints, include at least one entity_mention for that subject."
+        )
+    elif record_type == "outline_beat":
+        constraints.append(
+            "Prefer event_description for action-oriented beats and planned sequences."
+        )
+    elif record_type == "loose_record":
+        constraints.append(
+            "Use unclassified more liberally when meaning is useful but entity/event framing is uncertain."
         )
     return constraints
 
@@ -203,6 +221,126 @@ def build_structured_record_task_packets(
                             "line_index": item.line_index,
                         }
                         for item in fact_candidates
+                    ],
+                },
+            )
+        )
+    return packets, diagnostics
+
+
+def build_structured_record_tagged_extraction_task_packets(
+    bundles: list[RecordReviewBundle],
+) -> tuple[list[LLMTaskPacket], list[LLMTaskSelectionDiagnostic]]:
+    """Build tagged extraction packets for per-record semantic extraction."""
+    packets: list[LLMTaskPacket] = []
+    diagnostics: list[LLMTaskSelectionDiagnostic] = []
+    for bundle in bundles:
+        field_lines_payload = [
+            {
+                "line_index": line.line_index,
+                "line_type": line.line_type.value,
+                "raw_text": line.raw_text,
+                "label": line.label,
+                "value": line.value,
+            }
+            for line in bundle.deterministic_seed_bundle.field_lines
+        ]
+        stage1_hints = []
+        for candidate in bundle.deterministic_seed_bundle.entity_candidates:
+            if isinstance(candidate, StructuredEntityMention):
+                stage1_hints.append(
+                    {
+                        "name": candidate.name,
+                        "normalized_name": candidate.normalized_name,
+                        "source": candidate.source.value,
+                        "source_label": candidate.source_label,
+                    }
+                )
+        evidence_items = _fact_evidence(bundle)
+        evidence_items.extend(_entity_evidence(bundle, bundle.deterministic_seed_bundle.entity_candidates))
+
+        if not bundle.raw_text.strip():
+            diagnostics.append(
+                LLMTaskSelectionDiagnostic(
+                    source_bundle_kind="record_review_bundle",
+                    source_object_kind="structured_record",
+                    source_object_id=bundle.record_id,
+                    document_path=bundle.document_path,
+                    task_family=LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION,
+                    selected=False,
+                    reason="empty_record_text",
+                    evidence_counts={
+                        "fact_candidates": len(bundle.deterministic_fact_candidates),
+                        "entity_candidates": len(bundle.deterministic_seed_bundle.entity_candidates),
+                    },
+                )
+            )
+            continue
+
+        diagnostics.append(
+            LLMTaskSelectionDiagnostic(
+                source_bundle_kind="record_review_bundle",
+                source_object_kind="structured_record",
+                source_object_id=bundle.record_id,
+                document_path=bundle.document_path,
+                task_family=LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION,
+                selected=True,
+                reason="record_has_structural_context",
+                evidence_counts={
+                    "fact_candidates": len(bundle.deterministic_fact_candidates),
+                    "entity_candidates": len(bundle.deterministic_seed_bundle.entity_candidates),
+                    "field_lines": len(bundle.deterministic_seed_bundle.field_lines),
+                },
+            )
+        )
+        packets.append(
+            LLMTaskPacket(
+                task_id=stable_hash_id(
+                    "llm_task_packet",
+                    LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION.value,
+                    bundle.record_id,
+                    bundle.document_path,
+                ),
+                task_family=LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION,
+                schema_id=schema_id_for(LLMTaskFamily.STRUCTURED_RECORD_TAGGED_EXTRACTION),
+                source_bundle_kind="record_review_bundle",
+                source_object_kind="structured_record",
+                source_object_id=bundle.record_id,
+                source_document_paths=[bundle.document_path],
+                document_type=bundle.document_type,
+                document_status=bundle.document_status,
+                source_authority=f"structured_record:{bundle.record_type.value}",
+                source_authority_weight=document_status_authority_weight(bundle.document_status),
+                task_goal=(
+                    "Extract tagged semantic items from one structured record using"
+                    " structural context and evidence-anchored quotes."
+                ),
+                task_constraints=[
+                    *_tagged_extraction_constraints(bundle.record_type.value),
+                ],
+                evidence_payload=evidence_items,
+                selection_reason="record_has_structural_context",
+                payload={
+                    "record_type": bundle.record_type.value,
+                    "raw_record_text": bundle.raw_text,
+                    "header_line": bundle.deterministic_seed_bundle.header_line,
+                    "document_type": bundle.document_type.value,
+                    "document_status": bundle.document_status.value,
+                    "field_lines": field_lines_payload,
+                    "stage1_entity_hints": stage1_hints,
+                    "deterministic_subject_guess": (
+                        bundle.deterministic_subject_guess.primary_guess
+                        if bundle.deterministic_subject_guess
+                        else ""
+                    ),
+                    "deterministic_fact_candidates": [
+                        {
+                            "label": item.label,
+                            "value": item.value,
+                            "reason": item.reason,
+                            "line_index": item.line_index,
+                        }
+                        for item in bundle.deterministic_fact_candidates
                     ],
                 },
             )

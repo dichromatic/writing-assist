@@ -32,7 +32,8 @@ from backend.nlp.types import (
 
 Responder = Callable[[LLMTaskPacket, str], tuple[dict, str]]
 
-_JSON_BLOCK_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
+_JSON_OBJECT_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
+_JSON_ARRAY_PATTERN = re.compile(r"\[.*\]", re.DOTALL)
 
 
 def _system_prompt_for_packet(packet: LLMTaskPacket) -> str:
@@ -55,6 +56,26 @@ def _system_prompt_for_packet(packet: LLMTaskPacket) -> str:
             + "'Arc two is Lunarian custodianship' + "
             + "'Arc three is magician lineage'. "
             + " Example bad decomposition: one paragraph-long restatement of the whole source text."
+        )
+    if packet.task_family.value == "structured_record_tagged_extraction":
+        return (
+            base
+            + " Extract structured items from this single reference record. "
+            + "Return extraction_items only. "
+            + "Each item must include: type_tag, subject_names, content, evidence_quote. "
+            + "Allowed type_tag values are: entity_mention, fact_about, relationship_between, event_description, unclassified. "
+            + "Tag definitions: "
+            + "entity_mention is for named entities (character, group, place, object), "
+            + "fact_about is for properties or attributes of an entity, "
+            + "relationship_between is for links between two or more entities, "
+            + "event_description is for actions/plans/incidents, "
+            + "unclassified is for meaningful but uncertain extraction. "
+            + "Do not output section headings, structural labels, or metadata keys as entity_mention. "
+            + "Keep rank/title text separate from entity names when possible "
+            + "(example: subject_names=['Takami Chika'] and rank in fact_about content). "
+            + "Use short evidence quotes, one or two sentences max, not full paragraphs. "
+            + "Payload notes: stage1_entity_hints are high-confidence deterministic hints from dossier headers "
+            + "and field_lines are structural line classifications; use them as context and still extract additional evidence-grounded items."
         )
     if packet.task_family.value == "manuscript_entity_profile":
         return (
@@ -89,15 +110,25 @@ def _system_prompt_for_packet(packet: LLMTaskPacket) -> str:
 
 
 def _extract_json_object_text(text: str) -> str:
-    """Extract the first JSON object from a model response body."""
+    """Extract a JSON object or array text from a model response body."""
     stripped = text.strip()
     if stripped.startswith("```"):
         stripped = stripped.strip("`")
         stripped = stripped.replace("json", "", 1).strip()
-    match = _JSON_BLOCK_PATTERN.search(stripped)
-    if match is None:
+    # Fast path when the full response body is already JSON.
+    if (stripped.startswith("{") and stripped.endswith("}")) or (
+        stripped.startswith("[") and stripped.endswith("]")
+    ):
+        return stripped
+    obj_match = _JSON_OBJECT_PATTERN.search(stripped)
+    arr_match = _JSON_ARRAY_PATTERN.search(stripped)
+    if obj_match is None and arr_match is None:
         raise ValueError("No JSON object found in model response content.")
-    return match.group(0)
+    if obj_match is not None and arr_match is not None:
+        return obj_match.group(0) if obj_match.start() <= arr_match.start() else arr_match.group(0)
+    if obj_match is not None:
+        return obj_match.group(0)
+    return arr_match.group(0)
 
 
 def _packet_prompt(packet: LLMTaskPacket) -> str:
@@ -143,9 +174,9 @@ def _packet_prompt(packet: LLMTaskPacket) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def make_nvidia_nim_chat_responder(
+def make_openai_compatible_chat_responder(
     *,
-    api_key: str,
+    api_key: str = "",
     base_url: str = "https://integrate.api.nvidia.com/v1",
     temperature: float = 0.6,
     top_p: float = 0.9,
@@ -153,14 +184,13 @@ def make_nvidia_nim_chat_responder(
     timeout_seconds: float = 60.0,
     prompt_variant: str = "baseline",
 ) -> Responder:
-    """Build a responder that calls NVIDIA NIM chat completions."""
+    """Build a responder that calls OpenAI-compatible chat completions."""
 
     normalized_base = base_url.rstrip("/")
     endpoint = f"{normalized_base}/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
+    headers = {"Content-Type": "application/json"}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
     def responder(packet: LLMTaskPacket, model: str) -> tuple[dict, str]:
         system_prompt = _system_prompt_for_packet(packet)
         if packet.task_family.value == "manuscript_entity_profile":
@@ -215,6 +245,11 @@ def make_nvidia_nim_chat_responder(
         extracted = _extract_json_object_text(content)
         try:
             parsed_payload = json.loads(extracted)
+            if (
+                packet.task_family.value == "structured_record_tagged_extraction"
+                and isinstance(parsed_payload, list)
+            ):
+                parsed_payload = {"extraction_items": parsed_payload}
         except json.JSONDecodeError as exc:
             parsed_payload = {
                 "raw_model_output": content,
@@ -226,6 +261,28 @@ def make_nvidia_nim_chat_responder(
     return responder
 
 
+def make_nvidia_nim_chat_responder(
+    *,
+    api_key: str,
+    base_url: str = "https://integrate.api.nvidia.com/v1",
+    temperature: float = 0.6,
+    top_p: float = 0.9,
+    max_tokens: int = 4096,
+    timeout_seconds: float = 60.0,
+    prompt_variant: str = "baseline",
+) -> Responder:
+    """Backward-compatible NIM responder wrapper over the generic client."""
+    return make_openai_compatible_chat_responder(
+        api_key=api_key,
+        base_url=base_url,
+        temperature=temperature,
+        top_p=top_p,
+        max_tokens=max_tokens,
+        timeout_seconds=timeout_seconds,
+        prompt_variant=prompt_variant,
+    )
+
+
 def run_llm_task_packets(
     packets: list[LLMTaskPacket],
     *,
@@ -233,6 +290,7 @@ def run_llm_task_packets(
     provider: str,
     responder: Responder | None = None,
     pass_stage: LLMTaskPassStage = LLMTaskPassStage.FIRST_PASS,
+    on_result: Callable[[LLMTaskResult], None] | None = None,
 ) -> list[LLMTaskResult]:
     """Run shared LLM task packets and return structured results.
 
@@ -243,6 +301,8 @@ def run_llm_task_packets(
         responder: Callable that executes one packet and returns
             `(payload, response_id)`. When omitted, all packets are marked
             as skipped.
+        on_result: Optional callback executed after each task result is
+            appended. Useful for incremental persistence during long runs.
 
     Returns:
         One `LLMTaskResult` per packet, preserving input order.
@@ -250,18 +310,19 @@ def run_llm_task_packets(
     results: list[LLMTaskResult] = []
     for packet in packets:
         if responder is None:
-            results.append(
-                LLMTaskResult(
-                    task_id=packet.task_id,
-                    task_family=packet.task_family,
-                    schema_id=packet.schema_id,
-                    status=LLMTaskResultStatus.SKIPPED,
-                    model=model,
-                    provider=provider,
-                    pass_stage=pass_stage,
-                    error="no responder configured",
-                )
+            result = LLMTaskResult(
+                task_id=packet.task_id,
+                task_family=packet.task_family,
+                schema_id=packet.schema_id,
+                status=LLMTaskResultStatus.SKIPPED,
+                model=model,
+                provider=provider,
+                pass_stage=pass_stage,
+                error="no responder configured",
             )
+            results.append(result)
+            if on_result is not None:
+                on_result(result)
             continue
         try:
             payload, response_id = responder(packet, model)
@@ -270,30 +331,32 @@ def run_llm_task_packets(
                 raw_payload=payload,
                 fallback_canonical_key=packet.source_object_id,
             )
-            results.append(
-                LLMTaskResult(
-                    task_id=packet.task_id,
-                    task_family=packet.task_family,
-                    schema_id=packet.schema_id,
-                    status=LLMTaskResultStatus.COMPLETED,
-                    model=model,
-                    provider=provider,
-                    pass_stage=pass_stage,
-                    response_id=response_id,
-                    payload=normalized.model_dump(mode="json"),
-                )
+            result = LLMTaskResult(
+                task_id=packet.task_id,
+                task_family=packet.task_family,
+                schema_id=packet.schema_id,
+                status=LLMTaskResultStatus.COMPLETED,
+                model=model,
+                provider=provider,
+                pass_stage=pass_stage,
+                response_id=response_id,
+                payload=normalized.model_dump(mode="json"),
             )
+            results.append(result)
+            if on_result is not None:
+                on_result(result)
         except Exception as exc:  # pragma: no cover - runtime provider exceptions vary.
-            results.append(
-                LLMTaskResult(
-                    task_id=packet.task_id,
-                    task_family=packet.task_family,
-                    schema_id=packet.schema_id,
-                    status=LLMTaskResultStatus.FAILED,
-                    model=model,
-                    provider=provider,
-                    pass_stage=pass_stage,
-                    error=str(exc),
-                )
+            result = LLMTaskResult(
+                task_id=packet.task_id,
+                task_family=packet.task_family,
+                schema_id=packet.schema_id,
+                status=LLMTaskResultStatus.FAILED,
+                model=model,
+                provider=provider,
+                pass_stage=pass_stage,
+                error=str(exc),
             )
+            results.append(result)
+            if on_result is not None:
+                on_result(result)
     return results

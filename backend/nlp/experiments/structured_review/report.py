@@ -105,12 +105,20 @@ def render_structured_review_report(
             )
         lines.append("  deterministic_candidates:")
         for entity_record in bundle.deterministic_seed_bundle.entity_candidates[:12]:
-            lines.append(
-                f"    - entity {entity_record.normalized_key}"
-                f" category={entity_record.winning_category.value}"
-                f" bucket={entity_record.bucket.value}"
-                f" conf={entity_record.confidence_score:.3f}"
-            )
+            if hasattr(entity_record, "normalized_key"):
+                lines.append(
+                    f"    - entity {entity_record.normalized_key}"
+                    f" category={entity_record.winning_category.value}"
+                    f" bucket={entity_record.bucket.value}"
+                    f" conf={entity_record.confidence_score:.3f}"
+                )
+            else:
+                lines.append(
+                    f"    - entity {entity_record.name}"
+                    f" normalized={entity_record.normalized_name}"
+                    f" source={entity_record.source.value}"
+                    f" context={entity_record.source_label or '-'}"
+                )
         for reference_candidate in bundle.deterministic_seed_bundle.reference_candidates[:12]:
             lines.append(
                 f"    - reference {reference_candidate.normalized}"

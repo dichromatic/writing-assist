@@ -5,13 +5,14 @@ Structured review experiment CLI - runs deterministic structured-note scaffoldin
 
     flowchart TD
         A[Input .txt path] --> B[Parse and preprocess full document]
-        B --> C[Run existing document extraction as weak hints]
         B --> D[Segment StructuredRecord list]
+        D --> C[Extract structured entity inventory]
         M[Optional metadata manifest] --> N[Resolve document metadata]
         A --> N
         B --> N
         C & D & N --> E[Build RecordReviewBundle list]
         E --> F[Build shared LLMTaskPacket list]
+        F --> F2[Include tagged extraction task family]
         F --> G[Write JSON artifact]
         F --> H[Write deterministic text report]
         F --> I[Write task-packet text report]
@@ -31,9 +32,8 @@ from backend.nlp.llm_tasks import (
     render_llm_task_packet_report,
 )
 from backend.nlp.experiments.structured_review.review_bundle import build_structured_review_bundles
-from backend.nlp.pipeline import run_document_pipeline
 from backend.nlp.parsing.document_parser import parse
-from backend.nlp.structured_records import segment_structured_records
+from backend.nlp.structured_records import extract_structural_entities, segment_structured_records
 from backend.nlp.text_filtering import to_llm_safe_jsonable
 
 
@@ -64,16 +64,16 @@ def run_structured_review_experiment(
         metadata_manifest,
     )
     doc = parse(str(source_path), raw_text)
-    pipeline = run_document_pipeline(str(source_path), raw_text)
     structured_records = segment_structured_records(doc)
+    entity_inventory = extract_structural_entities(structured_records)
     review_bundles, diagnostics = build_structured_review_bundles(
         structured_records,
-        pipeline.entity_records,
-        pipeline.reference_candidates,
-        document_metadata,
+        entity_inventory=entity_inventory,
+        document_metadata=document_metadata,
     )
     llm_task_packets, llm_task_diagnostics = build_llm_task_packets(
-        record_review_bundles=review_bundles
+        record_review_bundles=review_bundles,
+        include_structured_tagged_extraction=True,
     )
 
     output_root = Path(output_dir)
@@ -94,6 +94,12 @@ def run_structured_review_experiment(
             "document_metadata": to_llm_safe_jsonable(document_metadata),
             "diagnostics": to_llm_safe_jsonable(diagnostics),
             "structured_records": to_llm_safe_jsonable(structured_records),
+            "structured_entity_inventory": {
+                "mentions": to_llm_safe_jsonable(entity_inventory.mentions),
+                "names": sorted(entity_inventory.names),
+                "mentions_by_record": to_llm_safe_jsonable(entity_inventory.mentions_by_record),
+                "records_by_name": to_llm_safe_jsonable(entity_inventory.records_by_name),
+            },
         },
     )
     json_path.write_text(json.dumps(artifact, indent=2, ensure_ascii=False), encoding="utf-8")
