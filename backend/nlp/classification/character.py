@@ -13,6 +13,7 @@ Character classification evidence.
 from __future__ import annotations
 
 from backend.nlp.classification.compound_shapes import compound_head, compound_parts
+from backend.nlp.classification.scoring_builder import ScoringBuilder
 from backend.nlp.classification.types import ClassEvidence
 from backend.nlp.harvesting.shared import (
     EVENT_NOUNS,
@@ -72,41 +73,29 @@ def score_character_evidence(
     """
     del pre
 
-    score = 0.0
-    reasons: list[str] = []
-    vetoes: list[str] = []
+    builder = ScoringBuilder(LexiconCategory.CHARACTER)
 
     if cluster.normalized_key in attributed_speakers:
-        score += 0.80
-        reasons.append("attributed as a dialogue speaker")
+        builder.add(0.80, "attributed as a dialogue speaker")
 
     if cluster.has_title_support:
-        score += 0.70
-        reasons.append("appears with a title prefix")
+        builder.add(0.70, "appears with a title prefix")
 
     # Possessive syntax is only a weak character hint. Places, vessels, and
     # organizations also appear in possessive form, so this should not carry
     # resolution weight by itself.
     if cluster.has_possessive_support:
-        score += 0.20
-        reasons.append("appears in possessive form")
+        builder.add(0.20, "appears in possessive form")
 
     # Compound shape is a broad structural hint, not direct behavioral proof.
     # Keep it below resolution threshold unless stronger evidence is present.
     if _looks_like_personal_compound(cluster):
-        score += 0.25
-        reasons.append("appears as a personal-style multi-token compound")
+        builder.add(0.25, "appears as a personal-style multi-token compound")
 
     if cluster.occurrence_count >= 2:
-        score += 0.10
-        reasons.append("recurs across the document")
+        builder.add(0.10, "recurs across the document")
 
     if cluster.has_location_support and cluster.normalized_key not in attributed_speakers:
-        vetoes.append("has locative context without attribution support")
+        builder.veto("has locative context without attribution support")
 
-    return ClassEvidence(
-        category=LexiconCategory.CHARACTER,
-        score=min(score, 1.0),
-        reasons=reasons,
-        vetoes=vetoes,
-    )
+    return builder.build()

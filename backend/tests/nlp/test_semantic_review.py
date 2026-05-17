@@ -24,6 +24,7 @@ from backend.nlp.promotion.promotion import promote
 from backend.nlp.reconciliation.corpus_entities import reconcile_document_entities
 from backend.nlp.semantic_review import (
     build_character_summaries,
+    build_review_context,
     build_reference_clusters,
     build_conflict_records,
     build_semantic_proposals,
@@ -876,6 +877,73 @@ class TestSemanticProposals:
         assert len(proposals) == 1
         assert proposals[0].proposed_target_key == "watanabe yō"
         assert proposals[0].source.value == "dominant_owner"
+
+    def test_shared_canonical_review_context_preserves_task_and_proposal_output(self):
+        # The shared review context is only worth introducing if callers can
+        # precompute it once and then get byte-identical proposal and review
+        # outputs from both consumers. A mode mix-up here would silently skew
+        # owner ranking without breaking most direct unit assertions.
+        clusters = build_reference_clusters([
+            ReferenceCandidate(
+                document_anchor=DocumentAnchor(path="a.md"),
+                reference_type=ReferenceCandidateType.BARE_TITLE_ROLE,
+                surface="Captain",
+                normalized="captain",
+                anchor=SpanAnchor(path="a.md", span_ordinal=0, start_char=1, end_char=8),
+                context_before="\"",
+                context_after=", wait,\" Kohaku said.",
+                in_quote=True,
+                address_like=True,
+                quote_speaker_key="kohaku",
+                linked_entity_keys=["kohaku"],
+            ),
+        ])
+        summaries = [
+            CharacterSemanticSummary(
+                canonical_key="kohaku",
+                alias_keys=[],
+                supporting_document_paths=["a.md"],
+                attached_title_counts={"captain": 20},
+                ambiguous_title_counts={},
+                attached_relation_counts={},
+                ambiguous_relation_counts={},
+                aggregate_attribution_count=0,
+                conflict_sources=[],
+            ),
+            CharacterSemanticSummary(
+                canonical_key="watanabe yō",
+                alias_keys=["watanabe", "yō"],
+                supporting_document_paths=["b.md"],
+                attached_title_counts={"captain": 10},
+                ambiguous_title_counts={},
+                attached_relation_counts={},
+                ambiguous_relation_counts={},
+                aggregate_attribution_count=0,
+                conflict_sources=[],
+            ),
+            CharacterSemanticSummary(
+                canonical_key="tsushima yoshiko",
+                alias_keys=["tsushima", "yoshiko"],
+                supporting_document_paths=["c.md"],
+                attached_title_counts={"captain": 5},
+                ambiguous_title_counts={},
+                attached_relation_counts={},
+                ambiguous_relation_counts={},
+                aggregate_attribution_count=0,
+                conflict_sources=[],
+            ),
+        ]
+        review_context = build_review_context(clusters, summaries)
+
+        assert build_semantic_proposals(clusters, summaries) == build_semantic_proposals(
+            clusters,
+            review_context=review_context,
+        )
+        assert build_review_tasks(clusters, [], summaries) == build_review_tasks(
+            clusters,
+            [],
+            review_context=review_context,
+        )
 
 
 class TestCharacterSummaries:

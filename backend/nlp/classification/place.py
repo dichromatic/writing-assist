@@ -12,7 +12,11 @@ Place classification evidence.
 from __future__ import annotations
 
 from backend.nlp.classification.compound_shapes import compound_head
-from backend.nlp.classification.token_context import iter_anchor_token_starts
+from backend.nlp.classification.scoring_builder import ScoringBuilder
+from backend.nlp.classification.token_context import (
+    has_anchor_token_pattern,
+    iter_anchor_token_starts,
+)
 from backend.nlp.classification.types import ClassEvidence
 from backend.nlp.harvesting.shared import (
     DEMONYM_SUFFIXES,
@@ -23,7 +27,7 @@ from backend.nlp.harvesting.shared import (
     STRONG_LOCATIVE_PREPOSITIONS,
     WEAK_LOCATIVE_PREPOSITIONS,
 )
-from backend.nlp.types import LexiconCategory, MentionCluster, PreprocessedDocument
+from backend.nlp.types import LexiconCategory, MentionCluster, PreprocessedDocument, Token
 
 # Compass directions are treated as a closed structural set rather than a
 # coverage lexicon. They behave like place heads in compounds such as
@@ -38,7 +42,7 @@ def _is_capitalized_word(text: str) -> bool:
 
 def _place_descriptor_support(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when local context names the cluster as a geographic place."""
-    for tokens, index in iter_anchor_token_starts(cluster, pre):
+    def _matches(tokens: list[Token], index: int) -> bool:
         if index >= 2:
             if (
                 tokens[index - 1].text.lower() == "of"
@@ -58,7 +62,9 @@ def _place_descriptor_support(cluster: MentionCluster, pre: PreprocessedDocument
         if index + 1 < len(tokens) and tokens[index + 1].text.lower() in PLACE_DESCRIPTOR_NOUNS:
             return True
 
-    return False
+        return False
+
+    return has_anchor_token_pattern(cluster, pre, _matches)
 
 
 def _possessive_place_support(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
@@ -66,23 +72,20 @@ def _possessive_place_support(cluster: MentionCluster, pre: PreprocessedDocument
     if pre is None or not cluster.has_possessive_support:
         return False
 
-    for tokens, index in iter_anchor_token_starts(cluster, pre):
+    def _matches(tokens: list[Token], index: int) -> bool:
         next_token = tokens[index + 1].text.lower() if index + 1 < len(tokens) else ""
         next_next = tokens[index + 2].text.lower() if index + 2 < len(tokens) else ""
+        return next_token in {"'s", "'"} and next_next in PLACE_POSSESSIVE_CONTEXT_NOUNS
 
-        if next_token in {"'s", "'"} and next_next in PLACE_POSSESSIVE_CONTEXT_NOUNS:
-            return True
-
-    return False
+    return has_anchor_token_pattern(cluster, pre, _matches)
 
 
 def _resident_place_support(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when resident nouns frame the cluster as a place."""
-    for tokens, index in iter_anchor_token_starts(cluster, pre):
-        if index + 1 < len(tokens) and tokens[index + 1].text.lower() in PLACE_RESIDENT_NOUNS:
-            return True
+    def _matches(tokens: list[Token], index: int) -> bool:
+        return index + 1 < len(tokens) and tokens[index + 1].text.lower() in PLACE_RESIDENT_NOUNS
 
-    return False
+    return has_anchor_token_pattern(cluster, pre, _matches)
 
 
 def _locative_strength(cluster: MentionCluster, pre: PreprocessedDocument | None) -> tuple[float, list[str], list[str]]:
@@ -142,49 +145,34 @@ def score_place_evidence(
     Returns:
         Place evidence for the cluster.
     """
-    score = 0.0
-    reasons: list[str] = []
-    vetoes: list[str] = []
+    builder = ScoringBuilder(LexiconCategory.PLACE)
 
     locative_score, locative_reasons, locative_vetoes = _locative_strength(cluster, pre)
-    score += locative_score
-    reasons.extend(locative_reasons)
-    vetoes.extend(locative_vetoes)
+    builder.merge(locative_score, locative_reasons, locative_vetoes)
 
     if _place_descriptor_support(cluster, pre):
-        score += 0.60
-        reasons.append("appears with a geographic descriptor")
+        builder.add(0.60, "appears with a geographic descriptor")
 
     if _possessive_place_support(cluster, pre):
-        score += 0.60
-        reasons.append("appears in possessive place context")
+        builder.add(0.60, "appears in possessive place context")
 
     if _resident_place_support(cluster, pre):
-        score += 0.60
-        reasons.append("appears with resident or civic framing")
+        builder.add(0.60, "appears with resident or civic framing")
 
     head = compound_head(cluster)
     if head in PLACE_DESCRIPTOR_NOUNS:
-        score += 0.65
-        reasons.append("compound head is a place-like descriptor")
+        builder.add(0.65, "compound head is a place-like descriptor")
     elif head in _COMPASS_PLACE_HEADS:
-        score += 0.65
-        reasons.append("compound head is a directional place noun")
+        builder.add(0.65, "compound head is a directional place noun")
 
     if (
         cluster.normalized_key.endswith(tuple(DEMONYM_SUFFIXES))
-        and score < 0.60
+        and builder.score < 0.60
     ):
-        vetoes.append("demonym-like form without stronger place evidence")
-        score = min(score, 0.15)
+        builder.veto("demonym-like form without stronger place evidence")
+        builder.cap(0.15)
 
     if cluster.normalized_key in attributed_speakers:
-        vetoes.append("attributed speaker evidence blocks place resolution")
-        score = 0.0
+        builder.veto_and_zero("attributed speaker evidence blocks place resolution")
 
-    return ClassEvidence(
-        category=LexiconCategory.PLACE,
-        score=min(score, 1.0),
-        reasons=reasons,
-        vetoes=vetoes,
-    )
+    return builder.build()

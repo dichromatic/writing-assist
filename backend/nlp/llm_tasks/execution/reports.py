@@ -11,6 +11,7 @@ LLM task packet report renderer.
 
 from __future__ import annotations
 
+from backend.nlp.report_formatting import hr as _hr
 from backend.nlp.text_filtering import strip_emoji
 from backend.nlp.types import (
     LLMTaskPacket,
@@ -19,15 +20,6 @@ from backend.nlp.types import (
     LLMTaskResultStatus,
     LLMTaskSelectionDiagnostic,
 )
-
-
-def _hr(title: str = "") -> str:
-    """Return one stable report separator line."""
-    width = 72
-    if title:
-        pad = width - len(title) - 2
-        return f"\n-- {title} " + "-" * pad
-    return "-" * width
 
 
 def render_llm_task_packet_report(

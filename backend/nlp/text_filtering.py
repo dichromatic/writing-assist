@@ -40,37 +40,6 @@ def strip_emoji(text: str) -> str:
     return filtered
 
 
-def sanitize_for_llm(value: Any) -> Any:
-    """Recursively sanitize nested dataclasses and containers for LLM use.
-
-    Args:
-        value: Arbitrary nested value from a handoff artifact.
-
-    Returns:
-        Deep copy with all string leaves filtered through `strip_emoji`.
-    """
-    if isinstance(value, str):
-        return strip_emoji(value)
-    if isinstance(value, Enum):
-        return value
-    if is_dataclass(value):
-        sanitized_fields = {
-            field.name: sanitize_for_llm(getattr(value, field.name))
-            for field in fields(value)
-        }
-        return type(value)(**sanitized_fields)
-    if isinstance(value, list):
-        return [sanitize_for_llm(item) for item in value]
-    if isinstance(value, tuple):
-        return tuple(sanitize_for_llm(item) for item in value)
-    if isinstance(value, dict):
-        return {
-            sanitize_for_llm(key) if isinstance(key, str) else key: sanitize_for_llm(inner_value)
-            for key, inner_value in value.items()
-        }
-    return value
-
-
 def to_llm_safe_jsonable(value: Any) -> Any:
     """Convert nested artifact values into JSON-safe, emoji-filtered data.
 

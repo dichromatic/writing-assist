@@ -17,6 +17,14 @@ from backend.nlp.harvesting.shared import TITLE_PREFIXES_LOWER
 from backend.nlp.types import LexiconCategory, MentionCluster
 
 _ENTITYHOOD_THRESHOLD = 0.55
+# Relationship to arbitration threshold:
+# - arbitration.py uses a higher resolution threshold (0.60) for choosing a
+#   concrete classification label after arbitration.
+# - This entityhood threshold is intentionally lower so clusters can be kept as
+#   plausible entities for review even when category resolution confidence is
+#   not yet high enough to cross arbitration's stricter label assignment bar.
+# - Keep this asymmetry: "survive for review" is a broader gate than
+#   "assign final resolved class".
 def assess_entityhood(
     cluster: MentionCluster,
     evidence_by_category: dict[LexiconCategory, ClassEvidence],
@@ -112,6 +120,8 @@ def assess_entityhood(
 
     return EntityhoodDecision(
         score=min(score, 1.0),
+        # Uses the lower "survival" gate described above; arbitration applies
+        # a stricter threshold for final category resolution.
         accepted=score >= _ENTITYHOOD_THRESHOLD,
         reasons=reasons,
         weaknesses=weaknesses,

@@ -19,6 +19,7 @@ Cross-document entity reconciliation.
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import dataclass
 
 from backend.nlp.harvesting.shared import TITLE_PREFIXES_LOWER, has_generic_modifier_profile
 from backend.nlp.types import (
@@ -28,6 +29,121 @@ from backend.nlp.types import (
     DocumentEntityRecord,
     LexiconCategory,
 )
+
+
+@dataclass(frozen=True)
+class _MergeChild:
+    """One absorbed child alias plus any pass-specific anchor records.
+
+    Args:
+        child_key: Canonical key of the absorbed child entity.
+        anchor_records: Extra direct records that should be retained when the
+            child is folded into its stronger parent canonical.
+    """
+
+    child_key: str
+    anchor_records: list[DocumentEntityRecord]
+
+
+@dataclass(frozen=True)
+class _EligibleCharacterCompound:
+    """Prevalidated two-token character compound candidate.
+
+    Args:
+        compound_key: Observed two-token compound surface.
+        left_key: Left component key of the compound.
+        right_key: Right component key of the compound.
+        anchor_records: All exact records observed for the compound surface.
+    """
+
+    compound_key: str
+    left_key: str
+    right_key: str
+    anchor_records: list[DocumentEntityRecord]
+
+
+@dataclass(frozen=True)
+class _CharacterCompoundMergePlan:
+    """Resolved merge plan for one character-compound canonicalization.
+
+    Args:
+        source_key: Observed compound key that triggered this merge.
+        canonical_key: Final canonical key to emit for the merged entity.
+        left_key: Left component that will be absorbed.
+        right_key: Right component that will be absorbed.
+        anchor_records: Exact compound records to keep as supporting evidence.
+        sparse_observed: True when the compound exists only as raw records and
+            not as an input corpus entity.
+    """
+
+    source_key: str
+    canonical_key: str
+    left_key: str
+    right_key: str
+    anchor_records: list[DocumentEntityRecord]
+    sparse_observed: bool
+
+
+def _apply_merge_plan(
+    entities: list[CorpusEntity],
+    by_key: dict[str, CorpusEntity],
+    merge_targets: dict[str, list[_MergeChild]],
+    absorbed_keys: set[str],
+    reason: str,
+) -> list[CorpusEntity]:
+    """Apply one precomputed alias merge plan and rebuild merged entities.
+
+    Each alias pass decides eligibility differently, but once the parent-child
+    pairs are fixed they all rebuild the merged canonical entity the same way.
+    This helper preserves the current behavior: sorted entity iteration,
+    sorted combined member records, absorbed-key filtering, and the exact
+    user-visible reason string supplied by the caller.
+
+    Args:
+        entities: Canonical entities entering the merge pass.
+        by_key: Fast lookup from canonical key to corpus entity.
+        merge_targets: Parent canonical key to absorbed child plan entries.
+        absorbed_keys: Canonical keys that should disappear after merging.
+        reason: Exact merge reason string to emit on rebuilt entities.
+
+    Returns:
+        Canonical entities after applying the merge plan.
+    """
+    merged_entities: list[CorpusEntity] = []
+    emitted_parents: set[str] = set()
+
+    for entity in sorted(entities, key=lambda item: item.canonical_key):
+        children = merge_targets.get(entity.canonical_key)
+        if children:
+            source_keys = set(entity.source_keys)
+            combined_records = list(entity.member_records)
+            for child in children:
+                child_entity = by_key[child.child_key]
+                source_keys.add(child.child_key)
+                source_keys.update(child_entity.source_keys)
+                combined_records.extend(child.anchor_records)
+                combined_records.extend(child_entity.member_records)
+            combined_records = sorted(
+                combined_records,
+                key=lambda record: (record.document_anchor.path, record.normalized_key),
+            )
+            merged_entities.append(_build_corpus_entity(
+                canonical_key=entity.canonical_key,
+                source_keys=sorted(source_keys),
+                members=combined_records,
+                reasons=[reason],
+            ))
+            emitted_parents.add(entity.canonical_key)
+            continue
+
+        if entity.canonical_key in absorbed_keys:
+            continue
+
+        if entity.canonical_key not in emitted_parents:
+            merged_entities.append(entity)
+
+    return merged_entities
+
 
 def _dominant_category(records: list[DocumentEntityRecord]) -> tuple[LexiconCategory, list[LexiconCategory]]:
     """Choose the strongest current category for an exact-key group.
@@ -132,21 +248,22 @@ def _is_safe_character_component(
     )
 
 
-def _merge_character_compound_aliases(
-    entities: list[CorpusEntity],
+def _identify_eligible_character_compounds(
+    by_key: dict[str, CorpusEntity],
     all_records_by_key: dict[str, list[DocumentEntityRecord]],
-    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
-) -> list[CorpusEntity]:
-    """Merge unambiguous character full-name compounds over exact-key entities.
+) -> tuple[dict[str, _EligibleCharacterCompound], dict[str, set[str]]]:
+    """Return character compounds whose components safely support merging.
 
-    A compound such as ``tsushima yoshiko`` is a stronger canonical identity
-    surface than its component keys when the corpus contains the full form and
-    the single-token parts also behave like the same character. This pass only
-    merges character compounds with exactly two parts and only when both parts
-    uniquely point back to the same compound candidate.
+    Args:
+        by_key: Canonical entity lookup for the current reconciliation pass.
+        all_records_by_key: All document-local records, including suppressed
+            ones, keyed by exact normalized surface.
+
+    Returns:
+        Eligible compound candidates plus a reverse component-to-compound map
+        used to enforce uniqueness during plan construction.
     """
-    by_key = {entity.canonical_key: entity for entity in entities}
-    eligible_compounds: dict[str, tuple[tuple[str, str], list[DocumentEntityRecord]]] = {}
+    eligible_compounds: dict[str, _EligibleCharacterCompound] = {}
     component_to_compounds: dict[str, set[str]] = defaultdict(set)
 
     for key, anchor_records in all_records_by_key.items():
@@ -173,22 +290,44 @@ def _merge_character_compound_aliases(
         ):
             continue
 
-        eligible_compounds[key] = ((left, right), anchor_records)
+        eligible_compounds[key] = _EligibleCharacterCompound(
+            compound_key=key,
+            left_key=left,
+            right_key=right,
+            anchor_records=anchor_records,
+        )
         component_to_compounds[left].add(key)
         component_to_compounds[right].add(key)
 
-    merge_plans: dict[str, tuple[str, str]] = {}
-    merge_canonical_keys: dict[str, str] = {}
-    merge_anchor_records: dict[str, list[DocumentEntityRecord]] = {}
-    merged_children: set[str] = set()
+    return eligible_compounds, component_to_compounds
 
-    for key, (parts, anchor_records) in sorted(eligible_compounds.items()):
-        left, right = parts
+
+def _build_character_merge_plans(
+    by_key: dict[str, CorpusEntity],
+    eligible_compounds: dict[str, _EligibleCharacterCompound],
+    component_to_compounds: dict[str, set[str]],
+    title_prefixes_lower: frozenset[str],
+) -> dict[str, _CharacterCompoundMergePlan]:
+    """Resolve canonical direction for uniquely owned character compounds.
+
+    Args:
+        by_key: Canonical entity lookup for the current reconciliation pass.
+        eligible_compounds: Prevalidated eligible compound candidates.
+        component_to_compounds: Reverse ownership index for uniqueness checks.
+        title_prefixes_lower: Lowercased title prefix inventory.
+
+    Returns:
+        Merge plans keyed by the observed compound surface.
+    """
+    merge_plans: dict[str, _CharacterCompoundMergePlan] = {}
+    for key, candidate in sorted(eligible_compounds.items()):
+        left = candidate.left_key
+        right = candidate.right_key
         if component_to_compounds[left] != {key}:
             continue
         if component_to_compounds[right] != {key}:
             continue
-        merge_plans[key] = parts
+
         if (
             left in title_prefixes_lower
             or (
@@ -196,41 +335,68 @@ def _merge_character_compound_aliases(
                 and by_key[right].dominant_category == LexiconCategory.CHARACTER
             )
         ):
-            merge_canonical_keys[key] = right
+            canonical_key = right
         elif (
             by_key[right].dominant_category != LexiconCategory.CHARACTER
             and by_key[left].dominant_category == LexiconCategory.CHARACTER
         ):
-            merge_canonical_keys[key] = left
+            canonical_key = left
         else:
-            merge_canonical_keys[key] = key
-        merge_anchor_records[key] = anchor_records
-        merged_children.update({left, right, key})
+            canonical_key = key
+
+        merge_plans[key] = _CharacterCompoundMergePlan(
+            source_key=key,
+            canonical_key=canonical_key,
+            left_key=left,
+            right_key=right,
+            anchor_records=candidate.anchor_records,
+            sparse_observed=key not in by_key,
+        )
+    return merge_plans
+
+
+def _emit_character_compound_merges(
+    entities: list[CorpusEntity],
+    by_key: dict[str, CorpusEntity],
+    merge_plans: dict[str, _CharacterCompoundMergePlan],
+) -> list[CorpusEntity]:
+    """Emit merged corpus entities from precomputed character merge plans.
+
+    Args:
+        entities: Canonical entities entering the character merge pass.
+        by_key: Canonical entity lookup for the current reconciliation pass.
+        merge_plans: Precomputed compound merge plans keyed by observed
+            compound surface.
+
+    Returns:
+        Canonical entities after applying all character compound merges.
+    """
+    merged_children: set[str] = set()
+    for plan in merge_plans.values():
+        merged_children.update({plan.source_key, plan.left_key, plan.right_key})
 
     emitted_canonicals: set[str] = set()
     merged_entities: list[CorpusEntity] = []
     for entity in sorted(entities, key=lambda item: item.canonical_key):
-        parts = merge_plans.get(entity.canonical_key)
-        if parts is not None:
-            left, right = parts
-            canonical_key = merge_canonical_keys[entity.canonical_key]
-            left_entity = by_key[left]
-            right_entity = by_key[right]
-            if canonical_key not in emitted_canonicals:
+        plan = merge_plans.get(entity.canonical_key)
+        if plan is not None:
+            left_entity = by_key[plan.left_key]
+            right_entity = by_key[plan.right_key]
+            if plan.canonical_key not in emitted_canonicals:
                 combined_records = sorted(
-                    merge_anchor_records[entity.canonical_key] + left_entity.member_records + right_entity.member_records,
+                    plan.anchor_records + left_entity.member_records + right_entity.member_records,
                     key=lambda record: (record.document_anchor.path, record.normalized_key),
                 )
                 reasons = ["character compound merged with its single-token alias components"]
-                if canonical_key != entity.canonical_key:
+                if plan.canonical_key != plan.source_key:
                     reasons.append("titled or role-led compound deferred to stronger personal key")
                 merged_entities.append(_build_corpus_entity(
-                    canonical_key=canonical_key,
-                    source_keys=[entity.canonical_key, left, right],
+                    canonical_key=plan.canonical_key,
+                    source_keys=[plan.source_key, plan.left_key, plan.right_key],
                     members=combined_records,
                     reasons=reasons,
                 ))
-                emitted_canonicals.add(canonical_key)
+                emitted_canonicals.add(plan.canonical_key)
             continue
 
         if entity.canonical_key in merged_children:
@@ -239,28 +405,54 @@ def _merge_character_compound_aliases(
         merged_entities.append(entity)
 
     for key in sorted(set(merge_plans) - {entity.canonical_key for entity in entities}):
-        left, right = merge_plans[key]
-        canonical_key = merge_canonical_keys[key]
-        left_entity = by_key[left]
-        right_entity = by_key[right]
-        if canonical_key in emitted_canonicals:
+        plan = merge_plans[key]
+        if plan.canonical_key in emitted_canonicals:
             continue
+        left_entity = by_key[plan.left_key]
+        right_entity = by_key[plan.right_key]
         combined_records = sorted(
-            merge_anchor_records[key] + left_entity.member_records + right_entity.member_records,
+            plan.anchor_records + left_entity.member_records + right_entity.member_records,
             key=lambda record: (record.document_anchor.path, record.normalized_key),
         )
         reasons = ["sparse observed character compound merged with its single-token alias components"]
-        if canonical_key != key:
+        if plan.canonical_key != plan.source_key:
             reasons.append("titled or role-led compound deferred to stronger personal key")
         merged_entities.append(_build_corpus_entity(
-            canonical_key=canonical_key,
-            source_keys=[key, left, right],
+            canonical_key=plan.canonical_key,
+            source_keys=[plan.source_key, plan.left_key, plan.right_key],
             members=combined_records,
             reasons=reasons,
         ))
-        emitted_canonicals.add(canonical_key)
+        emitted_canonicals.add(plan.canonical_key)
 
     return merged_entities
+
+
+def _merge_character_compound_aliases(
+    entities: list[CorpusEntity],
+    all_records_by_key: dict[str, list[DocumentEntityRecord]],
+    title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
+) -> list[CorpusEntity]:
+    """Merge unambiguous character full-name compounds over exact-key entities.
+
+    A compound such as ``tsushima yoshiko`` is a stronger canonical identity
+    surface than its component keys when the corpus contains the full form and
+    the single-token parts also behave like the same character. This pass only
+    merges character compounds with exactly two parts and only when both parts
+    uniquely point back to the same compound candidate.
+    """
+    by_key = {entity.canonical_key: entity for entity in entities}
+    eligible_compounds, component_to_compounds = _identify_eligible_character_compounds(
+        by_key,
+        all_records_by_key,
+    )
+    merge_plans = _build_character_merge_plans(
+        by_key,
+        eligible_compounds,
+        component_to_compounds,
+        title_prefixes_lower,
+    )
+    return _emit_character_compound_merges(entities, by_key, merge_plans)
 
 
 def _merge_generic_leading_character_aliases(
@@ -444,48 +636,21 @@ def _merge_non_character_head_aliases(
         eligible_compounds[key] = (head, anchor_records)
         head_to_compounds[head].add(key)
 
-    merge_targets: dict[str, list[tuple[str, list[DocumentEntityRecord], LexiconCategory]]] = defaultdict(list)
+    merge_targets: dict[str, list[_MergeChild]] = defaultdict(list)
     absorbed_keys: set[str] = set()
     for key, (head, anchor_records) in sorted(eligible_compounds.items()):
         if head_to_compounds[head] != {key}:
             continue
-        compound_entity = by_key[key]
-        merge_targets[key].append((head, anchor_records, compound_entity.dominant_category))
+        merge_targets[key].append(_MergeChild(child_key=head, anchor_records=anchor_records))
         absorbed_keys.add(head)
 
-    merged_entities: list[CorpusEntity] = []
-    emitted_compounds: set[str] = set()
-    for entity in sorted(entities, key=lambda item: item.canonical_key):
-        aliases = merge_targets.get(entity.canonical_key)
-        if aliases:
-            source_keys = set(entity.source_keys)
-            combined_records = list(entity.member_records)
-            for head, anchor_records, _category in aliases:
-                source_keys.add(head)
-                head_entity = by_key[head]
-                source_keys.update(head_entity.source_keys)
-                combined_records.extend(anchor_records)
-                combined_records.extend(head_entity.member_records)
-            combined_records = sorted(
-                combined_records,
-                key=lambda record: (record.document_anchor.path, record.normalized_key),
-            )
-            merged_entities.append(_build_corpus_entity(
-                canonical_key=entity.canonical_key,
-                source_keys=sorted(source_keys),
-                members=combined_records,
-                reasons=["resolved non-character compound absorbed its shorter head alias"],
-            ))
-            emitted_compounds.add(entity.canonical_key)
-            continue
-
-        if entity.canonical_key in absorbed_keys:
-            continue
-
-        if entity.canonical_key not in emitted_compounds:
-            merged_entities.append(entity)
-
-    return merged_entities
+    return _apply_merge_plan(
+        entities,
+        by_key,
+        merge_targets,
+        absorbed_keys,
+        "resolved non-character compound absorbed its shorter head alias",
+    )
 
 
 def _merge_non_character_modifier_aliases(
@@ -555,47 +720,21 @@ def _merge_non_character_modifier_aliases(
         eligible_compounds[key] = (modifier, anchor_records)
         modifier_to_compounds[modifier].add(key)
 
-    merge_targets: dict[str, list[tuple[str, list[DocumentEntityRecord]]]] = defaultdict(list)
+    merge_targets: dict[str, list[_MergeChild]] = defaultdict(list)
     absorbed_keys: set[str] = set()
     for key, (modifier, anchor_records) in sorted(eligible_compounds.items()):
         if modifier_to_compounds[modifier] != {key}:
             continue
-        merge_targets[key].append((modifier, anchor_records))
+        merge_targets[key].append(_MergeChild(child_key=modifier, anchor_records=anchor_records))
         absorbed_keys.add(modifier)
 
-    merged_entities: list[CorpusEntity] = []
-    emitted_compounds: set[str] = set()
-    for entity in sorted(entities, key=lambda item: item.canonical_key):
-        aliases = merge_targets.get(entity.canonical_key)
-        if aliases:
-            source_keys = set(entity.source_keys)
-            combined_records = list(entity.member_records)
-            for modifier, anchor_records in aliases:
-                source_keys.add(modifier)
-                modifier_entity = by_key[modifier]
-                source_keys.update(modifier_entity.source_keys)
-                combined_records.extend(anchor_records)
-                combined_records.extend(modifier_entity.member_records)
-            combined_records = sorted(
-                combined_records,
-                key=lambda record: (record.document_anchor.path, record.normalized_key),
-            )
-            merged_entities.append(_build_corpus_entity(
-                canonical_key=entity.canonical_key,
-                source_keys=sorted(source_keys),
-                members=combined_records,
-                reasons=["resolved non-character compound absorbed its shorter modifier alias"],
-            ))
-            emitted_compounds.add(entity.canonical_key)
-            continue
-
-        if entity.canonical_key in absorbed_keys:
-            continue
-
-        if entity.canonical_key not in emitted_compounds:
-            merged_entities.append(entity)
-
-    return merged_entities
+    return _apply_merge_plan(
+        entities,
+        by_key,
+        merge_targets,
+        absorbed_keys,
+        "resolved non-character compound absorbed its shorter modifier alias",
+    )
 
 
 def _merge_non_character_contained_aliases(
@@ -682,48 +821,22 @@ def _merge_non_character_contained_aliases(
             eligible_compounds[key].append((alias_key, anchor_records))
             alias_to_compounds[alias_key].add(key)
 
-    merge_targets: dict[str, list[tuple[str, list[DocumentEntityRecord]]]] = defaultdict(list)
+    merge_targets: dict[str, list[_MergeChild]] = defaultdict(list)
     absorbed_keys: set[str] = set()
     for key, alias_entries in sorted(eligible_compounds.items()):
         for alias_key, anchor_records in alias_entries:
             if alias_to_compounds[alias_key] != {key}:
                 continue
-            merge_targets[key].append((alias_key, anchor_records))
+            merge_targets[key].append(_MergeChild(child_key=alias_key, anchor_records=anchor_records))
             absorbed_keys.add(alias_key)
 
-    merged_entities: list[CorpusEntity] = []
-    emitted_compounds: set[str] = set()
-    for entity in sorted(entities, key=lambda item: item.canonical_key):
-        aliases = merge_targets.get(entity.canonical_key)
-        if aliases:
-            source_keys = set(entity.source_keys)
-            combined_records = list(entity.member_records)
-            for alias_key, anchor_records in aliases:
-                source_keys.add(alias_key)
-                alias_entity = by_key[alias_key]
-                source_keys.update(alias_entity.source_keys)
-                combined_records.extend(anchor_records)
-                combined_records.extend(alias_entity.member_records)
-            combined_records = sorted(
-                combined_records,
-                key=lambda record: (record.document_anchor.path, record.normalized_key),
-            )
-            merged_entities.append(_build_corpus_entity(
-                canonical_key=entity.canonical_key,
-                source_keys=sorted(source_keys),
-                members=combined_records,
-                reasons=["resolved non-character compound absorbed its shorter contained alias"],
-            ))
-            emitted_compounds.add(entity.canonical_key)
-            continue
-
-        if entity.canonical_key in absorbed_keys:
-            continue
-
-        if entity.canonical_key not in emitted_compounds:
-            merged_entities.append(entity)
-
-    return merged_entities
+    return _apply_merge_plan(
+        entities,
+        by_key,
+        merge_targets,
+        absorbed_keys,
+        "resolved non-character compound absorbed its shorter contained alias",
+    )
 
 
 def _defer_unresolved_longer_compounds_to_resolved_anchors(
@@ -760,7 +873,6 @@ def _defer_unresolved_longer_compounds_to_resolved_anchors(
             and entity.dominant_category not in {LexiconCategory.CHARACTER, LexiconCategory.UNRESOLVED}
         ]
 
-    defer_targets: dict[str, str] = {}
     deferred_anchor_records: dict[str, list[DocumentEntityRecord]] = {}
     deferred_children: set[str] = set()
     target_to_children: dict[str, list[str]] = defaultdict(list)
@@ -787,44 +899,25 @@ def _defer_unresolved_longer_compounds_to_resolved_anchors(
             continue
 
         target_key = next(iter(resolved_targets))
-        defer_targets[entity.canonical_key] = target_key
         deferred_anchor_records[entity.canonical_key] = all_records_by_key.get(entity.canonical_key, entity.member_records)
         deferred_children.add(entity.canonical_key)
         target_to_children[target_key].append(entity.canonical_key)
 
-    merged_entities: list[CorpusEntity] = []
-    emitted_targets: set[str] = set()
-    for entity in sorted(entities, key=lambda item: item.canonical_key):
-        child_keys = target_to_children.get(entity.canonical_key)
-        if child_keys:
-            source_keys = set(entity.source_keys)
-            combined_records = list(entity.member_records)
-            for child_key in child_keys:
-                child_entity = by_key[child_key]
-                source_keys.update(child_entity.source_keys)
-                source_keys.add(child_key)
-                combined_records.extend(child_entity.member_records)
-                combined_records.extend(deferred_anchor_records[child_key])
-            combined_records = sorted(
-                combined_records,
-                key=lambda record: (record.document_anchor.path, record.normalized_key),
-            )
-            merged_entities.append(_build_corpus_entity(
-                canonical_key=entity.canonical_key,
-                source_keys=sorted(source_keys),
-                members=combined_records,
-                reasons=["longer unresolved compound deferred to stronger resolved non-character anchor"],
+    merge_targets: dict[str, list[_MergeChild]] = defaultdict(list)
+    for target_key, child_keys in sorted(target_to_children.items()):
+        for child_key in child_keys:
+            merge_targets[target_key].append(_MergeChild(
+                child_key=child_key,
+                anchor_records=deferred_anchor_records[child_key],
             ))
-            emitted_targets.add(entity.canonical_key)
-            continue
 
-        if entity.canonical_key in deferred_children:
-            continue
-
-        if entity.canonical_key not in emitted_targets:
-            merged_entities.append(entity)
-
-    return merged_entities
+    return _apply_merge_plan(
+        entities,
+        by_key,
+        merge_targets,
+        deferred_children,
+        "longer unresolved compound deferred to stronger resolved non-character anchor",
+    )
 
 
 def reconcile_document_entities(

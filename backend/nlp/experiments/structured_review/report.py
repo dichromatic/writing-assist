@@ -11,24 +11,9 @@ Structured review report renderer - prints deterministic structured-review logs.
 
 from __future__ import annotations
 
+from backend.nlp.report_formatting import hr as _hr
 from backend.nlp.text_filtering import strip_emoji
 from backend.nlp.types import RecordReviewBundle, StructuredDocumentDiagnostics
-
-
-def _hr(title: str = "") -> str:
-    """Return one stable report separator line.
-
-    Args:
-        title: Optional section title.
-
-    Returns:
-        Separator line for the report.
-    """
-    width = 72
-    if title:
-        pad = width - len(title) - 2
-        return f"\n-- {title} " + "-" * pad
-    return "-" * width
 
 
 def render_structured_review_report(

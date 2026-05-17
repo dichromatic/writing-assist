@@ -7,6 +7,7 @@ from .manuscript_bundle import (
 )
 from .review import (
     build_character_summaries,
+    build_review_context,
     build_reference_clusters,
     build_conflict_records,
     build_semantic_proposals,
@@ -17,6 +18,7 @@ from .review import (
 __all__ = [
     "build_manuscript_review_bundle",
     "build_character_summaries",
+    "build_review_context",
     "build_reference_clusters",
     "build_conflict_records",
     "build_semantic_proposals",

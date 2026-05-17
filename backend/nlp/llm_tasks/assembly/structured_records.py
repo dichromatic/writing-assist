@@ -15,6 +15,7 @@ Structured-record LLM task builder - deterministic review bundle to shared task 
 from __future__ import annotations
 
 from backend.nlp.document_metadata import document_status_authority_weight
+from backend.nlp.llm_tasks.assembly.evidence import build_evidence_item
 from backend.nlp.llm_tasks.assembly.schemas import schema_id_for
 from backend.nlp.types import (
     DeterministicFactCandidate,
@@ -23,41 +24,9 @@ from backend.nlp.types import (
     LLMTaskPacket,
     LLMTaskSelectionDiagnostic,
     RecordReviewBundle,
-    SpanAnchor,
     StructuredEntityMention,
     stable_hash_id,
 )
-
-
-def _evidence_item(
-    *,
-    source_object_id: str,
-    anchor: SpanAnchor,
-    quote: str,
-    visibility_bucket: str,
-    suppression_reason: str = "",
-    confidence_score: float | None = None,
-) -> LLMTaskEvidenceItem:
-    """Build one bounded evidence item for a task packet."""
-    return LLMTaskEvidenceItem(
-        evidence_id=stable_hash_id(
-            "llm_task_evidence",
-            source_object_id,
-            anchor.path,
-            str(anchor.start_char),
-            str(anchor.end_char),
-            quote,
-        ),
-        document_path=anchor.path,
-        source_anchor=anchor,
-        quote=quote,
-        context_before="",
-        context_after="",
-        source_object_id=source_object_id,
-        visibility_bucket=visibility_bucket,
-        suppression_reason=suppression_reason,
-        confidence_score=confidence_score,
-    )
 
 
 def _entity_evidence(
@@ -68,7 +37,7 @@ def _entity_evidence(
     items: list[LLMTaskEvidenceItem] = []
     for candidate in entity_candidates:
         items.append(
-            _evidence_item(
+            build_evidence_item(
                 source_object_id=bundle.record_id,
                 anchor=candidate.anchor,
                 quote=candidate.name,
@@ -84,13 +53,13 @@ def _fact_evidence(bundle: RecordReviewBundle) -> list[LLMTaskEvidenceItem]:
     items: list[LLMTaskEvidenceItem] = []
     for fact in bundle.deterministic_fact_candidates:
         items.append(
-                _evidence_item(
-                    source_object_id=bundle.record_id,
-                    anchor=fact.supporting_anchor,
-                    quote=f"{fact.label}: {fact.value}",
-                    visibility_bucket="deterministic_fact_candidate",
-                )
+            build_evidence_item(
+                source_object_id=bundle.record_id,
+                anchor=fact.supporting_anchor,
+                quote=f"{fact.label}: {fact.value}",
+                visibility_bucket="deterministic_fact_candidate",
             )
+        )
     return items
 
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 from collections import defaultdict
 
 from backend.nlp.document_metadata import document_status_authority_weight
+from backend.nlp.llm_tasks.assembly.evidence import build_evidence_item
 from backend.nlp.llm_tasks.assembly.schemas import schema_id_for
 from backend.nlp.types import (
     ConflictRecord,
@@ -26,46 +27,12 @@ from backend.nlp.types import (
     ReferenceCluster,
     ReferenceCandidateType,
     ReviewTaskKind,
-    SpanAnchor,
     stable_hash_id,
 )
 
 _ENTITY_EVIDENCE_LIMIT = 10
 _REFERENCE_EVIDENCE_LIMIT = 12
 _CONFLICT_EVIDENCE_LIMIT = 8
-
-
-def _evidence_item(
-    *,
-    source_object_id: str,
-    anchor: SpanAnchor,
-    quote: str,
-    visibility_bucket: str,
-    context_before: str,
-    context_after: str,
-    suppression_reason: str = "",
-    confidence_score: float | None = None,
-) -> LLMTaskEvidenceItem:
-    """Build one bounded evidence item for a manuscript task packet."""
-    return LLMTaskEvidenceItem(
-        evidence_id=stable_hash_id(
-            "llm_task_evidence",
-            source_object_id,
-            anchor.path,
-            str(anchor.start_char),
-            str(anchor.end_char),
-            quote,
-        ),
-        document_path=anchor.path,
-        source_anchor=anchor,
-        quote=quote,
-        context_before=context_before,
-        context_after=context_after,
-        source_object_id=source_object_id,
-        visibility_bucket=visibility_bucket,
-        suppression_reason=suppression_reason,
-        confidence_score=confidence_score,
-    )
 
 
 def _entity_selected(entity: CorpusEntity) -> tuple[bool, str]:
@@ -125,7 +92,7 @@ def _entity_evidence(entity: CorpusEntity) -> list[LLMTaskEvidenceItem]:
             continue
         quote = record.surface_forms[0] if record.surface_forms else record.normalized_key
         items.append(
-            _evidence_item(
+            build_evidence_item(
                 source_object_id=entity.canonical_key,
                 anchor=anchor,
                 quote=quote,
@@ -147,7 +114,7 @@ def _entity_evidence(entity: CorpusEntity) -> list[LLMTaskEvidenceItem]:
         if record.anchors:
             quote = record.surface_forms[0] if record.surface_forms else record.normalized_key
             items.append(
-                _evidence_item(
+                build_evidence_item(
                     source_object_id=entity.canonical_key,
                     anchor=record.anchors[0],
                     quote=quote,
@@ -179,13 +146,11 @@ def _reference_evidence(cluster: ReferenceCluster) -> list[LLMTaskEvidenceItem]:
     items: list[LLMTaskEvidenceItem] = []
     for anchor in cluster.anchors[:_REFERENCE_EVIDENCE_LIMIT]:
         items.append(
-            _evidence_item(
+            build_evidence_item(
                 source_object_id=f"{cluster.reference_type.value}:{cluster.normalized}",
                 anchor=anchor,
                 quote=cluster.surface_forms[0] if cluster.surface_forms else cluster.normalized,
                 visibility_bucket=cluster.reference_type.value,
-                context_before="",
-                context_after="",
             )
         )
     return items
@@ -204,13 +169,11 @@ def _conflict_evidence(
         if not record.anchors:
             continue
         items.append(
-            _evidence_item(
+            build_evidence_item(
                 source_object_id=conflict.canonical_key,
                 anchor=record.anchors[0],
                 quote=record.surface_forms[0] if record.surface_forms else record.normalized_key,
                 visibility_bucket="conflict_support",
-                context_before="",
-                context_after="",
                 confidence_score=record.confidence_score,
             )
         )

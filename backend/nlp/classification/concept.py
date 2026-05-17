@@ -13,6 +13,7 @@ Concept classification evidence.
 from __future__ import annotations
 
 from backend.nlp.classification.compound_shapes import compound_head
+from backend.nlp.classification.scoring_builder import ScoringBuilder
 from backend.nlp.classification.token_context import iter_anchor_token_starts
 from backend.nlp.classification.types import ClassEvidence
 from backend.nlp.harvesting.shared import (
@@ -73,30 +74,19 @@ def score_concept_evidence(
     Returns:
         Concept evidence for the cluster.
     """
-    score = 0.0
-    reasons: list[str] = []
-    vetoes: list[str] = []
+    builder = ScoringBuilder(LexiconCategory.CONCEPT)
     head = compound_head(cluster)
 
     if cluster.linked_definitions:
-        score += 0.80
-        reasons.append("is referenced by definition-style notes")
+        builder.add(0.80, "is referenced by definition-style notes")
 
     if head in CONCEPT_DESCRIPTOR_NOUNS:
-        score += 0.60
-        reasons.append("compound head is an abstract descriptor noun")
+        builder.add(0.60, "compound head is an abstract descriptor noun")
 
     if _has_definition_syntax(cluster, pre):
-        score += 0.40
-        reasons.append("appears in explicit definition syntax")
+        builder.add(0.40, "appears in explicit definition syntax")
 
     if _has_concept_descriptor(cluster, pre):
-        score += 0.30
-        reasons.append("appears near an abstract descriptor noun")
+        builder.add(0.30, "appears near an abstract descriptor noun")
 
-    return ClassEvidence(
-        category=LexiconCategory.CONCEPT,
-        score=min(score, 1.0),
-        reasons=reasons,
-        vetoes=vetoes,
-    )
+    return builder.build()

@@ -7,7 +7,7 @@ Top-level classification arbitration across type-specific evidence modules.
         A[MentionCluster + document context] --> B[Character scorer]
         A --> C[Group scorer]
         A --> D[Place scorer]
-        A --> E[Object scorer]
+        A --> E[Object zero evidence literal]
         A --> F[Event scorer]
         A --> G[Concept scorer]
         B & C & D & E & F & G --> H[Arbitrate scores and margins]
@@ -21,7 +21,6 @@ from backend.nlp.classification.concept import score_concept_evidence
 from backend.nlp.classification.entityhood import assess_entityhood
 from backend.nlp.classification.event import score_event_evidence
 from backend.nlp.classification.group import score_group_evidence
-from backend.nlp.classification.object import score_object_evidence
 from backend.nlp.classification.place import score_place_evidence
 from backend.nlp.classification.types import (
     ClassEvidence,
@@ -40,12 +39,21 @@ def _build_evidence_map(
     pre: PreprocessedDocument | None,
     attributed_speakers: frozenset[str],
 ) -> dict[LexiconCategory, ClassEvidence]:
-    """Run every top-level evidence scorer for one cluster."""
+    """Build per-category evidence for one cluster.
+
+    The object category remains intentionally neutral in this phase and is
+    represented by an inline zero-score evidence literal.
+    """
     return {
         LexiconCategory.CHARACTER: score_character_evidence(cluster, pre, attributed_speakers),
         LexiconCategory.GROUP: score_group_evidence(cluster, pre),
         LexiconCategory.PLACE: score_place_evidence(cluster, pre, attributed_speakers),
-        LexiconCategory.OBJECT: score_object_evidence(cluster, pre),
+        LexiconCategory.OBJECT: ClassEvidence(
+            category=LexiconCategory.OBJECT,
+            score=0.0,
+            reasons=[],
+            vetoes=[],
+        ),
         LexiconCategory.EVENT: score_event_evidence(cluster, pre),
         LexiconCategory.CONCEPT: score_concept_evidence(cluster, pre),
     }

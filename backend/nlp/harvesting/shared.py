@@ -11,8 +11,27 @@ copies of these constants.
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import Any, Iterable, Literal
 
 from backend.nlp.types import stable_hash_id  # noqa: F401 - re-exported for harvesters
+
+# Optional NLTK and WordNet resources are allowed to fail closed because the
+# pipeline must still run in minimal environments. These tuples intentionally
+# do not include broad Exception so ordinary programming errors still surface.
+_OPTIONAL_NLTK_IMPORT_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    ImportError,
+    LookupError,
+)
+_OPTIONAL_NLTK_RESOURCE_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    ImportError,
+    LookupError,
+    OSError,
+)
+_OPTIONAL_WORDNET_QUERY_EXCEPTIONS: tuple[type[BaseException], ...] = (
+    LookupError,
+    AttributeError,
+    OSError,
+)
 
 # ---------------------------------------------------------------------------
 # Title prefix list
@@ -158,6 +177,13 @@ EVENT_OCCURRENCE_VERBS: frozenset[str] = frozenset({
 # Concept classification targets named abstract systems, rules, energies, and
 # glossary-like terms. The local rules depend on definition verbs and abstract
 # descriptor nouns rather than on generic recurrence.
+#
+# These concept sets intentionally do not use a `_BASE_` prefix and are not
+# WordNet-expanded. Unlike place, event, and group inventories where a narrow
+# synonym fan-out can improve recall, concept labeling is highly sensitive to
+# semantic drift. Expanding from abstract seeds pulls in broad, polysemous
+# vocabulary that collapses precision and over-promotes generic prose as
+# concepts.
 # ---------------------------------------------------------------------------
 CONCEPT_DEFINITION_VERBS: frozenset[str] = frozenset({
     "is", "was", "means", "meant", "refers", "describe", "describes",
@@ -246,6 +272,77 @@ _IRREGULAR_VERB_FORMS: dict[str, frozenset[str]] = {
 }
 
 
+_InventoryInflationMode = Literal["raw", "verb_inflections"]
+
+
+def _candidate_synsets_from_names(
+    wn: Any,
+    synset_names: tuple[str, ...],
+) -> list[Any]:
+    """Resolve root synset names and include each synset's direct hyponyms."""
+    candidate_synsets: list[Any] = []
+    for synset_name in synset_names:
+        synset = wn.synset(synset_name)
+        candidate_synsets.extend([synset, *synset.hyponyms()])
+    return candidate_synsets
+
+
+def _candidate_event_synsets_from_seed_words(
+    wn: Any,
+    seed_words: frozenset[str],
+) -> list[Any]:
+    """Resolve noun.event seed synsets from manual event seed words."""
+    candidate_synsets: list[Any] = []
+    for seed_word in seed_words:
+        seed_synsets = [
+            synset for synset in wn.synsets(seed_word, pos=wn.NOUN)
+            if synset.lexname() == "noun.event"
+        ]
+        if not seed_synsets:
+            continue
+        seed_synset = seed_synsets[0]
+        candidate_synsets.extend([seed_synset, *seed_synset.hyponyms()])
+    return candidate_synsets
+
+
+def _expand_wordnet_inventory(
+    *,
+    fallback: frozenset[str],
+    blacklist: set[str],
+    candidate_synsets: Iterable[Any],
+    min_length: int,
+    inflation_mode: _InventoryInflationMode,
+) -> frozenset[str]:
+    """Expand a manual seed inventory from pre-resolved WordNet synsets.
+
+    Args:
+        fallback: Manual seed inventory that also acts as the failure fallback.
+        blacklist: Words that should never be added from WordNet expansion.
+        candidate_synsets: Root synsets and hyponyms to inspect.
+        min_length: Minimum accepted token length.
+        inflation_mode: Whether accepted lemmas are kept raw or expanded into
+            simple finite verb forms.
+
+    Returns:
+        Expanded inventory with the manual fallback always retained.
+    """
+    inventory = set(fallback)
+    for candidate in candidate_synsets:
+        for lemma in candidate.lemmas():
+            word = lemma.name().lower()
+            if "_" in word or not word.isalpha():
+                continue
+            if len(word) < min_length or word in blacklist:
+                continue
+            if inflation_mode == "verb_inflections":
+                inventory.update(
+                    _IRREGULAR_VERB_FORMS.get(word, _regular_verb_inflections(word))
+                )
+            else:
+                inventory.add(word)
+    return frozenset(inventory)
+
+
 def _expand_group_verbs(
     seed_synset_names: tuple[str, ...],
     fallback: frozenset[str],
@@ -254,24 +351,18 @@ def _expand_group_verbs(
     """Build a conservative verb inventory for group-context detection."""
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return fallback
 
     try:
-        verbs = set(fallback)
-        for synset_name in seed_synset_names:
-            synset = wn.synset(synset_name)
-            candidate_synsets = [synset] + synset.hyponyms()
-            for candidate in candidate_synsets:
-                for lemma in candidate.lemmas():
-                    word = lemma.name().lower()
-                    if "_" in word or not word.isalpha():
-                        continue
-                    if len(word) < 3 or word in blacklist:
-                        continue
-                    verbs.update(_IRREGULAR_VERB_FORMS.get(word, _regular_verb_inflections(word)))
-        return frozenset(verbs)
-    except Exception:
+        return _expand_wordnet_inventory(
+            fallback=fallback,
+            blacklist=blacklist,
+            candidate_synsets=_candidate_synsets_from_names(wn, seed_synset_names),
+            min_length=3,
+            inflation_mode="verb_inflections",
+        )
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return fallback
 
 
@@ -283,24 +374,18 @@ def _expand_seeded_verbs(
     """Build a conservative lemma inventory from seed synsets plus hyponyms."""
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return fallback
 
     try:
-        verbs = set(fallback)
-        for synset_name in seed_synset_names:
-            synset = wn.synset(synset_name)
-            candidate_synsets = [synset] + synset.hyponyms()
-            for candidate in candidate_synsets:
-                for lemma in candidate.lemmas():
-                    word = lemma.name().lower()
-                    if "_" in word or not word.isalpha():
-                        continue
-                    if len(word) < 3 or word in blacklist:
-                        continue
-                    verbs.add(word)
-        return frozenset(verbs)
-    except Exception:
+        return _expand_wordnet_inventory(
+            fallback=fallback,
+            blacklist=blacklist,
+            candidate_synsets=_candidate_synsets_from_names(wn, seed_synset_names),
+            min_length=3,
+            inflation_mode="raw",
+        )
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return fallback
 
 
@@ -326,7 +411,7 @@ def _load_group_leadership_nouns() -> frozenset[str]:
     """Build a narrow leadership-role noun set for group framing."""
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return _BASE_GROUP_LEADERSHIP_NOUNS
 
     blacklist = {
@@ -337,20 +422,17 @@ def _load_group_leadership_nouns() -> frozenset[str]:
     }
 
     try:
-        nouns = set(_BASE_GROUP_LEADERSHIP_NOUNS)
-        for synset_name in ("leader.n.01", "director.n.01", "commander.n.01"):
-            synset = wn.synset(synset_name)
-            candidate_synsets = [synset] + synset.hyponyms()
-            for candidate in candidate_synsets:
-                for lemma in candidate.lemmas():
-                    word = lemma.name().lower()
-                    if "_" in word or not word.isalpha():
-                        continue
-                    if len(word) < 4 or word in blacklist:
-                        continue
-                    nouns.add(word)
-        return frozenset(nouns)
-    except Exception:
+        return _expand_wordnet_inventory(
+            fallback=_BASE_GROUP_LEADERSHIP_NOUNS,
+            blacklist=blacklist,
+            candidate_synsets=_candidate_synsets_from_names(
+                wn,
+                ("leader.n.01", "director.n.01", "commander.n.01"),
+            ),
+            min_length=4,
+            inflation_mode="raw",
+        )
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return _BASE_GROUP_LEADERSHIP_NOUNS
 
 
@@ -417,7 +499,7 @@ def _load_relation_role_nouns() -> frozenset[str]:
     """
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return _BASE_RELATION_ROLE_NOUNS
 
     root_synset_names = (
@@ -438,20 +520,14 @@ def _load_relation_role_nouns() -> frozenset[str]:
     }
 
     try:
-        relation_words = set(_BASE_RELATION_ROLE_NOUNS)
-        for name in root_synset_names:
-            synset = wn.synset(name)
-            candidate_synsets = [synset] + synset.hyponyms()
-            for candidate in candidate_synsets:
-                for lemma in candidate.lemmas():
-                    word = lemma.name().lower()
-                    if "_" in word or not word.isalpha():
-                        continue
-                    if len(word) < 3 or word in blacklist:
-                        continue
-                    relation_words.add(word)
-        return frozenset(relation_words)
-    except Exception:
+        return _expand_wordnet_inventory(
+            fallback=_BASE_RELATION_ROLE_NOUNS,
+            blacklist=blacklist,
+            candidate_synsets=_candidate_synsets_from_names(wn, root_synset_names),
+            min_length=3,
+            inflation_mode="raw",
+        )
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return _BASE_RELATION_ROLE_NOUNS
 
 
@@ -472,7 +548,7 @@ def _load_event_nouns() -> frozenset[str]:
     """
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return _BASE_EVENT_NOUNS
 
     blacklist = {
@@ -483,28 +559,17 @@ def _load_event_nouns() -> frozenset[str]:
     }
 
     try:
-        event_words = set(_BASE_EVENT_NOUNS)
-        for seed_word in _BASE_EVENT_NOUNS:
-            seed_synsets = [
-                synset for synset in wn.synsets(seed_word, pos=wn.NOUN)
-                if synset.lexname() == "noun.event"
-            ]
-            if not seed_synsets:
-                continue
-
-            seed_synset = seed_synsets[0]
-            candidate_synsets = [seed_synset] + seed_synset.hyponyms()
-            for candidate in candidate_synsets:
-                for lemma in candidate.lemmas():
-                    word = lemma.name().lower()
-                    if "_" in word or not word.isalpha():
-                        continue
-                    if len(word) < 3 or word in blacklist:
-                        continue
-                    event_words.add(word)
-
-        return frozenset(event_words)
-    except Exception:
+        return _expand_wordnet_inventory(
+            fallback=_BASE_EVENT_NOUNS,
+            blacklist=blacklist,
+            candidate_synsets=_candidate_event_synsets_from_seed_words(
+                wn,
+                _BASE_EVENT_NOUNS,
+            ),
+            min_length=3,
+            inflation_mode="raw",
+        )
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return _BASE_EVENT_NOUNS
 
 
@@ -525,7 +590,7 @@ def _load_place_descriptor_nouns() -> frozenset[str]:
     """
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return _BASE_PLACE_DESCRIPTOR_NOUNS
 
     root_synset_names = (
@@ -569,20 +634,14 @@ def _load_place_descriptor_nouns() -> frozenset[str]:
     }
 
     try:
-        descriptor_words = set(_BASE_PLACE_DESCRIPTOR_NOUNS)
-        for name in root_synset_names:
-            synset = wn.synset(name)
-            candidate_synsets = [synset] + synset.hyponyms()
-            for candidate in candidate_synsets:
-                for lemma in candidate.lemmas():
-                    word = lemma.name().lower()
-                    if "_" in word or not word.isalpha():
-                        continue
-                    if len(word) < 3 or word in blacklist:
-                        continue
-                    descriptor_words.add(word)
-        return frozenset(descriptor_words)
-    except Exception:
+        return _expand_wordnet_inventory(
+            fallback=_BASE_PLACE_DESCRIPTOR_NOUNS,
+            blacklist=blacklist,
+            candidate_synsets=_candidate_synsets_from_names(wn, root_synset_names),
+            min_length=3,
+            inflation_mode="raw",
+        )
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return _BASE_PLACE_DESCRIPTOR_NOUNS
 
 
@@ -602,7 +661,7 @@ def _load_place_possessive_context_nouns() -> frozenset[str]:
     """
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return _BASE_PLACE_POSSESSIVE_CONTEXT_NOUNS
 
     root_synset_names = (
@@ -625,20 +684,14 @@ def _load_place_possessive_context_nouns() -> frozenset[str]:
     }
 
     try:
-        feature_words = set(_BASE_PLACE_POSSESSIVE_CONTEXT_NOUNS)
-        for name in root_synset_names:
-            synset = wn.synset(name)
-            candidate_synsets = [synset] + synset.hyponyms()
-            for candidate in candidate_synsets:
-                for lemma in candidate.lemmas():
-                    word = lemma.name().lower()
-                    if "_" in word or not word.isalpha():
-                        continue
-                    if len(word) < 3 or word in blacklist:
-                        continue
-                    feature_words.add(word)
-        return frozenset(feature_words)
-    except Exception:
+        return _expand_wordnet_inventory(
+            fallback=_BASE_PLACE_POSSESSIVE_CONTEXT_NOUNS,
+            blacklist=blacklist,
+            candidate_synsets=_candidate_synsets_from_names(wn, root_synset_names),
+            min_length=3,
+            inflation_mode="raw",
+        )
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return _BASE_PLACE_POSSESSIVE_CONTEXT_NOUNS
 
 
@@ -736,7 +789,7 @@ def _load_stopwords() -> frozenset[str]:
         nltk.download('stopwords', quiet=True)
         from nltk.corpus import stopwords as _sw
         return frozenset(_sw.words('english'))
-    except Exception:
+    except _OPTIONAL_NLTK_RESOURCE_EXCEPTIONS:
         pass
 
     return frozenset({
@@ -805,13 +858,13 @@ def has_generic_verb_sense(text: str) -> bool:
 
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return False
 
     try:
         verb_synsets = wn.synsets(word, pos=wn.VERB)
         noun_synsets = wn.synsets(word, pos=wn.NOUN)
-    except Exception:
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return False
 
     return len(verb_synsets) >= 3 and len(verb_synsets) > len(noun_synsets)
@@ -839,13 +892,13 @@ def has_generic_modifier_profile(text: str) -> bool:
 
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return False
 
     try:
         adjective_synsets = wn.synsets(word, pos=wn.ADJ)
         noun_synsets = wn.synsets(word, pos=wn.NOUN)
-    except Exception:
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return False
 
     return len(adjective_synsets) >= 3 or len(noun_synsets) >= 3
@@ -871,13 +924,13 @@ def has_generic_action_noun_sense(text: str) -> bool:
 
     try:
         from nltk.corpus import wordnet as wn
-    except Exception:
+    except _OPTIONAL_NLTK_IMPORT_EXCEPTIONS:
         return False
 
     try:
         noun_synsets = wn.synsets(word, pos=wn.NOUN)
         verb_synsets = wn.synsets(word, pos=wn.VERB)
-    except Exception:
+    except _OPTIONAL_WORDNET_QUERY_EXCEPTIONS:
         return False
 
     if len(noun_synsets) < 1 or len(verb_synsets) < 1:

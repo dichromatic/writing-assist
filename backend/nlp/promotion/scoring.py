@@ -49,15 +49,33 @@ SUPPRESS_THRESHOLD: float = 0.25
 # ---------------------------------------------------------------------------
 
 # Base score indexed by rule tier (0 = invalid, 1-3 = valid tiers).
+#
+# Rationale:
+# - Tier 3 starts at 0.50 so a structurally strong cluster can cross the
+#   0.45 promotion threshold without needing noisy supporting signals.
+# - Tier 2 starts at 0.30 so it needs corroboration (for example recurrence
+#   and one stronger side signal) before promotion.
+# - Tier 1 starts at 0.15 so weakly grounded clusters need multiple independent
+#   signals to survive, and many will remain in suppression/arbitration bands.
 _TIER_BASE: list[float] = [0.0, 0.15, 0.30, 0.50]
 
+# Title is treated as a high-signal structural hint but kept below tier
+# movement strength so it supplements rather than replaces rule tier.
 _TITLE_BONUS: float = 0.10        # title prefix present in any mention
+# Possessive recurrence is useful but easy to over-count in prose, so the
+# per-hit increment is small and capped tightly.
 _POSSESSIVE_WEIGHT: float = 0.05  # per distinct possessive surface form
 _POSSESSIVE_CAP: float = 0.10
+# Dialogue attribution is a strong, semantically anchored signal for named
+# actors, so it gets a larger increment and cap than possessives.
 _ATTRIBUTION_WEIGHT: float = 0.10 # per speech-verb attribution record
 _ATTRIBUTION_CAP: float = 0.20
+# Scene spread rewards cross-scene persistence but remains conservative so
+# boilerplate mentions in long documents do not dominate promotion.
 _SCENE_WEIGHT: float = 0.05       # per distinct scene with at least one mention
 _SCENE_CAP: float = 0.15
+# TF-IDF is a specificity nudge, not a primary gate, so its maximum effect is
+# bounded to the same band as title support.
 _TFIDF_WEIGHT: float = 0.10       # scaled TF-IDF specificity score
 _TFIDF_CAP: float = 0.10
 
