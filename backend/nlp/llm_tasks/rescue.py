@@ -20,6 +20,8 @@ task packets for binary verification.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from backend.nlp.types import (
     DocumentEntityBucket,
     DocumentEntityRecord,
@@ -48,27 +50,32 @@ _RESCUABLE_REASONS = {
 _SCHEMA_ID = "manuscript_suppression_rescue.v1"
 
 
-def _rescue_candidate_selected(record: DocumentEntityRecord) -> tuple[bool, str]:
+def _rescue_candidate_selected(
+    record: DocumentEntityRecord,
+    absorbed_keys: frozenset[str],
+) -> tuple[bool, str]:
     """Return whether one suppressed record qualifies for LLM rescue triage.
 
     The gate narrows ~800+ suppressed records to ~30-50 candidates by
     requiring a rescuable suppression reason, sufficient occurrences, and
-    either multi-scene presence or structural support.
+    no prior absorption into a compound entity.
     """
     if record.bucket != DocumentEntityBucket.SUPPRESSED:
         return False, "not_suppressed"
+    if record.normalized_key in absorbed_keys:
+        return False, "already_absorbed_into_compound"
     if record.suppression_reason not in _RESCUABLE_REASONS:
         reason = record.suppression_reason.value if record.suppression_reason is not None else "none"
         return False, f"suppression_reason_{reason}_not_rescuable"
-    if record.occurrence_count < 4:
+    # Generic lexical noise needs stronger signal to justify an LLM call.
+    # At occ=3, words like "let", "come", "see" dominate; real entities
+    # suppressed as generic noise (pioneer, explorer) have higher counts.
+    min_occurrences = 4 if record.suppression_reason == SuppressReason.GENERIC_LEXICAL_NOISE else 2
+    if record.occurrence_count < min_occurrences:
         return False, "too_few_occurrences"
 
-    has_structural_support = (
-        record.has_title_support
-        or record.attribution_count > 0
-    )
-    if record.scene_count < 2 and not has_structural_support:
-        return False, "single_scene_no_structural_support"
+    # Single-scene entities are allowed through. Characters in flashback
+    # chapters or ships mentioned only in one scene still deserve LLM triage.
     if (
         record.winning_category == LexiconCategory.UNRESOLVED
         and record.entityhood_score < 0.25
@@ -144,11 +151,31 @@ def _build_rescue_evidence(
     return items
 
 
+@dataclass
+class _RescueGroup:
+    """Accumulator for merging multiple document-level records of one entity."""
+
+    normalized_key: str
+    records: list[DocumentEntityRecord]
+    evidence: list[LLMTaskEvidenceItem]
+    document_paths: list[str]
+    surface_forms: set[str]
+    total_occurrences: int
+    total_scenes: int
+    suppression_reasons: set[str]
+    winning_categories: set[str]
+    best_confidence: float
+    best_entityhood: float
+
+
 def build_rescue_task_packets(
     bundle: ManuscriptReviewBundle,
     document_texts: dict[str, str],
 ) -> tuple[list[LLMTaskPacket], list[LLMTaskSelectionDiagnostic]]:
     """Build suppression rescue LLM task packets from a manuscript bundle.
+
+    Records sharing the same normalized_key are merged into one packet
+    so the LLM sees evidence from all documents in a single call.
 
     Args:
         bundle: Manuscript review bundle containing entity records.
@@ -159,11 +186,20 @@ def build_rescue_task_packets(
         Task packets for rescue candidates and selection diagnostics
         for all suppressed records evaluated.
     """
-    packets: list[LLMTaskPacket] = []
     diagnostics: list[LLMTaskSelectionDiagnostic] = []
 
+    absorbed_keys: frozenset[str] = frozenset(
+        source_key
+        for entity in bundle.canonical_entities
+        for source_key in entity.source_keys
+        if source_key != entity.canonical_key
+    )
+
+    # First pass: filter and group selected records by normalized_key.
+    groups: dict[str, _RescueGroup] = {}
+
     for record in bundle.entity_records:
-        selected, reason = _rescue_candidate_selected(record)
+        selected, reason = _rescue_candidate_selected(record, absorbed_keys)
         rescue_evidence: list[LLMTaskEvidenceItem] = []
 
         if selected:
@@ -196,20 +232,53 @@ def build_rescue_task_packets(
         if not selected:
             continue
 
+        key = record.normalized_key
+        if key not in groups:
+            groups[key] = _RescueGroup(
+                normalized_key=key,
+                records=[],
+                evidence=[],
+                document_paths=[],
+                surface_forms=set(),
+                total_occurrences=0,
+                total_scenes=0,
+                suppression_reasons=set(),
+                winning_categories=set(),
+                best_confidence=0.0,
+                best_entityhood=0.0,
+            )
+        group = groups[key]
+        group.records.append(record)
+        group.evidence.extend(rescue_evidence)
+        if record.document_anchor.path not in group.document_paths:
+            group.document_paths.append(record.document_anchor.path)
+        group.surface_forms.update(record.surface_forms)
+        group.total_occurrences += record.occurrence_count
+        group.total_scenes += record.scene_count
+        if record.suppression_reason is not None:
+            group.suppression_reasons.add(record.suppression_reason.value)
+        group.winning_categories.add(record.winning_category.value)
+        group.best_confidence = max(group.best_confidence, record.confidence_score or 0.0)
+        group.best_entityhood = max(group.best_entityhood, record.entityhood_score or 0.0)
+
+    # Second pass: build one packet per deduplicated entity group,
+    # capping total evidence to avoid oversized prompts.
+    packets: list[LLMTaskPacket] = []
+    for group in groups.values():
+        capped_evidence = group.evidence[:_RESCUE_EVIDENCE_LIMIT]
         packets.append(
             LLMTaskPacket(
                 task_id=stable_hash_id(
                     "llm_task_packet",
                     LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE.value,
-                    record.normalized_key,
-                    record.document_anchor.path,
+                    group.normalized_key,
                 ),
                 task_family=LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE,
                 schema_id=_SCHEMA_ID,
                 source_bundle_kind="manuscript_review_bundle",
                 source_object_kind="suppressed_entity_record",
-                source_object_id=record.normalized_key,
-                source_document_paths=[record.document_anchor.path],
+                source_object_id=group.normalized_key,
+                source_document_paths=group.document_paths,
                 document_type=DocumentType.MANUSCRIPT,
                 document_status=DocumentStatus.PRIMARY_CANON,
                 source_authority="manuscript_corpus",
@@ -227,20 +296,17 @@ def build_rescue_task_packets(
                     "Generic English words that happen to be capitalized are not entities.",
                     "If a title or rank consistently refers to one character, rescue it.",
                 ],
-                evidence_payload=rescue_evidence,
-                selection_reason=reason,
+                evidence_payload=capped_evidence,
+                selection_reason="rescue_candidate",
                 payload={
-                    "normalized_key": record.normalized_key,
-                    "surface_forms": list(record.surface_forms),
-                    "occurrence_count": record.occurrence_count,
-                    "scene_count": record.scene_count,
-                    "suppression_reason": (
-                        record.suppression_reason.value
-                        if record.suppression_reason else ""
-                    ),
-                    "winning_category": record.winning_category.value,
-                    "confidence_score": record.confidence_score,
-                    "entityhood_score": record.entityhood_score,
+                    "normalized_key": group.normalized_key,
+                    "surface_forms": sorted(group.surface_forms),
+                    "occurrence_count": group.total_occurrences,
+                    "scene_count": group.total_scenes,
+                    "suppression_reasons": sorted(group.suppression_reasons),
+                    "winning_categories": sorted(group.winning_categories),
+                    "confidence_score": group.best_confidence,
+                    "entityhood_score": group.best_entityhood,
                 },
             )
         )

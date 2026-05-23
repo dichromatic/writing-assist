@@ -9,6 +9,7 @@ so the LLM pass stays cheap and targeted.
 from backend.nlp.llm_tasks.rescue import build_rescue_task_packets
 from backend.nlp.types import (
     CharacterSemanticSummary,
+    CorpusEntity,
     DocumentAnchor,
     DocumentEntityBucket,
     DocumentEntityRecord,
@@ -188,7 +189,54 @@ def test_rescue_packet_payload_contains_entity_metadata():
     assert len(packets) == 1
     payload = packets[0].payload
     assert payload["normalized_key"] == "pioneer"
-    assert payload["suppression_reason"] == "generic_lexical_noise"
+    assert payload["suppression_reasons"] == ["generic_lexical_noise"]
     assert payload["occurrence_count"] == 6
     assert payload["scene_count"] == 3
     assert payload["entityhood_score"] == 0.5
+
+
+def test_rescue_skips_entities_already_absorbed_into_compounds():
+    # If reconciliation already absorbed "estuary" into compound "radiant estuary",
+    # there is no point asking the LLM whether "estuary" is a standalone entity.
+    estuary_record = _suppressed_record(
+        path="doc.md",
+        key="estuary",
+        suppression_reason=SuppressReason.COMPONENT_OVERLAP_NOISE,
+        occurrence_count=8,
+        scene_count=4,
+    )
+    pioneer_record = _suppressed_record(
+        path="doc.md",
+        key="pioneer",
+        suppression_reason=SuppressReason.GENERIC_LEXICAL_NOISE,
+        occurrence_count=5,
+        scene_count=3,
+    )
+    compound = CorpusEntity(
+        canonical_key="radiant estuary",
+        source_keys=["radiant estuary", "estuary"],
+        member_records=[],
+        supporting_document_paths=["doc.md"],
+        dominant_category=LexiconCategory.PLACE,
+        aggregate_confidence=0.8,
+        conflicting_categories=[],
+        review_required=False,
+        reasons=["contained alias absorbed"],
+    )
+    bundle = ManuscriptReviewBundle(
+        document_paths=["doc.md"],
+        entity_records=[estuary_record, pioneer_record],
+        canonical_entities=[compound],
+        reference_candidates=[],
+        reference_clusters=[],
+        conflict_records=[],
+        character_summaries=[],
+        review_tasks=[],
+    )
+    packets, diagnostics = build_rescue_task_packets(bundle, _DOC_TEXTS)
+
+    selected_ids = {p.source_object_id for p in packets}
+    assert "estuary" not in selected_ids
+    assert "pioneer" in selected_ids
+    rejected = {d.source_object_id: d.reason for d in diagnostics if not d.selected}
+    assert rejected["estuary"] == "already_absorbed_into_compound"

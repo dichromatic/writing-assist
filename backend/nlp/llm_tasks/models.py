@@ -22,23 +22,28 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 class SuppressionRescueResponse(BaseModel):
     """Typed response model for suppression rescue verification tasks.
 
+    The core contract is the binary rescue verdict. The type_hint field
+    is non-authoritative - a best-guess from limited evidence windows
+    that downstream normalization may override with full corpus context.
+
     Args:
         normalized_key: Entity identifier from the deterministic pipeline.
         rescue: Whether this entity should be promoted past suppression.
-        entity_type: Category when rescued (character/place/group/object/event/concept).
-        canonical_name: Best display name for this entity.
         confidence: LLM self-reported confidence in the verdict.
         rationale: One sentence explaining the rescue or suppression verdict.
+        type_hint: Non-authoritative category guess (character/place/group/
+            object/event/concept). Treated as a hint, not a classification.
+        canonical_name: Best display name for this entity, if known.
     """
 
     model_config = ConfigDict(extra="allow")
 
     normalized_key: str | None = None
     rescue: bool = False
-    entity_type: str | None = None
-    canonical_name: str | None = None
     confidence: float | None = None
     rationale: str | None = None
+    type_hint: str | None = None
+    canonical_name: str | None = None
 
 
 class NormalizedResponseEnvelope(BaseModel):
@@ -114,12 +119,13 @@ def normalize_rescue_payload(
 
     proposal_payload = validated.model_dump(mode="json", exclude_none=True)
 
+    # Remap entity_type to type_hint if the LLM used the old field name.
+    if "entity_type" in proposal_payload and "type_hint" not in proposal_payload:
+        proposal_payload["type_hint"] = proposal_payload.pop("entity_type")
+
     completeness_errors: list[str] = []
     if not isinstance(proposal_payload.get("rescue"), bool):
         completeness_errors.append("missing required boolean: rescue")
-    if proposal_payload.get("rescue") is True:
-        if not str(proposal_payload.get("entity_type", "")).strip():
-            completeness_errors.append("rescue=true requires non-empty entity_type")
     if completeness_errors:
         return NormalizedResponseEnvelope(
             is_valid=False,

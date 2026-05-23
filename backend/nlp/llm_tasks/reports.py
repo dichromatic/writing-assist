@@ -27,7 +27,7 @@ def render_task_packet_report(
     packets: list[LLMTaskPacket],
     diagnostics: list[LLMTaskSelectionDiagnostic],
     *,
-    max_packets: int = 8,
+    max_packets: int = 200,
 ) -> str:
     """Render a human-readable task-packet inspection report.
 
@@ -61,7 +61,7 @@ def render_task_packet_report(
 
     if not diagnostics:
         lines.append("  None.")
-    for item in diagnostics[:max_packets * 3]:
+    for item in diagnostics[:200]:
         lines.append(
             f"  - selected={item.selected}"
             f"  source={item.source_object_id}"
@@ -85,7 +85,7 @@ def render_task_result_report(
     packets: list[LLMTaskPacket],
     results: list[LLMTaskResult],
     *,
-    max_tasks: int = 60,
+    max_tasks: int = 200,
 ) -> str:
     """Render a rescue result report for manual review.
 
@@ -134,8 +134,11 @@ def render_task_result_report(
 
         if packet is not None:
             payload = packet.payload
+            reasons = payload.get("suppression_reasons", payload.get("suppression_reason", ""))
+            if isinstance(reasons, list):
+                reasons = ", ".join(reasons)
             lines.append(
-                f"  suppression_reason: {payload.get('suppression_reason', '')}"
+                f"  suppression_reason: {reasons}"
                 f"  occurrences: {payload.get('occurrence_count', '')}"
                 f"  scenes: {payload.get('scene_count', '')}"
             )
@@ -144,8 +147,12 @@ def render_task_result_report(
         rescue = proposal.get("rescue")
         lines.append(f"  rescue: {rescue}")
         if rescue:
-            lines.append(f"  entity_type: {proposal.get('entity_type', '')}")
-            lines.append(f"  canonical_name: {proposal.get('canonical_name', '')}")
+            type_hint = proposal.get("type_hint", "")
+            if type_hint:
+                lines.append(f"  type_hint: {type_hint}")
+            canonical_name = proposal.get("canonical_name", "")
+            if canonical_name:
+                lines.append(f"  canonical_name: {canonical_name}")
         confidence = proposal.get("confidence")
         if confidence is not None:
             lines.append(f"  confidence: {confidence}")

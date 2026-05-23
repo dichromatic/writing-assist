@@ -42,19 +42,29 @@ def _system_prompt() -> str:
     touching the responder or runner code.
     """
     return (
-        "Return only one JSON object. Do not include markdown fences. "
         "You are reviewing a suppressed entity from a fiction manuscript. "
         "The deterministic pipeline filtered this mention, but it may be a real entity. "
         "Examine surrounding manuscript text in the evidence windows. "
-        "Return rescue=true if this is a genuine named entity "
-        "(character, place, ship, group, title-as-name, or narrative concept) "
-        "that recurs meaningfully. "
-        "Return rescue=false if this is a common English word, generic descriptor, "
-        "or structural noise correctly suppressed. "
-        "When rescue=true, also return entity_type "
-        "(character/place/group/object/event/concept), canonical_name, confidence, "
-        "and one-sentence rationale. "
-        "When rescue=false, return confidence and one-sentence rationale."
+        "Your primary task is a binary verdict: is this a genuine named entity "
+        "that recurs meaningfully in the narrative? "
+        "A genuine entity is a named character, place, ship, group, "
+        "title-as-name, or narrative concept. "
+        "A common English word, generic descriptor, or structural noise is not. "
+        "Do not let classification uncertainty influence your rescue verdict.\n\n"
+        "Return exactly one JSON object with no markdown fences, "
+        "using this schema:\n"
+        "{\n"
+        '  "rescue": true or false,\n'
+        '  "confidence": number between 0.0 and 1.0,\n'
+        '  "rationale": "one sentence explaining the verdict",\n'
+        '  "type_hint": "slash-separated from: '
+        'character/place/group/object/event/concept/title",\n'
+        '  "canonical_name": "best display name or null"\n'
+        "}\n\n"
+        "type_hint and canonical_name are optional non-authoritative hints. "
+        "When the entity fits multiple categories, combine them with slashes "
+        "(e.g. \"group/title\"). "
+        "Use null for canonical_name if uncertain."
     )
 
 
