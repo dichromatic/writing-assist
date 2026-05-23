@@ -720,22 +720,9 @@ class RecordReviewBundle:
 
 
 class LLMTaskFamily(Enum):
-    """Shared first-pass LLM task families."""
+    """LLM task families for targeted verification passes."""
 
-    RECORD_FACT_EXTRACTION = "record_fact_extraction"
-    STRUCTURED_RECORD_TAGGED_EXTRACTION = "structured_record_tagged_extraction"
-    MANUSCRIPT_ENTITY_PROFILE = "manuscript_entity_profile"
-    MANUSCRIPT_REFERENCE_ATTACHMENT = "manuscript_reference_attachment"
-    MANUSCRIPT_CATEGORY_RESOLUTION = "manuscript_category_resolution"
-    MANUSCRIPT_ENTITY_REVIEW_RESOLUTION = "manuscript_entity_review_resolution"
     MANUSCRIPT_SUPPRESSION_RESCUE = "manuscript_suppression_rescue"
-
-
-class LLMTaskPassStage(Enum):
-    """Execution stage for one shared LLM task result."""
-
-    FIRST_PASS = "first_pass"
-    REVIEW_RESOLUTION = "review_resolution"
 
 
 @dataclass(frozen=True)
@@ -828,7 +815,6 @@ class LLMTaskResult:
     status: LLMTaskResultStatus
     model: str
     provider: str
-    pass_stage: LLMTaskPassStage = LLMTaskPassStage.FIRST_PASS
     response_id: str = ""
     payload: dict[str, Any] = field(default_factory=dict)
     error: str = ""

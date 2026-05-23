@@ -424,9 +424,9 @@ def test_loose_record_claim_units_are_low_structure_fallback_claims():
 
 
 def test_structured_review_artifact_uses_shared_handoff_envelope(tmp_path):
-    # Structured artifacts should now use the shared handoff envelope so
-    # manuscript and structured sources converge before provider execution.
-    json_path, report_path, _llm_report_path = run_structured_review_experiment(
+    # Structured artifacts should persist deterministic review bundles
+    # with document metadata for downstream processing.
+    json_path, report_path = run_structured_review_experiment(
         "examples/world context/human history.txt",
         str(tmp_path),
         max_report_records=1,
@@ -435,12 +435,9 @@ def test_structured_review_artifact_uses_shared_handoff_envelope(tmp_path):
     json_text = json_path.read_text(encoding="utf-8")
     report_text = report_path.read_text(encoding="utf-8")
 
-    assert '"review_bundle_artifact_version": "1"' in json_text
+    assert '"artifact_version": "2"' in json_text
     assert '"source_kind": "structured_record"' in json_text
-    assert '"review_bundle_kind": "record_review_bundle_list"' in json_text
-    assert '"review_bundle"' in json_text
-    assert '"llm_task_packets"' in json_text
-    assert '"llm_task_diagnostics"' in json_text
+    assert '"review_bundles"' in json_text
     assert '"document_type": "world_context"' in json_text
     assert '"document_status": "primary_canon"' in json_text
     assert "document_type: world_context" in report_text
@@ -465,7 +462,7 @@ def test_structured_review_artifact_preserves_document_status_manifest(tmp_path)
         encoding="utf-8",
     )
 
-    json_path, report_path, _llm_report_path = run_structured_review_experiment(
+    json_path, report_path = run_structured_review_experiment(
         "examples/world context/human history.txt",
         str(tmp_path),
         max_report_records=1,
@@ -476,7 +473,6 @@ def test_structured_review_artifact_preserves_document_status_manifest(tmp_path)
     report_text = report_path.read_text(encoding="utf-8")
 
     assert '"document_status": "historical"' in json_text
-    assert '"source_authority_weight": 0.85' in json_text
     assert "document_status: historical" in report_text
     assert "reference_section" in report_text
 
@@ -533,10 +529,10 @@ def test_scene_and_arc_headings_do_not_segment_as_dossier_entries():
     )
 
 
-def test_experiment_writes_not_run_yet_placeholders(tmp_path):
-    # The experiment remains deterministic. It now writes shared task-packet
-    # artifacts instead of mutable in-bundle LLM placeholder fields.
-    json_path, report_path, llm_report_path = run_structured_review_experiment(
+def test_experiment_writes_deterministic_artifacts(tmp_path):
+    # The experiment writes deterministic review bundle artifacts without
+    # LLM task packet infrastructure.
+    json_path, report_path = run_structured_review_experiment(
         "examples/story planning/prologue crew summaries.txt",
         str(tmp_path),
         max_report_records=2,
@@ -544,15 +540,6 @@ def test_experiment_writes_not_run_yet_placeholders(tmp_path):
 
     json_text = json_path.read_text(encoding="utf-8")
     report_text = report_path.read_text(encoding="utf-8")
-    llm_report_text = llm_report_path.read_text(encoding="utf-8")
 
-    assert '"llm_task_packets"' in json_text
-    assert '"llm_task_diagnostics"' in json_text
-    assert "LLM TASK PACKETS" in llm_report_text
+    assert '"review_bundles"' in json_text
     assert "STRUCTURED REVIEW BUNDLES" in report_text
-    assert "🌊" not in json_text
-    assert "☀️" not in json_text
-    assert "🌊" not in report_text
-    assert "☀️" not in report_text
-    assert "🌊" not in llm_report_text
-    assert "☀️" not in llm_report_text

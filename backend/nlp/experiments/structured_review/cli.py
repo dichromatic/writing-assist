@@ -11,11 +11,8 @@ Structured review experiment CLI - runs deterministic structured-note scaffoldin
         A --> N
         B --> N
         C & D & N --> E[Build RecordReviewBundle list]
-        E --> F[Build shared LLMTaskPacket list]
-        F --> F2[Include tagged extraction task family]
-        F --> G[Write JSON artifact]
-        F --> H[Write deterministic text report]
-        F --> I[Write task-packet text report]
+        E --> F[Write JSON artifact]
+        E --> G[Write deterministic text report]
 """
 
 from __future__ import annotations
@@ -26,11 +23,6 @@ from pathlib import Path
 
 from backend.nlp.document_metadata import load_document_metadata_manifest, resolve_document_metadata
 from backend.nlp.experiments.structured_review.report import render_structured_review_report
-from backend.nlp.llm_tasks import (
-    build_llm_task_packets,
-    build_review_bundle_handoff_artifact,
-    render_llm_task_packet_report,
-)
 from backend.nlp.experiments.structured_review.review_bundle import build_structured_review_bundles
 from backend.nlp.parsing.document_parser import parse
 from backend.nlp.structured_records import extract_structural_entities, segment_structured_records
@@ -43,7 +35,7 @@ def run_structured_review_experiment(
     *,
     max_report_records: int,
     metadata_manifest_path: str | None = None,
-) -> tuple[Path, Path, Path]:
+) -> tuple[Path, Path]:
     """Run the deterministic structured review scaffold on one file.
 
     Args:
@@ -53,7 +45,7 @@ def run_structured_review_experiment(
         metadata_manifest_path: Optional JSON sidecar manifest path.
 
     Returns:
-        Paths to the JSON artifact, deterministic text report, and task report.
+        Paths to the JSON artifact and deterministic text report.
     """
     source_path = Path(input_path)
     raw_text = source_path.read_text(encoding="utf-8")
@@ -71,51 +63,34 @@ def run_structured_review_experiment(
         entity_inventory=entity_inventory,
         document_metadata=document_metadata,
     )
-    llm_task_packets, llm_task_diagnostics = build_llm_task_packets(
-        record_review_bundles=review_bundles,
-        include_structured_tagged_extraction=True,
-    )
 
     output_root = Path(output_dir)
     output_root.mkdir(parents=True, exist_ok=True)
     stem = source_path.stem.replace(" ", "-").lower()
     json_path = output_root / f"{stem}-structured-review.json"
     report_path = output_root / f"{stem}-structured-review.txt"
-    llm_report_path = output_root / f"{stem}-structured-review-llm-task-packets.txt"
 
-    artifact = build_review_bundle_handoff_artifact(
-        source_kind="structured_record",
-        review_bundle_kind="record_review_bundle_list",
-        review_bundle=review_bundles,
-        llm_task_packets=llm_task_packets,
-        llm_task_diagnostics=llm_task_diagnostics,
-        extras={
-            "document_path": str(source_path),
-            "document_metadata": to_llm_safe_jsonable(document_metadata),
-            "diagnostics": to_llm_safe_jsonable(diagnostics),
-            "structured_records": to_llm_safe_jsonable(structured_records),
-            "structured_entity_inventory": {
-                "mentions": to_llm_safe_jsonable(entity_inventory.mentions),
-                "names": sorted(entity_inventory.names),
-                "mentions_by_record": to_llm_safe_jsonable(entity_inventory.mentions_by_record),
-                "records_by_name": to_llm_safe_jsonable(entity_inventory.records_by_name),
-            },
+    artifact = {
+        "artifact_version": "2",
+        "source_kind": "structured_record",
+        "document_path": str(source_path),
+        "document_metadata": to_llm_safe_jsonable(document_metadata),
+        "diagnostics": to_llm_safe_jsonable(diagnostics),
+        "review_bundles": to_llm_safe_jsonable(review_bundles),
+        "structured_records": to_llm_safe_jsonable(structured_records),
+        "structured_entity_inventory": {
+            "mentions": to_llm_safe_jsonable(entity_inventory.mentions),
+            "names": sorted(entity_inventory.names),
+            "mentions_by_record": to_llm_safe_jsonable(entity_inventory.mentions_by_record),
+            "records_by_name": to_llm_safe_jsonable(entity_inventory.records_by_name),
         },
-    )
+    }
     json_path.write_text(json.dumps(artifact, indent=2, ensure_ascii=False), encoding="utf-8")
     report_path.write_text(
         render_structured_review_report(diagnostics, review_bundles, max_records=max_report_records),
         encoding="utf-8",
     )
-    llm_report_path.write_text(
-        render_llm_task_packet_report(
-            llm_task_packets,
-            llm_task_diagnostics,
-            max_packets=max_report_records,
-        ),
-        encoding="utf-8",
-    )
-    return json_path, report_path, llm_report_path
+    return json_path, report_path
 
 
 def build_parser() -> argparse.ArgumentParser:

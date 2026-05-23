@@ -1,17 +1,20 @@
-"""Shared LLM task-packet builders and report helpers."""
+"""LLM task infrastructure for targeted verification passes."""
 
-from .assembly.artifacts import build_review_bundle_handoff_artifact
-from .assembly.builders import build_llm_task_packets
-from .execution.provider import run_llm_task_packets
-from .execution.reports import render_llm_task_packet_report
-from .review.review_queue import build_manuscript_review_queue
-from .review.review_resolution import build_review_resolution_task_packets
+from .rescue import build_rescue_task_packets
+from .provider import run_task_packets
+from .reports import render_task_packet_report, render_task_result_report
+from .io import (
+    load_task_packets_from_artifact,
+    write_task_result_artifact,
+    build_handoff_artifact,
+)
 
 __all__ = [
-    "build_review_bundle_handoff_artifact",
-    "build_llm_task_packets",
-    "build_manuscript_review_queue",
-    "build_review_resolution_task_packets",
-    "run_llm_task_packets",
-    "render_llm_task_packet_report",
+    "build_rescue_task_packets",
+    "run_task_packets",
+    "render_task_packet_report",
+    "render_task_result_report",
+    "load_task_packets_from_artifact",
+    "write_task_result_artifact",
+    "build_handoff_artifact",
 ]

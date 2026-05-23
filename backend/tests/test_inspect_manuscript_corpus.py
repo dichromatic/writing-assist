@@ -206,9 +206,8 @@ def test_artifact_writer_persists_machine_readable_bundle_next_to_report(tmp_pat
     report = report_path.read_text(encoding="utf-8")
     llm_task_report = llm_task_report_path.read_text(encoding="utf-8")
     assert json_path == tmp_path / "manuscript-report.json"
-    assert artifact["review_bundle_artifact_version"] == "1"
+    assert artifact["artifact_version"] == "2"
     assert artifact["source_kind"] == "manuscript"
-    assert artifact["review_bundle_kind"] == "manuscript_review_bundle"
     assert artifact["review_bundle"]["canonical_entities"][0]["absorbed_surface_forms"] == ["Captain Aldous"]
     assert artifact["review_bundle"]["review_tasks"][0]["ranked_speaker_keys"] == ["kohaku"]
     assert "llm_task_packets" in artifact

@@ -29,9 +29,9 @@ if _workspace not in _sys.path:
 from backend.nlp.pipeline import run_document_pipeline
 from backend.nlp.reconciliation.corpus_entities import reconcile_document_entities
 from backend.nlp.llm_tasks import (
-    build_llm_task_packets,
-    build_review_bundle_handoff_artifact,
-    render_llm_task_packet_report,
+    build_rescue_task_packets,
+    build_handoff_artifact,
+    render_task_packet_report,
 )
 from backend.nlp.semantic_review import (
     build_character_summaries,
@@ -142,21 +142,20 @@ def _write_manuscript_artifacts(
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text(render_manuscript_review_report(bundle), encoding="utf-8")
 
-    llm_task_packets, llm_task_diagnostics = build_llm_task_packets(
-        manuscript_review_bundle=bundle,
-        document_texts=document_texts,
+    task_packets, task_diagnostics = build_rescue_task_packets(
+        bundle,
+        document_texts,
     )
 
     artifact_path = _json_output_path(output_path, json_output_path)
     artifact_path.parent.mkdir(parents=True, exist_ok=True)
     artifact_path.write_text(
         json.dumps(
-            build_review_bundle_handoff_artifact(
+            build_handoff_artifact(
                 source_kind="manuscript",
-                review_bundle_kind="manuscript_review_bundle",
                 review_bundle=manuscript_bundle_to_jsonable(bundle),
-                llm_task_packets=llm_task_packets,
-                llm_task_diagnostics=llm_task_diagnostics,
+                task_packets=task_packets,
+                task_diagnostics=task_diagnostics,
                 extras={"document_paths": list(bundle.document_paths)},
             ),
             indent=2,
@@ -168,9 +167,9 @@ def _write_manuscript_artifacts(
         artifact_path.stem + "-llm-task-packets.txt"
     )
     task_report_path.write_text(
-        render_llm_task_packet_report(
-            llm_task_packets,
-            llm_task_diagnostics,
+        render_task_packet_report(
+            task_packets,
+            task_diagnostics,
             max_packets=12,
         ),
         encoding="utf-8",
