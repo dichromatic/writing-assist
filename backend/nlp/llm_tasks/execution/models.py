@@ -277,6 +277,19 @@ class ManuscriptEntityReviewResolutionResponse(BaseModel):
         return self
 
 
+class ManuscriptSuppressionRescueResponse(BaseModel):
+    """Typed response model for suppression rescue verification tasks."""
+
+    model_config = ConfigDict(extra="allow")
+
+    normalized_key: str | None = None
+    rescue: bool = False
+    entity_type: str | None = None
+    canonical_name: str | None = None
+    confidence: float | None = None
+    rationale: str | None = None
+
+
 class NormalizedLLMResponseEnvelope(BaseModel):
     """Serializable envelope persisted in LLMTaskResult.payload."""
 
@@ -301,6 +314,8 @@ def _model_for_family(task_family: LLMTaskFamily) -> type[BaseModel]:
         return ManuscriptCategoryResolutionResponse
     if task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION:
         return ManuscriptEntityReviewResolutionResponse
+    if task_family == LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE:
+        return ManuscriptSuppressionRescueResponse
     raise ValueError(f"Unsupported task_family for validation: {task_family.value}")
 
 
@@ -343,6 +358,9 @@ def normalize_llm_payload(
         }:
             if not str(payload.get("canonical_key", "")).strip():
                 payload["canonical_key"] = fallback_canonical_key
+        if task_family == LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE:
+            if not str(payload.get("normalized_key", "")).strip():
+                payload["normalized_key"] = fallback_canonical_key
 
     # Recover known envelope drifts before model validation.
     if task_family == LLMTaskFamily.MANUSCRIPT_ENTITY_PROFILE:
@@ -440,6 +458,12 @@ def normalize_llm_payload(
                     completeness_errors.append(f"extraction_items[{index}] missing non-empty content")
                 if not str(item.get("evidence_quote", "")).strip():
                     completeness_errors.append(f"extraction_items[{index}] missing non-empty evidence_quote")
+    if task_family == LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE:
+        if not isinstance(proposal_payload.get("rescue"), bool):
+            completeness_errors.append("missing required boolean: rescue")
+        if proposal_payload.get("rescue") is True:
+            if not str(proposal_payload.get("entity_type", "")).strip():
+                completeness_errors.append("rescue=true requires non-empty entity_type")
     if completeness_errors:
         return NormalizedLLMResponseEnvelope(
             is_valid=False,

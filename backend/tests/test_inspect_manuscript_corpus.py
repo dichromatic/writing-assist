@@ -198,7 +198,8 @@ def test_artifact_writer_persists_machine_readable_bundle_next_to_report(tmp_pat
 
     report_path, json_path, llm_task_report_path = _write_manuscript_artifacts(
         bundle,
-        str(tmp_path / "manuscript-report.txt"),
+        document_texts={"doc.md": "Captain Aldous addressed the bridge crew."},
+        output_path=str(tmp_path / "manuscript-report.txt"),
     )
 
     artifact = json.loads(json_path.read_text(encoding="utf-8"))

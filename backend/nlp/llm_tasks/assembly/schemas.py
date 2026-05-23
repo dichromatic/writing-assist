@@ -11,6 +11,7 @@ TASK_SCHEMA_IDS: dict[LLMTaskFamily, str] = {
     LLMTaskFamily.MANUSCRIPT_REFERENCE_ATTACHMENT: "manuscript_reference_attachment.v1",
     LLMTaskFamily.MANUSCRIPT_CATEGORY_RESOLUTION: "manuscript_category_resolution.v1",
     LLMTaskFamily.MANUSCRIPT_ENTITY_REVIEW_RESOLUTION: "manuscript_entity_review_resolution.v1",
+    LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE: "manuscript_suppression_rescue.v1",
 }
 
 

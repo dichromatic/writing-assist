@@ -29,9 +29,18 @@ def render_llm_task_packet_report(
     max_packets: int = 8,
 ) -> str:
     """Render a human-readable task-packet inspection report."""
+    family_counts: dict[str, int] = {}
+    for packet in packets:
+        family = packet.task_family.value
+        family_counts[family] = family_counts.get(family, 0) + 1
+
     lines: list[str] = []
     lines.append(_hr("LLM TASK PACKETS"))
     lines.append(f"  packet_count: {len(packets)}")
+    if family_counts:
+        lines.append("  family_counts:")
+        for family in sorted(family_counts):
+            lines.append(f"    - {family}: {family_counts[family]}")
     if not packets:
         lines.append("  None.")
     for packet in packets[:max_packets]:

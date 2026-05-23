@@ -106,6 +106,22 @@ def _system_prompt_for_packet(packet: LLMTaskPacket) -> str:
             + "If evidence remains insufficient, keep review_required true and explain what is missing. "
             + "Always include passing, failing, and rationale_confidence with your resolution rationale."
         )
+    if packet.task_family.value == "manuscript_suppression_rescue":
+        return (
+            base
+            + " You are reviewing a suppressed entity from a fiction manuscript. "
+            + "The deterministic pipeline filtered this mention, but it may be a real entity. "
+            + "Examine surrounding manuscript text in the evidence windows. "
+            + "Return rescue=true if this is a genuine named entity "
+            + "(character, place, ship, group, title-as-name, or narrative concept) "
+            + "that recurs meaningfully. "
+            + "Return rescue=false if this is a common English word, generic descriptor, "
+            + "or structural noise correctly suppressed. "
+            + "When rescue=true, also return entity_type "
+            + "(character/place/group/object/event/concept), canonical_name, confidence, "
+            + "and one-sentence rationale. "
+            + "When rescue=false, return confidence and one-sentence rationale."
+        )
     return base
 
 

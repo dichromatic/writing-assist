@@ -19,20 +19,34 @@ from backend.nlp.llm_tasks.assembly.schemas import schema_id_for
 from backend.nlp.types import (
     ConflictRecord,
     CorpusEntity,
+    DocumentEntityBucket,
+    DocumentEntityRecord,
+    DocumentStatus,
+    DocumentType,
     LLMTaskEvidenceItem,
-    LLMTaskPacket,
     LLMTaskFamily,
+    LLMTaskPacket,
     LLMTaskSelectionDiagnostic,
+    LexiconCategory,
     ManuscriptReviewBundle,
     ReferenceCluster,
     ReferenceCandidateType,
     ReviewTaskKind,
+    SuppressReason,
     stable_hash_id,
 )
 
 _ENTITY_EVIDENCE_LIMIT = 10
 _REFERENCE_EVIDENCE_LIMIT = 12
 _CONFLICT_EVIDENCE_LIMIT = 8
+_RESCUE_EVIDENCE_LIMIT = 5
+_RESCUE_CONTEXT_RADIUS = 300
+
+_RESCUABLE_REASONS = {
+    SuppressReason.LOW_ENTITYHOOD,
+    SuppressReason.COMPONENT_OVERLAP_NOISE,
+    SuppressReason.GENERIC_LEXICAL_NOISE,
+}
 
 
 def _entity_selected(entity: CorpusEntity) -> tuple[bool, str]:
@@ -180,6 +194,69 @@ def _conflict_evidence(
     return items
 
 
+def _rescue_candidate_selected(record: DocumentEntityRecord) -> tuple[bool, str]:
+    """Return whether one suppressed record qualifies for LLM rescue triage."""
+    if record.bucket != DocumentEntityBucket.SUPPRESSED:
+        return False, "not_suppressed"
+    if record.suppression_reason not in _RESCUABLE_REASONS:
+        reason = record.suppression_reason.value if record.suppression_reason is not None else "none"
+        return False, f"suppression_reason_{reason}_not_rescuable"
+    # Keep the rescue lane narrow enough for targeted verification traffic.
+    if record.occurrence_count < 4:
+        return False, "too_few_occurrences"
+
+    has_structural_support = (
+        record.has_title_support
+        or record.attribution_count > 0
+    )
+    if record.scene_count < 2 and not has_structural_support:
+        return False, "single_scene_no_structural_support"
+    if (
+        record.winning_category == LexiconCategory.UNRESOLVED
+        and record.entityhood_score < 0.25
+    ):
+        return False, "unresolved_very_low_entityhood"
+    return True, "rescue_candidate"
+
+
+def _build_rescue_evidence_windows(
+    record: DocumentEntityRecord,
+    raw_text: str,
+) -> list[LLMTaskEvidenceItem]:
+    """Build rescue evidence windows from anchors and raw document text.
+
+    This intentionally operates at assembly time so suppressed records do not
+    need promotion-stage context windows. The rescue lane only materializes
+    context for selected candidates.
+    """
+    items: list[LLMTaskEvidenceItem] = []
+    sorted_anchors = sorted(record.anchors, key=lambda anchor: anchor.start_char)
+    for anchor in sorted_anchors[:_RESCUE_EVIDENCE_LIMIT]:
+        before_start = max(0, anchor.start_char - _RESCUE_CONTEXT_RADIUS)
+        after_end = min(len(raw_text), anchor.end_char + _RESCUE_CONTEXT_RADIUS)
+        context_before = raw_text[before_start:anchor.start_char]
+        context_after = raw_text[anchor.end_char:after_end]
+        if not context_before.strip() and not context_after.strip():
+            continue
+        items.append(
+            build_evidence_item(
+                source_object_id=record.normalized_key,
+                anchor=anchor,
+                quote=record.surface_forms[0] if record.surface_forms else record.normalized_key,
+                visibility_bucket=record.bucket.value,
+                context_before=context_before,
+                context_after=context_after,
+                suppression_reason=(
+                    record.suppression_reason.value
+                    if record.suppression_reason is not None
+                    else ""
+                ),
+                confidence_score=record.confidence_score,
+            )
+        )
+    return items
+
+
 def _review_task_index(bundle: ManuscriptReviewBundle) -> dict[str, list[str]]:
     """Index review prompts by subject key for packet payload context."""
     indexed: dict[str, list[str]] = defaultdict(list)
@@ -210,14 +287,11 @@ def _status_for_conflict(bundle: ManuscriptReviewBundle) -> str:
     _ = bundle
     return "primary_canon"
 
-from backend.nlp.types import (
-    DocumentStatus,
-    DocumentType,
-)
-
 
 def build_manuscript_task_packets(
     bundle: ManuscriptReviewBundle,
+    *,
+    document_texts: dict[str, str] | None = None,
 ) -> tuple[list[LLMTaskPacket], list[LLMTaskSelectionDiagnostic]]:
     """Build manuscript LLM task packets with explicit selection diagnostics."""
     packets: list[LLMTaskPacket] = []
@@ -401,5 +475,84 @@ def build_manuscript_task_packets(
                 },
             )
         )
+
+    if document_texts is not None:
+        for record in bundle.entity_records:
+            selected, reason = _rescue_candidate_selected(record)
+            rescue_evidence: list[LLMTaskEvidenceItem] = []
+            if selected:
+                raw_text = document_texts.get(record.document_anchor.path, "")
+                if not raw_text:
+                    selected = False
+                    reason = "missing_document_text"
+                else:
+                    rescue_evidence = _build_rescue_evidence_windows(record, raw_text)
+                    if not rescue_evidence:
+                        selected = False
+                        reason = "no_rescue_evidence_windows"
+            diagnostics.append(
+                LLMTaskSelectionDiagnostic(
+                    source_bundle_kind="manuscript_review_bundle",
+                    source_object_kind="suppressed_entity_record",
+                    source_object_id=record.normalized_key,
+                    document_path=record.document_anchor.path,
+                    task_family=LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE,
+                    selected=selected,
+                    reason=reason,
+                    evidence_counts={
+                        "occurrence_count": record.occurrence_count,
+                        "scene_count": record.scene_count,
+                        "anchor_count": len(record.anchors),
+                    },
+                )
+            )
+            if not selected:
+                continue
+            status = DocumentStatus(_status_for_entity(bundle))
+            packets.append(
+                LLMTaskPacket(
+                    task_id=stable_hash_id(
+                        "llm_task_packet",
+                        LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE.value,
+                        record.normalized_key,
+                        record.document_anchor.path,
+                    ),
+                    task_family=LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE,
+                    schema_id=schema_id_for(LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE),
+                    source_bundle_kind="manuscript_review_bundle",
+                    source_object_kind="suppressed_entity_record",
+                    source_object_id=record.normalized_key,
+                    source_document_paths=[record.document_anchor.path],
+                    document_type=DocumentType.MANUSCRIPT,
+                    document_status=status,
+                    source_authority="manuscript_corpus",
+                    source_authority_weight=document_status_authority_weight(status),
+                    task_goal=(
+                        "Determine whether this suppressed entity mention is a genuine recurring "
+                        "entity that was incorrectly filtered by deterministic rules."
+                    ),
+                    task_constraints=[
+                        "Use only the surrounding manuscript context provided in evidence.",
+                        (
+                            "A genuine entity is a named character, place, group, ship, title-as-name, "
+                            "or concept that recurs meaningfully in the narrative."
+                        ),
+                        "Generic English words that happen to be capitalized are not entities.",
+                        "If a title or rank consistently refers to one character, rescue it.",
+                    ],
+                    evidence_payload=rescue_evidence,
+                    selection_reason=reason,
+                    payload={
+                        "normalized_key": record.normalized_key,
+                        "surface_forms": list(record.surface_forms),
+                        "occurrence_count": record.occurrence_count,
+                        "scene_count": record.scene_count,
+                        "suppression_reason": record.suppression_reason.value if record.suppression_reason else "",
+                        "winning_category": record.winning_category.value,
+                        "confidence_score": record.confidence_score,
+                        "entityhood_score": record.entityhood_score,
+                    },
+                )
+            )
 
     return packets, diagnostics

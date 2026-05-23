@@ -123,6 +123,8 @@ def _json_output_path(output_path: str, explicit_json_output: str | None) -> Pat
 
 def _write_manuscript_artifacts(
     bundle: ManuscriptReviewBundle,
+    *,
+    document_texts: dict[str, str],
     output_path: str,
     json_output_path: str | None = None,
 ) -> tuple[Path, Path, Path]:
@@ -141,7 +143,8 @@ def _write_manuscript_artifacts(
     report_path.write_text(render_manuscript_review_report(bundle), encoding="utf-8")
 
     llm_task_packets, llm_task_diagnostics = build_llm_task_packets(
-        manuscript_review_bundle=bundle
+        manuscript_review_bundle=bundle,
+        document_texts=document_texts,
     )
 
     artifact_path = _json_output_path(output_path, json_output_path)
@@ -191,11 +194,16 @@ def main(glob_pattern: str, output_path: str, json_output_path: str | None = Non
         print(f"No files matched glob: {glob_pattern}", file=_sys.stderr)
         return 1
 
+    document_texts = {
+        str(path): path.read_text(encoding="utf-8")
+        for path in paths
+    }
     bundle = _build_manuscript_review_bundle(paths)
     report_path, artifact_path, task_report_path = _write_manuscript_artifacts(
         bundle,
-        output_path,
-        json_output_path,
+        document_texts=document_texts,
+        output_path=output_path,
+        json_output_path=json_output_path,
     )
 
     print(f"Wrote corpus report for {len(paths)} documents to {report_path}")

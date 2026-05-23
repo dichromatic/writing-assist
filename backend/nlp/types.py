@@ -728,6 +728,7 @@ class LLMTaskFamily(Enum):
     MANUSCRIPT_REFERENCE_ATTACHMENT = "manuscript_reference_attachment"
     MANUSCRIPT_CATEGORY_RESOLUTION = "manuscript_category_resolution"
     MANUSCRIPT_ENTITY_REVIEW_RESOLUTION = "manuscript_entity_review_resolution"
+    MANUSCRIPT_SUPPRESSION_RESCUE = "manuscript_suppression_rescue"
 
 
 class LLMTaskPassStage(Enum):

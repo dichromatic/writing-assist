@@ -145,6 +145,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "manuscript_reference_attachment",
             "manuscript_category_resolution",
             "manuscript_entity_review_resolution",
+            "manuscript_suppression_rescue",
         ],
         help="Optional task-family filter applied before execution.",
     )

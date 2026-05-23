@@ -25,6 +25,7 @@ def build_llm_task_packets(
     *,
     record_review_bundles: list[RecordReviewBundle] | None = None,
     manuscript_review_bundle: ManuscriptReviewBundle | None = None,
+    document_texts: dict[str, str] | None = None,
     include_structured_tagged_extraction: bool = False,
 ) -> tuple[list[LLMTaskPacket], list[LLMTaskSelectionDiagnostic]]:
     """Build shared LLM task packets from deterministic review artifacts."""
@@ -41,7 +42,10 @@ def build_llm_task_packets(
             packets.extend(tagged_packets)
             diagnostics.extend(tagged_diagnostics)
     if manuscript_review_bundle is not None:
-        manuscript_packets, manuscript_diagnostics = build_manuscript_task_packets(manuscript_review_bundle)
+        manuscript_packets, manuscript_diagnostics = build_manuscript_task_packets(
+            manuscript_review_bundle,
+            document_texts=document_texts,
+        )
         packets.extend(manuscript_packets)
         diagnostics.extend(manuscript_diagnostics)
     return packets, diagnostics
