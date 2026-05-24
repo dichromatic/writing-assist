@@ -54,31 +54,37 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--provider",
-        default="dry_run",
-        help="Provider identifier: dry_run, nim, or openai.",
+        default=(_os.getenv("LLM_PROVIDER") or "openai"),
+        help="Provider identifier: dry_run, nim, or openai. Default: openai.",
     )
     parser.add_argument(
         "--model",
         default=(
+            _os.getenv("LOCAL_MODEL")
+            or _os.getenv("OPENAI_MODEL")
+            or
             _os.getenv("NIM_MODEL")
             or _os.getenv("NVIDIA_MODEL")
-            or "dry_run_model"
+            or "Intel/Qwen3.6-35B-A3B-int4-mixed-AutoRound"
         ),
         help="Model identifier for traceability.",
     )
     parser.add_argument(
         "--base-url",
         default=(
+            _os.getenv("LOCAL_BASE_URL")
+            or _os.getenv("OPENAI_BASE_URL")
+            or
             _os.getenv("NIM_BASE_URL")
-            or "https://integrate.api.nvidia.com/v1"
+            or "http://host.docker.internal:8001/v1"
         ),
         help="Chat completions API base URL.",
     )
     parser.add_argument(
         "--temperature",
         type=float,
-        default=0.6,
-        help="Sampling temperature. Default: 0.6",
+        default=0.3,
+        help="Sampling temperature. Default: 0.3",
     )
     parser.add_argument(
         "--top-p",
@@ -95,8 +101,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--timeout",
         type=float,
-        default=60.0,
-        help="HTTP request timeout in seconds. Default: 60",
+        default=120.0,
+        help="HTTP request timeout in seconds. Default: 120",
     )
     parser.add_argument(
         "--report-output",
