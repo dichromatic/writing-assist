@@ -101,8 +101,8 @@ def test_rescue_selects_only_rescuable_suppressed_entities():
         path="doc.md",
         key="aurora",
         suppression_reason=SuppressReason.LOW_ENTITYHOOD,
-        occurrence_count=2,
-        scene_count=2,
+        occurrence_count=1,
+        scene_count=1,
     )
     non_rescuable_reason = _suppressed_record(
         path="doc.md",
