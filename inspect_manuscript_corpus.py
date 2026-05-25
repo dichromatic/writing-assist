@@ -33,6 +33,10 @@ from backend.nlp.llm_tasks import (
     build_handoff_artifact,
     render_task_packet_report,
 )
+from backend.nlp.llm_tasks.io import (
+    load_task_results_from_artifact,
+    extract_rescued_keys_from_results,
+)
 from backend.nlp.semantic_review import (
     build_character_summaries,
     build_manuscript_review_bundle as build_manuscript_bundle,
@@ -69,19 +73,37 @@ def _collect_document_outputs(
     return records, references, frozenset(induced_titles)
 
 
-def _build_manuscript_review_bundle(paths: list[Path]) -> ManuscriptReviewBundle:
-    """Run the manuscript corpus pipeline and package the handoff artifact.
+def _build_manuscript_review_bundle_with_rescue(
+    paths: list[Path],
+    *,
+    rescue_results_path: str | None = None,
+) -> tuple[ManuscriptReviewBundle, frozenset[str]]:
+    """Build manuscript review bundle and optionally re-run reconciliation.
 
     Args:
         paths: Source document paths to inspect.
+        rescue_results_path: Optional result artifact path from a completed
+            suppression rescue LLM run.
 
     Returns:
-        Persisted manuscript review bundle that drives both report rendering
-        and JSON serialization.
+        Review bundle plus the set of rescued normalized keys used for the
+        optional second reconciliation pass.
     """
     records, references, induced_titles = _collect_document_outputs(paths)
     title_prefixes_lower = TITLE_PREFIXES_LOWER | frozenset(title.lower() for title in induced_titles)
-    corpus = reconcile_document_entities(records, title_prefixes_lower=title_prefixes_lower)
+
+    rescued_keys: frozenset[str] = frozenset()
+    if rescue_results_path:
+        result_path = Path(rescue_results_path)
+        if result_path.exists():
+            rescue_results = load_task_results_from_artifact(str(result_path))
+            rescued_keys = extract_rescued_keys_from_results(rescue_results)
+
+    corpus = reconcile_document_entities(
+        records,
+        title_prefixes_lower=title_prefixes_lower,
+        rescued_keys=rescued_keys,
+    )
     conflicts = build_conflict_records(corpus.canonical_entities)
     reference_clusters = build_reference_clusters(references, records)
     character_summaries = build_character_summaries(
@@ -90,7 +112,7 @@ def _build_manuscript_review_bundle(paths: list[Path]) -> ManuscriptReviewBundle
         conflicts,
     )
     review_tasks = build_review_tasks(reference_clusters, conflicts, character_summaries)
-    return build_manuscript_bundle(
+    bundle = build_manuscript_bundle(
         paths,
         records,
         corpus.canonical_entities,
@@ -100,6 +122,7 @@ def _build_manuscript_review_bundle(paths: list[Path]) -> ManuscriptReviewBundle
         character_summaries,
         review_tasks,
     )
+    return bundle, rescued_keys
 
 
 def _json_output_path(output_path: str, explicit_json_output: str | None) -> Path:
@@ -177,7 +200,12 @@ def _write_manuscript_artifacts(
     return report_path, artifact_path, task_report_path
 
 
-def main(glob_pattern: str, output_path: str, json_output_path: str | None = None) -> int:
+def main(
+    glob_pattern: str,
+    output_path: str,
+    json_output_path: str | None = None,
+    rescue_results_path: str | None = None,
+) -> int:
     """Run manuscript corpus inspection and write both handoff artifacts.
 
     Args:
@@ -197,7 +225,10 @@ def main(glob_pattern: str, output_path: str, json_output_path: str | None = Non
         str(path): path.read_text(encoding="utf-8")
         for path in paths
     }
-    bundle = _build_manuscript_review_bundle(paths)
+    bundle, rescued_keys = _build_manuscript_review_bundle_with_rescue(
+        paths,
+        rescue_results_path=rescue_results_path,
+    )
     report_path, artifact_path, task_report_path = _write_manuscript_artifacts(
         bundle,
         document_texts=document_texts,
@@ -208,6 +239,11 @@ def main(glob_pattern: str, output_path: str, json_output_path: str | None = Non
     print(f"Wrote corpus report for {len(paths)} documents to {report_path}")
     print(f"Wrote manuscript handoff artifact to {artifact_path}")
     print(f"Wrote manuscript LLM task report to {task_report_path}")
+    if rescue_results_path:
+        print(
+            "Applied rescue-aware reconciliation from "
+            f"{rescue_results_path} (rescued keys: {len(rescued_keys)})"
+        )
     return 0
 
 
@@ -235,9 +271,17 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional JSON artifact path. Default: sibling .json next to --output",
     )
+    parser.add_argument(
+        "--rescue-results",
+        default=None,
+        help=(
+            "Optional LLM result artifact path. When provided, valid rescue "
+            "verdicts are folded into reconciliation as rescued suppressed keys."
+        ),
+    )
     return parser
 
 
 if __name__ == "__main__":
     args = _build_parser().parse_args()
-    raise SystemExit(main(args.glob, args.output, args.json_output))
+    raise SystemExit(main(args.glob, args.output, args.json_output, args.rescue_results))

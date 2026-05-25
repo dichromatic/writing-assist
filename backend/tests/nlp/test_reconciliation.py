@@ -318,6 +318,33 @@ class TestCorpusReconciliation:
 
         assert [entity.canonical_key for entity in result.canonical_entities] == ["aldous"]
 
+    def test_rescued_suppressed_keys_are_included_without_global_suppressed_toggle(self):
+        # Rescue verdicts should allow specific suppressed keys through the
+        # reconciliation gate without enabling all suppressed records.
+        records = [
+            make_record("a.md", "aldous", LexiconCategory.CHARACTER),
+            make_record(
+                "b.md",
+                "firth",
+                LexiconCategory.UNRESOLVED,
+                resolved=False,
+                bucket=DocumentEntityBucket.SUPPRESSED,
+                confidence_score=0.20,
+            ),
+            make_record(
+                "c.md",
+                "hey",
+                LexiconCategory.UNRESOLVED,
+                resolved=False,
+                bucket=DocumentEntityBucket.SUPPRESSED,
+                confidence_score=0.20,
+            ),
+        ]
+
+        result = reconcile_document_entities(records, rescued_keys=frozenset({"firth"}))
+
+        assert [entity.canonical_key for entity in result.canonical_entities] == ["aldous", "firth"]
+
     def test_generic_leading_character_compounds_defer_to_trailing_personal_key(self):
         # Generic leading modifiers such as "old" and "man" are useful alias
         # surfaces, but when the trailing personal key is already stronger they

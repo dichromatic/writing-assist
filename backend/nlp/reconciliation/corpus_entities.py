@@ -40,6 +40,7 @@ def reconcile_document_entities(
     records: list[DocumentEntityRecord],
     *,
     include_suppressed: bool = False,
+    rescued_keys: frozenset[str] = frozenset(),
     title_prefixes_lower: frozenset[str] = TITLE_PREFIXES_LOWER,
 ) -> CorpusReconciliationResult:
     """Merge document-local entity records into corpus-level canonical entities.
@@ -54,6 +55,9 @@ def reconcile_document_entities(
         include_suppressed: When True, also include suppressed document-local
             records. The default excludes them so canonical corpus entities are
             built from promoted and review-only evidence rather than noise.
+        rescued_keys: Suppressed normalized keys that were explicitly rescued
+            by downstream review. These keys pass through even when
+            include_suppressed is False.
 
     Returns:
         CorpusReconciliationResult with canonical entities ready for later
@@ -63,8 +67,9 @@ def reconcile_document_entities(
     all_grouped: dict[str, list[DocumentEntityRecord]] = defaultdict(list)
     for record in records:
         all_grouped[record.normalized_key].append(record)
-        if not include_suppressed and record.bucket == DocumentEntityBucket.SUPPRESSED:
-            continue
+        if record.bucket == DocumentEntityBucket.SUPPRESSED:
+            if not include_suppressed and record.normalized_key not in rescued_keys:
+                continue
         grouped[record.normalized_key].append(record)
 
     exact_entities: list[CorpusEntity] = []

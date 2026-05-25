@@ -105,6 +105,39 @@ def load_task_results_from_artifact(path: str) -> list[LLMTaskResult]:
     return parsed
 
 
+def extract_rescued_keys_from_results(results: list[LLMTaskResult]) -> frozenset[str]:
+    """Extract normalized keys that passed suppression rescue.
+
+    A key is considered rescued only when:
+    - task status is completed
+    - normalized envelope exists and is_valid is True
+    - proposal_payload.rescue is True
+    - proposal_payload.normalized_key is a non-empty string
+
+    Args:
+        results: LLM task results from one or more rescue runs.
+
+    Returns:
+        Frozen set of rescued normalized keys.
+    """
+    rescued: set[str] = set()
+    for result in results:
+        if result.status != LLMTaskResultStatus.COMPLETED:
+            continue
+        payload = result.payload if isinstance(result.payload, dict) else {}
+        if payload.get("is_valid") is not True:
+            continue
+        proposal = payload.get("proposal_payload", {})
+        if not isinstance(proposal, dict):
+            continue
+        if proposal.get("rescue") is not True:
+            continue
+        key = proposal.get("normalized_key")
+        if isinstance(key, str) and key.strip():
+            rescued.add(key.strip())
+    return frozenset(rescued)
+
+
 def write_task_result_artifact(
     *,
     output_path: str,
