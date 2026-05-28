@@ -1007,10 +1007,11 @@ class MentionCluster:
         surface_forms: All distinct surface forms seen in this cluster.
         anchors: Source anchors for every individual mention in the cluster.
         occurrence_count: Total number of mention occurrences across the cluster.
-        has_title_support: True if any mention in the cluster has a title prefix.
-        has_possessive_support: True if any mention has a possessive form.
-        has_location_support: True if any mention appeared immediately after a
-            locative preposition, indicating the cluster likely names a place.
+        title_support_count: Number of mentions in the cluster with a title
+            prefix.
+        possessive_support_count: Number of mentions in possessive form.
+        location_support_count: Number of mentions that appeared immediately
+            after a locative preposition, indicating likely place context.
         linked_fields: Structured field candidates that reference this cluster's
             normalized key.
         linked_definitions: Definition candidates whose term matches this cluster.
@@ -1022,13 +1023,28 @@ class MentionCluster:
     surface_forms: list[str]
     anchors: list[SpanAnchor]
     occurrence_count: int
-    has_title_support: bool
-    has_possessive_support: bool
-    has_location_support: bool
+    title_support_count: int
+    possessive_support_count: int
+    location_support_count: int
     linked_fields: list[StructuredFieldCandidate]
     linked_definitions: list[DefinitionCandidate]
     linked_seeds: list[SectionSummarySeed]
     cluster_id: str
+
+    @property
+    def has_title_support(self) -> bool:
+        """Return True when at least one mention carries a title prefix."""
+        return self.title_support_count > 0
+
+    @property
+    def has_possessive_support(self) -> bool:
+        """Return True when at least one mention appears in possessive form."""
+        return self.possessive_support_count > 0
+
+    @property
+    def has_location_support(self) -> bool:
+        """Return True when at least one mention has locative context support."""
+        return self.location_support_count > 0
 
 
 # ---------------------------------------------------------------------------

@@ -69,7 +69,7 @@ def _place_descriptor_support(cluster: MentionCluster, pre: PreprocessedDocument
 
 def _possessive_place_support(cluster: MentionCluster, pre: PreprocessedDocument | None) -> bool:
     """Return True when possessive syntax clearly frames the cluster as a place."""
-    if pre is None or not cluster.has_possessive_support:
+    if pre is None or cluster.possessive_support_count <= 0:
         return False
 
     def _matches(tokens: list[Token], index: int) -> bool:
@@ -90,7 +90,7 @@ def _resident_place_support(cluster: MentionCluster, pre: PreprocessedDocument |
 
 def _locative_strength(cluster: MentionCluster, pre: PreprocessedDocument | None) -> tuple[float, list[str], list[str]]:
     """Refine harvest-time location flags using neighboring token context."""
-    if pre is None or not cluster.has_location_support:
+    if pre is None or cluster.location_support_count <= 0:
         return 0.0, [], []
 
     strong_hits = 0

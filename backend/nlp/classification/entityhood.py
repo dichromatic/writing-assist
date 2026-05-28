@@ -48,14 +48,14 @@ def assess_entityhood(
     reasons: list[str] = []
     weaknesses: list[str] = []
 
-    if cluster.has_title_support:
+    if cluster.title_support_count > 0:
         score += 0.75
         reasons.append("appears with a title prefix")
     elif cluster.normalized_key in title_prefixes_lower:
         score += 0.55
         reasons.append("is used as a bare title reference")
 
-    if cluster.has_possessive_support:
+    if cluster.possessive_support_count > 0:
         score += 0.55
         reasons.append("appears in possessive form")
 
@@ -108,8 +108,8 @@ def assess_entityhood(
         reasons.append("recurs as a multi-token compound")
 
     if (
-        not cluster.has_title_support
-        and not cluster.has_possessive_support
+        cluster.title_support_count <= 0
+        and cluster.possessive_support_count <= 0
         and not cluster.linked_fields
         and not cluster.linked_definitions
         and not cluster.linked_seeds

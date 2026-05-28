@@ -221,22 +221,15 @@ def compute_signals(
     # (place names, discourse words) from reaching tier 3 purely by recurring.
     #
     # Bare title keys ("captain", "lord") also get tier=3: they never produce a
-    # title_prefix candidate because no name follows, so has_title_support is
-    # False, but they carry title semantics and must reach PROMOTE_THRESHOLD so
-    # that promotion.py's bare-title intercept can route them to review_only.
-    if cluster.has_title_support or cluster.normalized_key in title_prefixes_lower:
+    # title_prefix candidate because no name follows, so title_support_count is
+    # 0, but they carry title semantics and must reach PROMOTE_THRESHOLD so
+    # promotion.py's bare-title intercept can route them to review_only.
+    if cluster.title_support_count > 0 or cluster.normalized_key in title_prefixes_lower:
         rule_tier = 3
-    elif cluster.has_possessive_support:
+    elif cluster.possessive_support_count > 0:
         rule_tier = 2
     else:
         rule_tier = 1
-
-    # Count distinct surface forms that end with the possessive suffix rather
-    # than using the boolean flag, to get a quantitative signal.
-    possessive_count = sum(
-        1 for sf in cluster.surface_forms
-        if sf.endswith("'s") or sf.endswith("s'")
-    )
 
     # Count distinct scenes that contain at least one mention anchor.
     scene_lookup = _build_scene_lookup(pre)
@@ -251,8 +244,8 @@ def compute_signals(
 
     return ConfidenceSignals(
         rule_tier=rule_tier,
-        has_title=cluster.has_title_support,
-        possessive_count=possessive_count,
+        has_title=cluster.title_support_count > 0,
+        possessive_count=cluster.possessive_support_count,
         attribution_count=attribution_counts.get(cluster.normalized_key, 0),
         scene_count=scene_count,
         tfidf_score=tfidf_scores.get(cluster.normalized_key, 0.0),

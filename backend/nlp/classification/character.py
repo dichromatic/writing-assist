@@ -78,13 +78,13 @@ def score_character_evidence(
     if cluster.normalized_key in attributed_speakers:
         builder.add(0.80, "attributed as a dialogue speaker")
 
-    if cluster.has_title_support:
+    if cluster.title_support_count > 0:
         builder.add(0.70, "appears with a title prefix")
 
     # Possessive syntax is only a weak character hint. Places, vessels, and
     # organizations also appear in possessive form, so this should not carry
     # resolution weight by itself.
-    if cluster.has_possessive_support:
+    if cluster.possessive_support_count > 0:
         builder.add(0.20, "appears in possessive form")
 
     # Compound shape is a broad structural hint, not direct behavioral proof.
@@ -95,7 +95,7 @@ def score_character_evidence(
     if cluster.occurrence_count >= 2:
         builder.add(0.10, "recurs across the document")
 
-    if cluster.has_location_support and cluster.normalized_key not in attributed_speakers:
+    if cluster.location_support_count > 0 and cluster.normalized_key not in attributed_speakers:
         builder.veto("has locative context without attribution support")
 
     return builder.build()

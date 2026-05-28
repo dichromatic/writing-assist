@@ -22,12 +22,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import os
 
+from backend.nlp.classification.types import ClassificationDecision
 from backend.nlp.classification.arbitration import classify_clusters
 from backend.nlp.classification.compound_shapes import compound_parts
 from backend.nlp.types import (
     BootstrappedLexiconEntry,
     DocumentAnchor,
     EvidenceWindow,
+    ConfidenceSignals,
     MentionCluster,
     LexiconCategory,
     PreprocessedDocument,
@@ -66,14 +68,14 @@ class PromotionResult:
     """
 
     bundle: PromotedEvidenceBundle
-    classifications: dict[str, object]
-    scores: dict[str, tuple[object, float]]
+    classifications: dict[str, ClassificationDecision]
+    scores: dict[str, tuple[ConfidenceSignals, float]]
 
 
 def _should_suppress_generic_verb_noise(
     cluster: MentionCluster,
-    classification,
-    signals,
+    classification: ClassificationDecision,
+    signals: ConfidenceSignals,
 ) -> bool:
     """Return True when a weak single-token cluster is ordinary verb noise.
 
@@ -87,7 +89,7 @@ def _should_suppress_generic_verb_noise(
         and classification.winning_category == LexiconCategory.UNRESOLVED
         and signals.rule_tier <= 2
         and signals.attribution_count == 0
-        and not cluster.has_title_support
+        and cluster.title_support_count <= 0
         and not cluster.linked_fields
         and not cluster.linked_definitions
         and not cluster.linked_seeds
@@ -97,8 +99,8 @@ def _should_suppress_generic_verb_noise(
 
 def _should_suppress_generic_action_noun_noise(
     cluster: MentionCluster,
-    classification,
-    signals,
+    classification: ClassificationDecision,
+    signals: ConfidenceSignals,
     score: float,
 ) -> bool:
     """Return True for weak single-token unresolved action/state noun noise.
@@ -122,7 +124,7 @@ def _should_suppress_generic_action_noun_noise(
         and cluster.occurrence_count <= 2
         and signals.scene_count <= 1
         and score < PROMOTE_THRESHOLD
-        and not cluster.has_title_support
+        and cluster.title_support_count <= 0
         and not cluster.linked_fields
         and not cluster.linked_definitions
         and not cluster.linked_seeds
@@ -158,8 +160,8 @@ def _has_fully_covering_longer_compound(
 def _should_suppress_component_overlap_noise(
     cluster: MentionCluster,
     accepted_compound_anchors_by_span: dict[int, list[tuple[int, int, str, int]]],
-    classifications: dict[str, object],
-    signals,
+    classifications: dict[str, ClassificationDecision],
+    signals: ConfidenceSignals,
 ) -> bool:
     """Return True for generic component-only clusters covered by compounds.
 
@@ -172,7 +174,7 @@ def _should_suppress_component_overlap_noise(
     if not parts:
         return False
 
-    if cluster.has_title_support or cluster.linked_fields or cluster.linked_definitions or cluster.linked_seeds:
+    if cluster.title_support_count > 0 or cluster.linked_fields or cluster.linked_definitions or cluster.linked_seeds:
         return False
     if signals.attribution_count > 0:
         return False
@@ -188,7 +190,7 @@ def _should_suppress_component_overlap_noise(
 
 def _build_accepted_compound_anchor_index(
     clusters: list[MentionCluster],
-    classifications: dict[str, object],
+    classifications: dict[str, ClassificationDecision],
 ) -> dict[int, list[tuple[int, int, str, int]]]:
     """Build per-span accepted compound anchor index for overlap checks.
 
@@ -222,8 +224,8 @@ def _build_accepted_compound_anchor_index(
 
 def _should_promote_place(
     cluster: MentionCluster,
-    classification,
-    signals,
+    classification: ClassificationDecision,
+    signals: ConfidenceSignals,
     score: float,
 ) -> bool:
     """Return True when a resolved place has enough support to auto-promote."""
@@ -240,8 +242,8 @@ def _should_promote_place(
 
 def _review_reason_for_classification(
     cluster: MentionCluster,
-    classification,
-    signals,
+    classification: ClassificationDecision,
+    signals: ConfidenceSignals,
     score: float,
 ) -> str | None:
     """Return a class-aware review reason when promotion should be withheld."""
