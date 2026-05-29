@@ -28,6 +28,7 @@ from backend.nlp.types import (
     ReviewTask,
     ReviewTaskKind,
     SpanAnchor,
+    SuppressReason,
 )
 
 
@@ -37,6 +38,8 @@ def _make_record(
     category: LexiconCategory,
     *,
     bucket: DocumentEntityBucket,
+    entityhood_weaknesses: list[str] | None = None,
+    suppression_reason: SuppressReason | None = None,
 ) -> DocumentEntityRecord:
     """Build a minimal document entity record for report tests.
 
@@ -93,12 +96,12 @@ def _make_record(
                 score=0.7,
                 accepted=True,
                 reasons=[],
-                weaknesses=[],
+                weaknesses=list(entityhood_weaknesses or []),
             ),
         ),
         promotion_trace=DocumentEntityPromotionTrace(
             confidence_score=0.7,
-            suppression_reason=None,
+            suppression_reason=suppression_reason,
             bucket_detail="",
             rule_tier=1,
             scene_count=1,
@@ -143,7 +146,13 @@ def test_report_treats_buckets_as_visibility_tiers_and_stops_at_questions():
     # assertive framing even when the underlying evidence is ambiguous.
     records = [
         _make_record("doc.md", "aldous", LexiconCategory.CHARACTER, bucket=DocumentEntityBucket.PROMOTED),
-        _make_record("doc.md", "captain", LexiconCategory.CHARACTER, bucket=DocumentEntityBucket.SUPPRESSED),
+        _make_record(
+            "doc.md",
+            "captain",
+            LexiconCategory.CHARACTER,
+            bucket=DocumentEntityBucket.SUPPRESSED,
+            suppression_reason=SuppressReason.QUOTE_ONLY_ADDRESS_LIKE_DISCOURSE,
+        ),
     ]
     review_tasks = [
         ReviewTask(
@@ -205,6 +214,7 @@ def test_report_treats_buckets_as_visibility_tiers_and_stops_at_questions():
     assert "suppressed  : hidden from the main entity inventory, but retained" in report
     assert "identity: record_id=record:doc.md:aldous" in report
     assert "class: win=0.700  runner_up=-  entityhood=0.700  accepted=yes" in report
+    assert "promo: conf=0.700  tier=1  scenes=1  attr=0  poss=0  tfidf=0.000  suppression=quote_only_address_like_discourse" in report
     assert "support: title=0  poss=0  loc=0  linked_fields=0  linked_definitions=0  linked_seeds=0" in report
     assert "discourse: quote=0  non_quote=1  quote_only=no" in report
     assert "lineage: parts=1  fully_covered=no  covered=0  uncovered=1" in report

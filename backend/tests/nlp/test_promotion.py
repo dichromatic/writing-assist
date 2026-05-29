@@ -8,11 +8,18 @@ decision is locked in and why its breakage would be silent.
 
 import pytest
 
+from backend.nlp.classification.types import (
+    ClassEvidence,
+    ClassificationDecision,
+    EntityhoodDecision,
+)
 from backend.nlp.parsing.markdown_parser import parse
 from backend.nlp.parsing.preprocessing import preprocess
 from backend.nlp.lexicon.bootstrap import bootstrap
+from backend.nlp.promotion.refinement import build_post_entityhood_unresolved_suppressions
 from backend.nlp.types import (
     BootstrappedLexiconEntry,
+    ClusterDiscourseProfile,
     ConfidenceSignals,
     LexiconCategory,
     MentionCluster,
@@ -40,6 +47,59 @@ def run_promote(text: str, path: str = "doc.md"):
     result = bootstrap(doc, pre=pre)
     attribution_records = attribute_dialogue(pre, result.clusters)
     return promote(pre, result.clusters, result.lexicon, attribution_records).bundle
+
+
+def make_cluster(
+    normalized_key: str,
+    *,
+    occurrence_count: int = 2,
+    possessive_support_count: int = 0,
+    discourse_profile: ClusterDiscourseProfile | None = None,
+) -> MentionCluster:
+    """Build a minimal cluster for refinement-only tests."""
+    return MentionCluster(
+        normalized_key=normalized_key,
+        surface_forms=[normalized_key.title()],
+        anchors=[],
+        occurrence_count=occurrence_count,
+        title_support_count=0,
+        possessive_support_count=possessive_support_count,
+        location_support_count=0,
+        linked_fields=[],
+        linked_definitions=[],
+        linked_seeds=[],
+        cluster_id=stable_hash_id("doc.md", normalized_key),
+        discourse_profile=discourse_profile or ClusterDiscourseProfile.empty(),
+    )
+
+
+def make_classification(
+    category: LexiconCategory,
+    *,
+    accepted: bool = True,
+) -> ClassificationDecision:
+    """Build a minimal classification decision for refinement tests."""
+    return ClassificationDecision(
+        winning_category=category,
+        winning_score=0.0,
+        runner_up_category=None,
+        runner_up_score=0.0,
+        evidence_by_category={
+            category: ClassEvidence(
+                category=category,
+                score=0.0,
+                reasons=[],
+                vetoes=[],
+            )
+        },
+        entityhood=EntityhoodDecision(
+            score=0.55 if accepted else 0.20,
+            accepted=accepted,
+            reasons=[],
+            weaknesses=[],
+        ),
+        resolved=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -118,6 +178,71 @@ class TestScoring:
 # ---------------------------------------------------------------------------
 
 class TestPromotion:
+    def test_refinement_suppresses_quote_only_address_like_unresolved_cluster(self):
+        # The new post-entityhood boundary should suppress unresolved
+        # quote-only direct-address debris even when entityhood remained
+        # broadly positive. This keeps rescue from being the first owner of
+        # the structural cleanup rule.
+        cluster = make_cluster(
+            "captain",
+            discourse_profile=ClusterDiscourseProfile(
+                in_quote_count=2,
+                non_quote_count=0,
+                address_like_count=1,
+                one_token_utterance_count=0,
+                quote_only=True,
+            ),
+        )
+        suppressions = build_post_entityhood_unresolved_suppressions(
+            [cluster],
+            {"captain": make_classification(LexiconCategory.UNRESOLVED, accepted=True)},
+        )
+
+        assert suppressions["captain"][0] == SuppressReason.QUOTE_ONLY_ADDRESS_LIKE_DISCOURSE
+        assert "without non-quote support" in suppressions["captain"][1]
+
+    def test_refinement_prefers_address_like_reason_over_one_token_reason(self):
+        # When both discourse patterns match, the refinement step must choose
+        # one decisive reason so later diagnostics stay readable and stable.
+        cluster = make_cluster(
+            "captain",
+            discourse_profile=ClusterDiscourseProfile(
+                in_quote_count=2,
+                non_quote_count=0,
+                address_like_count=1,
+                one_token_utterance_count=1,
+                quote_only=True,
+            ),
+        )
+        suppressions = build_post_entityhood_unresolved_suppressions(
+            [cluster],
+            {"captain": make_classification(LexiconCategory.UNRESOLVED, accepted=True)},
+        )
+
+        assert suppressions["captain"][0] == SuppressReason.QUOTE_ONLY_ADDRESS_LIKE_DISCOURSE
+
+    def test_refinement_preserves_possessive_backed_unresolved_survivor(self):
+        # Possessive support is the required non-regression guard. It keeps
+        # meaningful unresolved survivors from being removed by dialogue shape
+        # alone at the new structural suppression boundary.
+        cluster = make_cluster(
+            "prosser",
+            possessive_support_count=1,
+            discourse_profile=ClusterDiscourseProfile(
+                in_quote_count=1,
+                non_quote_count=0,
+                address_like_count=0,
+                one_token_utterance_count=1,
+                quote_only=True,
+            ),
+        )
+        suppressions = build_post_entityhood_unresolved_suppressions(
+            [cluster],
+            {"prosser": make_classification(LexiconCategory.UNRESOLVED, accepted=True)},
+        )
+
+        assert suppressions == {}
+
     def test_titled_cluster_is_promoted(self):
         # A cluster with a title prefix that appears multiple times must land
         # in the promoted bucket. Titled names are the strongest deterministic

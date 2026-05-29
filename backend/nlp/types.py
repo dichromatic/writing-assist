@@ -1012,6 +1012,9 @@ class MentionCluster:
         possessive_support_count: Number of mentions in possessive form.
         location_support_count: Number of mentions that appeared immediately
             after a locative preposition, indicating likely place context.
+        discourse_profile: Minimal cluster-side discourse evidence used by
+            earlier extraction gates such as entityhood. This stays separate
+            from the richer persisted record-side discourse profile.
         linked_fields: Structured field candidates that reference this cluster's
             normalized key.
         linked_definitions: Definition candidates whose term matches this cluster.
@@ -1030,6 +1033,9 @@ class MentionCluster:
     linked_definitions: list[DefinitionCandidate]
     linked_seeds: list[SectionSummarySeed]
     cluster_id: str
+    discourse_profile: "ClusterDiscourseProfile" = field(
+        default_factory=lambda: ClusterDiscourseProfile.empty()
+    )
 
     @property
     def has_title_support(self) -> bool:
@@ -1045,6 +1051,39 @@ class MentionCluster:
     def has_location_support(self) -> bool:
         """Return True when at least one mention has locative context support."""
         return self.location_support_count > 0
+
+
+@dataclass(frozen=True)
+class ClusterDiscourseProfile:
+    """Minimal discourse evidence attached to a mention cluster.
+
+    Args:
+        in_quote_count: Number of anchors enclosed by quote spans.
+        non_quote_count: Number of anchors outside quote spans.
+        address_like_count: Number of anchors that behave like direct address
+            in dialogue.
+        one_token_utterance_count: Number of anchors that form the only
+            lexical token inside an enclosing quote.
+        quote_only: Whether every anchor in the cluster occurs only inside
+            quotes.
+    """
+
+    in_quote_count: int
+    non_quote_count: int
+    address_like_count: int
+    one_token_utterance_count: int
+    quote_only: bool
+
+    @classmethod
+    def empty(cls) -> "ClusterDiscourseProfile":
+        """Return a zeroed profile for clusters not yet discourse-enriched."""
+        return cls(
+            in_quote_count=0,
+            non_quote_count=0,
+            address_like_count=0,
+            one_token_utterance_count=0,
+            quote_only=False,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1120,6 +1159,8 @@ class SuppressReason(Enum):
     DIALOGUE_INTERNAL = "dialogue_internal"
     GENERIC_LEXICAL_NOISE = "generic_lexical_noise"
     GENERIC_ACTION_NOUN_NOISE = "generic_action_noun_noise"
+    QUOTE_ONLY_ADDRESS_LIKE_DISCOURSE = "quote_only_address_like_discourse"
+    QUOTE_ONLY_ONE_TOKEN_DISCOURSE = "quote_only_one_token_discourse"
     COMPONENT_OVERLAP_NOISE = "component_overlap_noise"
     LOW_ENTITYHOOD = "low_entityhood"
     LOW_CONFIDENCE = "low_confidence"

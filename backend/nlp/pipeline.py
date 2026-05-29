@@ -24,6 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from backend.nlp.discourse.cluster_profile import enrich_clusters_with_discourse
 from backend.nlp.lexicon.bootstrap import BootstrapResult, bootstrap
 from backend.nlp.parsing.document_parser import parse
 from backend.nlp.parsing.preprocessing import PreprocessedDocument, preprocess
@@ -92,6 +93,7 @@ def run_document_pipeline(path: str, raw_text: str) -> DocumentPipelineResult:
     doc = parse(path, raw_text)
     pre = preprocess(doc)
     bootstrap_result = bootstrap(doc, pre=pre)
+    enrich_clusters_with_discourse(pre, bootstrap_result.clusters)
     combined_titles_lower = TITLE_PREFIXES_LOWER | frozenset(
         title.lower() for title in bootstrap_result.induced_title_prefixes
     )

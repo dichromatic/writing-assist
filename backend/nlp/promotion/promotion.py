@@ -8,13 +8,14 @@ buckets and returns promotion outputs for downstream stages.
         A[PreprocessedDocument + Clusters + Lexicon + AttributionRecords] --> B[score_all]
         B --> C{For each cluster}
         C -->|is stopword| D[SuppressedCandidate STOPWORD]
-        C -->|score below SUPPRESS_THRESHOLD| E[SuppressedCandidate LOW_CONFIDENCE]
-        C -->|score >= PROMOTE_THRESHOLD\nAND not bare title key| F[PromotedCandidate]
-        C -->|score >= PROMOTE_THRESHOLD\nAND is bare title key| G[ReviewOnlyCandidate\nreason: bare title prefix]
-        C -->|score between thresholds| G2[ReviewOnlyCandidate\nreason: mid-confidence]
-        F & G & G2 --> H[Build EvidenceWindows for all anchors]
-        D & E & F & G & G2 & H --> I[PromotedEvidenceBundle]
-        I --> J[PromotionResult]
+        C -->|refined discourse suppression| E[SuppressedCandidate QUOTE_ONLY_*_DISCOURSE]
+        C -->|score below SUPPRESS_THRESHOLD| F[SuppressedCandidate LOW_CONFIDENCE]
+        C -->|score >= PROMOTE_THRESHOLD\nAND not bare title key| G[PromotedCandidate]
+        C -->|score >= PROMOTE_THRESHOLD\nAND is bare title key| H[ReviewOnlyCandidate\nreason: bare title prefix]
+        C -->|score between thresholds| I[ReviewOnlyCandidate\nreason: mid-confidence]
+        G & H & I --> J[Build EvidenceWindows for all anchors]
+        D & E & F & G & H & I & J --> K[PromotedEvidenceBundle]
+        K --> L[PromotionResult]
 """
 
 from __future__ import annotations
@@ -49,6 +50,7 @@ from backend.nlp.harvesting.shared import (
     is_stopword,
 )
 from backend.nlp.promotion.attribution import AttributionRecord
+from backend.nlp.promotion.refinement import build_post_entityhood_unresolved_suppressions
 from backend.nlp.promotion.scoring import PROMOTE_THRESHOLD, SUPPRESS_THRESHOLD, score_all
 
 # Maximum characters of surrounding context to include in each EvidenceWindow.
@@ -405,6 +407,10 @@ def promote(
         attribution_records,
         title_prefixes_lower=title_prefixes_lower,
     )
+    refined_unresolved_suppressions = build_post_entityhood_unresolved_suppressions(
+        clusters,
+        classifications,
+    )
     accepted_compound_anchors_by_span = _build_accepted_compound_anchor_index(
         clusters,
         classifications,
@@ -429,6 +435,18 @@ def promote(
 
         signals, score = scores[cluster.normalized_key]
         classification = classifications[cluster.normalized_key]
+        refined_suppression = refined_unresolved_suppressions.get(cluster.normalized_key)
+
+        if refined_suppression is not None:
+            reason, detail = refined_suppression
+            suppressed.append(
+                SuppressedCandidate(
+                    cluster=cluster,
+                    reason=reason,
+                    detail=detail,
+                )
+            )
+            continue
 
         if _should_suppress_component_overlap_noise(
             cluster,

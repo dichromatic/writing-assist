@@ -40,7 +40,6 @@ def assess_entityhood(
         cluster: Cluster being evaluated.
         evidence_by_category: Per-category evidence already computed for the
             cluster during classification arbitration.
-
     Returns:
         An EntityhoodDecision with score, acceptance flag, and trace reasons.
     """
@@ -118,11 +117,13 @@ def assess_entityhood(
     ):
         weaknesses.append("has no structural support beyond capitalization")
 
+    final_score = min(score, 1.0)
+
     return EntityhoodDecision(
-        score=min(score, 1.0),
+        score=final_score,
         # Uses the lower "survival" gate described above; arbitration applies
         # a stricter threshold for final category resolution.
-        accepted=score >= _ENTITYHOOD_THRESHOLD,
+        accepted=final_score >= _ENTITYHOOD_THRESHOLD,
         reasons=reasons,
         weaknesses=weaknesses,
     )

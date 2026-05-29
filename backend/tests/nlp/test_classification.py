@@ -17,6 +17,7 @@ from backend.nlp.clustering.clustering import cluster_mentions
 from backend.nlp.clustering.linking import link_clusters
 from backend.nlp.promotion.attribution import attribute_dialogue
 from backend.nlp.types import (
+    ClusterDiscourseProfile,
     DefinitionCandidate,
     LexiconCategory,
     MentionCluster,
@@ -55,6 +56,7 @@ def make_cluster(
     has_title_support: bool = False,
     has_possessive_support: bool = False,
     has_location_support: bool = False,
+    discourse_profile: ClusterDiscourseProfile | None = None,
 ) -> MentionCluster:
     """Build a minimal cluster for classification-only tests."""
     return MentionCluster(
@@ -69,6 +71,7 @@ def make_cluster(
         linked_definitions=[],
         linked_seeds=[],
         cluster_id=stable_hash_id("doc.md", normalized_key),
+        discourse_profile=discourse_profile or ClusterDiscourseProfile.empty(),
     )
 
 
@@ -387,6 +390,94 @@ class TestClassification:
         assert decision.winning_category == LexiconCategory.UNRESOLVED
         assert decision.resolved is False
         assert decision.entityhood.accepted is False
+
+    def test_unresolved_quote_only_address_like_cluster_keeps_broad_entityhood(self):
+        # Post-entityhood discourse suppression means entityhood should stay a
+        # broad plausibility gate. Recurring unresolved dialogue fragments can
+        # still clear entityhood and be suppressed later by the structural
+        # promotion boundary instead.
+        cluster = make_cluster(
+            "north wind",
+            occurrence_count=2,
+            discourse_profile=ClusterDiscourseProfile(
+                in_quote_count=2,
+                non_quote_count=0,
+                address_like_count=1,
+                one_token_utterance_count=0,
+                quote_only=True,
+            ),
+        )
+        decision = classify_cluster(cluster, None, [])
+
+        assert decision.winning_category == LexiconCategory.UNRESOLVED
+        assert decision.resolved is False
+        assert decision.entityhood.accepted is True
+        assert decision.entityhood.score == 0.55
+        assert "quote_only_address_like_discourse" not in decision.entityhood.weaknesses
+
+    def test_unresolved_quote_only_one_token_cluster_keeps_broad_entityhood(self):
+        # One-token utterance shape is now handled by the post-entityhood
+        # suppression step. Entityhood should still describe plausibility only.
+        cluster = make_cluster(
+            "north wind",
+            occurrence_count=2,
+            discourse_profile=ClusterDiscourseProfile(
+                in_quote_count=2,
+                non_quote_count=0,
+                address_like_count=1,
+                one_token_utterance_count=1,
+                quote_only=True,
+            ),
+        )
+        decision = classify_cluster(cluster, None, [])
+
+        assert decision.entityhood.accepted is True
+        assert decision.entityhood.score == 0.55
+        assert "quote_only_address_like_discourse" not in decision.entityhood.weaknesses
+        assert "quote_only_one_token_discourse" not in decision.entityhood.weaknesses
+
+    def test_bare_title_unresolved_cluster_keeps_entityhood_until_refinement(self):
+        # Bare titles still clear entityhood because the later refinement step,
+        # not entityhood, now owns quote-only discourse suppression.
+        cluster = make_cluster(
+            "captain",
+            discourse_profile=ClusterDiscourseProfile(
+                in_quote_count=1,
+                non_quote_count=0,
+                address_like_count=1,
+                one_token_utterance_count=1,
+                quote_only=True,
+            ),
+        )
+        decision = classify_cluster(cluster, None, [])
+
+        assert decision.winning_category == LexiconCategory.UNRESOLVED
+        assert decision.resolved is False
+        assert decision.entityhood.accepted is True
+        assert decision.entityhood.score == 0.55
+        assert "quote_only_address_like_discourse" not in decision.entityhood.weaknesses
+
+    def test_possessive_unresolved_cluster_stays_entityhood_positive(self):
+        # Possessive support remains positive entityhood evidence, independent
+        # of the later unresolved discourse suppression guard.
+        cluster = make_cluster(
+            "prosser",
+            has_possessive_support=True,
+            discourse_profile=ClusterDiscourseProfile(
+                in_quote_count=1,
+                non_quote_count=0,
+                address_like_count=0,
+                one_token_utterance_count=1,
+                quote_only=True,
+            ),
+        )
+        decision = classify_cluster(cluster, None, [])
+
+        assert decision.winning_category == LexiconCategory.UNRESOLVED
+        assert decision.resolved is False
+        assert decision.entityhood.accepted is True
+        assert decision.entityhood.score == 0.55
+        assert "quote_only_one_token_discourse" not in decision.entityhood.weaknesses
 
     def test_bulk_classification_returns_mapping_by_cluster_key(self):
         pre, clusters = harvest_and_cluster("She met Captain Aldous in Tairngire.")

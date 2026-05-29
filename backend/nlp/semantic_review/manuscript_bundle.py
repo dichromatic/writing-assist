@@ -234,6 +234,10 @@ def _render_record_snapshot(record) -> list[str]:
         promotion.suppression_reason.value
         if promotion.suppression_reason is not None else "-"
     )
+    weaknesses = (
+        ", ".join(classification.entityhood.weaknesses)
+        if classification.entityhood.weaknesses else "-"
+    )
     return [
         (
             f"  {record.identity.normalized_key:20s}  path={path}"
@@ -258,6 +262,7 @@ def _render_record_snapshot(record) -> list[str]:
             f"entityhood={classification.entityhood.score:.3f}  "
             f"accepted={accepted}"
         ),
+        f"    entityhood_weaknesses: {weaknesses}",
         f"    class_scores: {_format_category_trace(record)}",
         (
             "    promo: "
