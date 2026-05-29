@@ -50,6 +50,49 @@ _RESCUABLE_REASONS = {
 _SCHEMA_ID = "manuscript_suppression_rescue.v1"
 
 
+def _discourse_rescue_rejection_reason(
+    record: DocumentEntityRecord,
+) -> str | None:
+    """Return a discourse-based rejection reason when the usage pattern is junk-like.
+
+    Quote-only unresolved tokens that appear mainly as address-like dialogue
+    debris or one-token utterances are the clearest low-value rescue calls in
+    the current manuscript corpus. This gate removes those without relying on
+    project-specific word lists.
+    """
+    profile = record.discourse_profile
+
+    if record.current_state.winning_category != LexiconCategory.UNRESOLVED:
+        return None
+    if not profile.quote_only or profile.non_quote_count > 0:
+        return None
+    if profile.address_like_count > 0:
+        return "quote_only_address_like_discourse"
+    if profile.one_token_utterance_count > 0:
+        return "quote_only_one_token_discourse"
+    return None
+
+
+def _lineage_rescue_rejection_reason(
+    record: DocumentEntityRecord,
+) -> str | None:
+    """Return a lineage-based rejection reason for structurally dependent fragments.
+
+    A component-overlap fragment only deserves LLM triage when it still has
+    uncovered local support outside longer compounds. Fully covered fragments
+    add prompt noise without adding new evidence.
+    """
+    if record.promotion_trace.suppression_reason != SuppressReason.COMPONENT_OVERLAP_NOISE:
+        return None
+
+    profile = record.lineage_profile
+    if profile.fully_covered_by_longer_compound and profile.uncovered_anchor_count == 0:
+        return "fully_covered_by_longer_compound"
+    if profile.appears_as_compound_component and profile.uncovered_anchor_count == 0:
+        return "component_only_no_uncovered_support"
+    return None
+
+
 def _rescue_candidate_selected(
     record: DocumentEntityRecord,
     absorbed_keys: frozenset[str],
@@ -81,6 +124,15 @@ def _rescue_candidate_selected(
         and record.classification_trace.entityhood.score < 0.25
     ):
         return False, "unresolved_very_low_entityhood"
+
+    discourse_rejection = _discourse_rescue_rejection_reason(record)
+    if discourse_rejection is not None:
+        return False, discourse_rejection
+
+    lineage_rejection = _lineage_rescue_rejection_reason(record)
+    if lineage_rejection is not None:
+        return False, lineage_rejection
+
     return True, "rescue_candidate"
 
 
@@ -226,6 +278,13 @@ def build_rescue_task_packets(
                     "occurrence_count": record.source_evidence.occurrence_count,
                     "scene_count": record.promotion_trace.scene_count,
                     "anchor_count": len(record.source_evidence.anchors),
+                    "quote_only": int(record.discourse_profile.quote_only),
+                    "address_like_count": record.discourse_profile.address_like_count,
+                    "one_token_utterance_count": record.discourse_profile.one_token_utterance_count,
+                    "uncovered_anchor_count": record.lineage_profile.uncovered_anchor_count,
+                    "fully_covered_by_longer_compound": int(
+                        record.lineage_profile.fully_covered_by_longer_compound
+                    ),
                 },
             )
         )

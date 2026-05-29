@@ -42,6 +42,16 @@ def _suppressed_record(
     winning_category: LexiconCategory = LexiconCategory.UNRESOLVED,
     has_title_support: bool = False,
     attribution_count: int = 0,
+    in_quote_count: int = 0,
+    non_quote_count: int | None = None,
+    quote_only: bool = False,
+    address_like_count: int = 0,
+    one_token_utterance_count: int = 0,
+    fully_covered_by_longer_compound: bool = False,
+    candidate_parent_keys: list[str] | None = None,
+    covered_anchor_count: int = 0,
+    uncovered_anchor_count: int = 1,
+    appears_as_compound_component: bool = False,
 ) -> DocumentEntityRecord:
     """Build one suppressed entity record for rescue-selection tests."""
     anchor = SpanAnchor(path=path, span_ordinal=0, start_char=0, end_char=len(key))
@@ -92,14 +102,14 @@ def _suppressed_record(
             tfidf_score=0.0,
         ),
         discourse_profile=DocumentEntityDiscourseProfile(
-            in_quote_count=0,
-            non_quote_count=occurrence_count,
-            quote_only=False,
+            in_quote_count=in_quote_count,
+            non_quote_count=occurrence_count if non_quote_count is None else non_quote_count,
+            quote_only=quote_only,
             sentence_initial_count=0,
             sentence_initial_only=False,
-            address_like_count=0,
+            address_like_count=address_like_count,
             attributed_speaker_nearby_count=0,
-            one_token_utterance_count=0,
+            one_token_utterance_count=one_token_utterance_count,
         ),
         support_profile=DocumentEntitySupportProfile(
             title_support_count=1 if has_title_support else 0,
@@ -111,11 +121,11 @@ def _suppressed_record(
         ),
         lineage_profile=DocumentEntityLineageProfile(
             compound_part_count=len(key.split()),
-            fully_covered_by_longer_compound=False,
-            candidate_parent_keys=[],
-            covered_anchor_count=0,
-            uncovered_anchor_count=1,
-            appears_as_compound_component=False,
+            fully_covered_by_longer_compound=fully_covered_by_longer_compound,
+            candidate_parent_keys=[] if candidate_parent_keys is None else candidate_parent_keys,
+            covered_anchor_count=covered_anchor_count,
+            uncovered_anchor_count=uncovered_anchor_count,
+            appears_as_compound_component=appears_as_compound_component,
             appears_as_compound_surface=(" " in key),
         ),
     )
@@ -256,6 +266,76 @@ def test_rescue_packet_payload_contains_entity_metadata():
     assert payload["occurrence_count"] == 6
     assert payload["scene_count"] == 3
     assert payload["entityhood_score"] == 0.5
+
+
+def test_rescue_rejects_quote_only_address_like_discourse_junk():
+    # Quote-only unresolved address-like tokens are the clearest low-value
+    # rescue calls and should be rejected before they reach the LLM.
+    record = _suppressed_record(
+        path="doc.md",
+        key="hey",
+        suppression_reason=SuppressReason.GENERIC_LEXICAL_NOISE,
+        occurrence_count=5,
+        scene_count=3,
+        in_quote_count=5,
+        non_quote_count=0,
+        quote_only=True,
+        address_like_count=3,
+        one_token_utterance_count=1,
+        winning_category=LexiconCategory.UNRESOLVED,
+        entityhood_score=0.38,
+    )
+    bundle = _bundle_with_records([record])
+    packets, diagnostics = build_rescue_task_packets(bundle, _DOC_TEXTS)
+
+    assert packets == []
+    rejected = {d.source_object_id: d.reason for d in diagnostics if not d.selected}
+    assert rejected["hey"] == "quote_only_address_like_discourse"
+
+
+def test_rescue_keeps_component_fragment_with_uncovered_support():
+    # Component-overlap fragments still deserve LLM triage when they retain
+    # uncovered anchors outside longer compounds.
+    record = _suppressed_record(
+        path="doc.md",
+        key="firth",
+        suppression_reason=SuppressReason.COMPONENT_OVERLAP_NOISE,
+        occurrence_count=5,
+        scene_count=3,
+        covered_anchor_count=3,
+        uncovered_anchor_count=2,
+        appears_as_compound_component=True,
+        candidate_parent_keys=["radiant firth"],
+    )
+    bundle = _bundle_with_records([record])
+    packets, diagnostics = build_rescue_task_packets(bundle, _DOC_TEXTS)
+
+    assert {packet.source_object_id for packet in packets} == {"firth"}
+    selected = {d.source_object_id: d.reason for d in diagnostics if d.selected}
+    assert selected["firth"] == "rescue_candidate"
+
+
+def test_rescue_rejects_fully_covered_component_fragment_without_uncovered_support():
+    # Fully covered component fragments add no new local evidence and should
+    # not survive rescue triage just because they recur inside longer forms.
+    record = _suppressed_record(
+        path="doc.md",
+        key="radiant",
+        suppression_reason=SuppressReason.COMPONENT_OVERLAP_NOISE,
+        occurrence_count=6,
+        scene_count=3,
+        fully_covered_by_longer_compound=True,
+        candidate_parent_keys=["radiant firth", "radiant estuary"],
+        covered_anchor_count=6,
+        uncovered_anchor_count=0,
+        appears_as_compound_component=True,
+    )
+    bundle = _bundle_with_records([record])
+    packets, diagnostics = build_rescue_task_packets(bundle, _DOC_TEXTS)
+
+    assert packets == []
+    rejected = {d.source_object_id: d.reason for d in diagnostics if not d.selected}
+    assert rejected["radiant"] == "fully_covered_by_longer_compound"
 
 
 def test_rescue_skips_entities_already_absorbed_into_compounds():
