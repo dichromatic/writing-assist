@@ -2,11 +2,21 @@
 
 from backend.nlp.reconciliation.document_entities import summarize_document_entities
 from backend.nlp.types import (
+    CategoryEvidenceTrace,
     CharacterSemanticSummary,
     ConflictSource,
     DocumentAnchor,
     DocumentEntityBucket,
+    DocumentEntityClassificationTrace,
+    DocumentEntityCurrentState,
+    DocumentEntityDiscourseProfile,
+    DocumentEntityIdentity,
+    DocumentEntityLineageProfile,
+    DocumentEntityPromotionTrace,
     DocumentEntityRecord,
+    DocumentEntitySourceEvidence,
+    DocumentEntitySupportProfile,
+    EntityhoodTrace,
     EvidenceWindow,
     LexiconCategory,
     ReferenceCandidate,
@@ -46,6 +56,7 @@ def _document_records(text: str, path: str = "doc.md"):
         promotion_result.bundle,
         promotion_result.scores,
         promotion_result.classifications,
+        attribution_records,
     )
     return pre, records
 
@@ -63,6 +74,7 @@ def _document_outputs(text: str, path: str = "doc.md"):
         promotion_result.bundle,
         promotion_result.scores,
         promotion_result.classifications,
+        attribution_records,
     )
     return pre, records, attribution_records
 
@@ -78,36 +90,90 @@ def _make_record(
     suppression_reason: SuppressReason | None = None,
 ) -> DocumentEntityRecord:
     """Build a minimal document entity record for semantic-review tests."""
+    anchor = SpanAnchor(path=path, span_ordinal=0, start_char=0, end_char=len(normalized_key))
     return DocumentEntityRecord(
-        document_anchor=DocumentAnchor(path=path),
-        normalized_key=normalized_key,
-        surface_forms=[normalized_key.title()],
-        winning_category=category,
-        resolved=resolved,
-        entityhood_score=0.6,
-        entityhood_accepted=True,
-        confidence_score=confidence_score,
-        bucket=bucket,
-        suppression_reason=suppression_reason,
-        bucket_detail="",
-        occurrence_count=2,
-        rule_tier=2,
-        scene_count=1,
-        attribution_count=0,
-        has_title_support=False,
-        has_possessive_support=False,
-        anchors=[SpanAnchor(path=path, span_ordinal=0, start_char=0, end_char=len(normalized_key))],
-        evidence_windows=[
-            EvidenceWindow(
-                entity_key=normalized_key,
-                anchor=SpanAnchor(path=path, span_ordinal=0, start_char=0, end_char=len(normalized_key)),
-                context_before="",
-                context_after="",
-                is_first_introduction=True,
-                has_attribution=False,
-                speaker=None,
-            )
-        ],
+        identity=DocumentEntityIdentity(
+            record_id=f"test-{path}-{normalized_key}",
+            document_anchor=DocumentAnchor(path=path),
+            normalized_key=normalized_key,
+            surface_forms=[normalized_key.title()],
+        ),
+        current_state=DocumentEntityCurrentState(
+            winning_category=category,
+            resolved=resolved,
+            bucket=bucket,
+        ),
+        source_evidence=DocumentEntitySourceEvidence(
+            occurrence_count=2,
+            anchors=[anchor],
+            evidence_windows=[
+                EvidenceWindow(
+                    entity_key=normalized_key,
+                    anchor=anchor,
+                    context_before="",
+                    context_after="",
+                    is_first_introduction=True,
+                    has_attribution=False,
+                    speaker=None,
+                )
+            ],
+        ),
+        classification_trace=DocumentEntityClassificationTrace(
+            winning_score=0.6,
+            runner_up_category=None,
+            runner_up_score=0.0,
+            evidence_by_category={
+                category: CategoryEvidenceTrace(
+                    category=category,
+                    score=0.6,
+                    reasons=[],
+                    vetoes=[],
+                )
+            },
+            entityhood=EntityhoodTrace(
+                score=0.6,
+                accepted=True,
+                reasons=[],
+                weaknesses=[],
+            ),
+        ),
+        promotion_trace=DocumentEntityPromotionTrace(
+            confidence_score=confidence_score,
+            suppression_reason=suppression_reason,
+            bucket_detail="",
+            rule_tier=2,
+            scene_count=1,
+            attribution_count=0,
+            possessive_count=0,
+            tfidf_score=0.0,
+        ),
+        discourse_profile=DocumentEntityDiscourseProfile(
+            in_quote_count=0,
+            non_quote_count=2,
+            quote_only=False,
+            sentence_initial_count=0,
+            sentence_initial_only=False,
+            address_like_count=0,
+            attributed_speaker_nearby_count=0,
+            one_token_utterance_count=0,
+        ),
+        support_profile=DocumentEntitySupportProfile(
+            title_support_count=0,
+            possessive_support_count=0,
+            location_support_count=0,
+            linked_field_count=0,
+            linked_definition_count=0,
+            linked_seed_count=0,
+        ),
+        lineage_profile=DocumentEntityLineageProfile(
+            compound_part_count=len(normalized_key.split()),
+            fully_covered_by_longer_compound=False,
+            candidate_parent_keys=[],
+            covered_anchor_count=0,
+            uncovered_anchor_count=1,
+            appears_as_compound_component=False,
+            appears_as_compound_surface=(" " in normalized_key),
+        ),
     )
 
 
@@ -207,7 +273,7 @@ class TestReferenceCandidates:
         records = [
             _make_record("doc.md", "connall", LexiconCategory.CHARACTER),
         ]
-        records[0].anchors = [
+        records[0].source_evidence.anchors = [
             SpanAnchor(path="doc.md", span_ordinal=0, start_char=8, end_char=15),
             SpanAnchor(path="doc.md", span_ordinal=0, start_char=29, end_char=36),
         ]
@@ -235,9 +301,9 @@ class TestReferenceCandidates:
             _make_record("doc.md", "man hiroshi", LexiconCategory.CHARACTER, confidence_score=0.60),
             _make_record("doc.md", "old man hiroshi", LexiconCategory.CHARACTER, confidence_score=0.55),
         ]
-        records[0].anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=22, end_char=29)]
-        records[1].anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=18, end_char=29)]
-        records[2].anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=14, end_char=29)]
+        records[0].source_evidence.anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=22, end_char=29)]
+        records[1].source_evidence.anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=18, end_char=29)]
+        records[2].source_evidence.anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=14, end_char=29)]
 
         candidates = extract_reference_candidates(pre, records, [])
         child = next(
@@ -263,8 +329,8 @@ class TestReferenceCandidates:
                 suppression_reason=SuppressReason.COMPONENT_OVERLAP_NOISE,
             ),
         ]
-        records[0].anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=22, end_char=29)]
-        records[1].anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=14, end_char=29)]
+        records[0].source_evidence.anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=22, end_char=29)]
+        records[1].source_evidence.anchors = [SpanAnchor(path="doc.md", span_ordinal=0, start_char=14, end_char=29)]
         clusters = build_reference_clusters([
             ReferenceCandidate(
                 document_anchor=DocumentAnchor(path="doc.md"),

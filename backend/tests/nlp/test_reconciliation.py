@@ -16,9 +16,19 @@ from backend.nlp.promotion.promotion import promote
 from backend.nlp.reconciliation.corpus_entities import reconcile_document_entities
 from backend.nlp.reconciliation.document_entities import summarize_document_entities
 from backend.nlp.types import (
+    CategoryEvidenceTrace,
     DocumentAnchor,
     DocumentEntityBucket,
+    DocumentEntityClassificationTrace,
+    DocumentEntityCurrentState,
+    DocumentEntityDiscourseProfile,
+    DocumentEntityIdentity,
+    DocumentEntityLineageProfile,
+    DocumentEntityPromotionTrace,
     DocumentEntityRecord,
+    DocumentEntitySourceEvidence,
+    DocumentEntitySupportProfile,
+    EntityhoodTrace,
     EvidenceWindow,
     LexiconCategory,
     SpanAnchor,
@@ -39,7 +49,26 @@ def run_document_entities(text: str, path: str) -> list[DocumentEntityRecord]:
         promotion_result.bundle,
         promotion_result.scores,
         promotion_result.classifications,
+        attribution_records,
     )
+
+
+def run_document_entity_inputs(text: str, path: str):
+    """Return full summarize inputs and outputs for trace-level assertions."""
+    doc = parse(path, text)
+    pre = preprocess(doc)
+    result = bootstrap(doc)
+    attribution_records = attribute_dialogue(pre, result.clusters)
+    promotion_result = promote(pre, result.clusters, result.lexicon, attribution_records)
+    records = summarize_document_entities(
+        pre,
+        result.clusters,
+        promotion_result.bundle,
+        promotion_result.scores,
+        promotion_result.classifications,
+        attribution_records,
+    )
+    return result, promotion_result, records
 
 
 def make_record(
@@ -53,36 +82,90 @@ def make_record(
     suppression_reason: SuppressReason | None = None,
 ) -> DocumentEntityRecord:
     """Build a minimal document entity record for reconciliation tests."""
+    anchor = SpanAnchor(path=path, span_ordinal=0, start_char=0, end_char=len(normalized_key))
     return DocumentEntityRecord(
-        document_anchor=DocumentAnchor(path=path),
-        normalized_key=normalized_key,
-        surface_forms=[normalized_key.title()],
-        winning_category=category,
-        resolved=resolved,
-        entityhood_score=0.6,
-        entityhood_accepted=True,
-        confidence_score=confidence_score,
-        bucket=bucket,
-        suppression_reason=suppression_reason,
-        bucket_detail="",
-        occurrence_count=2,
-        rule_tier=2,
-        scene_count=1,
-        attribution_count=0,
-        has_title_support=False,
-        has_possessive_support=False,
-        anchors=[SpanAnchor(path=path, span_ordinal=0, start_char=0, end_char=len(normalized_key))],
-        evidence_windows=[
-            EvidenceWindow(
-                entity_key=normalized_key,
-                anchor=SpanAnchor(path=path, span_ordinal=0, start_char=0, end_char=len(normalized_key)),
-                context_before="",
-                context_after="",
-                is_first_introduction=True,
-                has_attribution=False,
-                speaker=None,
-            )
-        ],
+        identity=DocumentEntityIdentity(
+            record_id=f"test-{path}-{normalized_key}",
+            document_anchor=DocumentAnchor(path=path),
+            normalized_key=normalized_key,
+            surface_forms=[normalized_key.title()],
+        ),
+        current_state=DocumentEntityCurrentState(
+            winning_category=category,
+            resolved=resolved,
+            bucket=bucket,
+        ),
+        source_evidence=DocumentEntitySourceEvidence(
+            occurrence_count=2,
+            anchors=[anchor],
+            evidence_windows=[
+                EvidenceWindow(
+                    entity_key=normalized_key,
+                    anchor=anchor,
+                    context_before="",
+                    context_after="",
+                    is_first_introduction=True,
+                    has_attribution=False,
+                    speaker=None,
+                )
+            ],
+        ),
+        classification_trace=DocumentEntityClassificationTrace(
+            winning_score=0.6,
+            runner_up_category=None,
+            runner_up_score=0.0,
+            evidence_by_category={
+                category: CategoryEvidenceTrace(
+                    category=category,
+                    score=0.6,
+                    reasons=[],
+                    vetoes=[],
+                )
+            },
+            entityhood=EntityhoodTrace(
+                score=0.6,
+                accepted=True,
+                reasons=[],
+                weaknesses=[],
+            ),
+        ),
+        promotion_trace=DocumentEntityPromotionTrace(
+            confidence_score=confidence_score,
+            suppression_reason=suppression_reason,
+            bucket_detail="",
+            rule_tier=2,
+            scene_count=1,
+            attribution_count=0,
+            possessive_count=0,
+            tfidf_score=0.0,
+        ),
+        discourse_profile=DocumentEntityDiscourseProfile(
+            in_quote_count=0,
+            non_quote_count=2,
+            quote_only=False,
+            sentence_initial_count=0,
+            sentence_initial_only=False,
+            address_like_count=0,
+            attributed_speaker_nearby_count=0,
+            one_token_utterance_count=0,
+        ),
+        support_profile=DocumentEntitySupportProfile(
+            title_support_count=0,
+            possessive_support_count=0,
+            location_support_count=0,
+            linked_field_count=0,
+            linked_definition_count=0,
+            linked_seed_count=0,
+        ),
+        lineage_profile=DocumentEntityLineageProfile(
+            compound_part_count=len(normalized_key.split()),
+            fully_covered_by_longer_compound=False,
+            candidate_parent_keys=[],
+            covered_anchor_count=0,
+            uncovered_anchor_count=1,
+            appears_as_compound_component=False,
+            appears_as_compound_surface=(" " in normalized_key),
+        ),
     )
 
 
@@ -96,13 +179,13 @@ class TestDocumentEntitySummaries:
             "In Sidhe, bells rang. Sidhe slept."
         )
         records = run_document_entities(text, "doc-a.md")
-        by_key = {record.normalized_key: record for record in records}
+        by_key = {record.identity.normalized_key: record for record in records}
 
-        assert by_key["aldous"].bucket == DocumentEntityBucket.PROMOTED
-        assert by_key["aldous"].winning_category == LexiconCategory.CHARACTER
+        assert by_key["aldous"].current_state.bucket == DocumentEntityBucket.PROMOTED
+        assert by_key["aldous"].current_state.winning_category == LexiconCategory.CHARACTER
 
-        assert by_key["sidhe"].bucket == DocumentEntityBucket.REVIEW_ONLY
-        assert by_key["sidhe"].winning_category == LexiconCategory.PLACE
+        assert by_key["sidhe"].current_state.bucket == DocumentEntityBucket.REVIEW_ONLY
+        assert by_key["sidhe"].current_state.winning_category == LexiconCategory.PLACE
 
     def test_suppressed_overlap_attaches_to_stronger_local_entity_record(self):
         # Suppressed overlap fragments should not disappear entirely before the
@@ -110,15 +193,107 @@ class TestDocumentEntitySummaries:
         # they should travel with that entity as retained secondary evidence.
         path = "examples/4. Tairngire.md"
         records = run_document_entities(Path(path).read_text(encoding="utf-8"), path)
-        by_key = {record.normalized_key: record for record in records}
+        by_key = {record.identity.normalized_key: record for record in records}
 
         assert "lantern festival" in by_key
         attached_keys = {
             evidence.normalized_key
-            for evidence in by_key["lantern festival"].suppressed_related_evidence
+            for evidence in by_key["lantern festival"].source_evidence.suppressed_related_evidence
         }
         assert "lantern" in attached_keys
         assert "festival" in attached_keys
+
+    def test_summary_preserves_full_classification_trace_from_classifier(self):
+        # The record-local classification trace should preserve all category
+        # and entityhood evidence from classification so later stages do not
+        # need to recover dropped decision details.
+        result, promotion_result, records = run_document_entity_inputs(
+            "Captain Aldous arrived in Sidhe. Sidhe bells rang.",
+            "doc-trace.md",
+        )
+        by_key = {record.identity.normalized_key: record for record in records}
+
+        for cluster in result.clusters:
+            key = cluster.normalized_key
+            source = promotion_result.classifications[key]
+            trace = by_key[key].classification_trace
+
+            assert trace.winning_score == source.winning_score
+            assert trace.runner_up_category == source.runner_up_category
+            assert trace.runner_up_score == source.runner_up_score
+            assert set(trace.evidence_by_category) == set(source.evidence_by_category)
+            for category, evidence in source.evidence_by_category.items():
+                mapped = trace.evidence_by_category[category]
+                assert mapped.category == evidence.category
+                assert mapped.score == evidence.score
+                assert mapped.reasons == evidence.reasons
+                assert mapped.vetoes == evidence.vetoes
+            assert trace.entityhood.score == source.entityhood.score
+            assert trace.entityhood.accepted == source.entityhood.accepted
+            assert trace.entityhood.reasons == source.entityhood.reasons
+            assert trace.entityhood.weaknesses == source.entityhood.weaknesses
+
+    def test_summary_preserves_promotion_trace_signals_and_bucket_details(self):
+        # Promotion trace fields capture suppression and routing evidence that
+        # is not reconstructible from the final bucket alone.
+        result, promotion_result, records = run_document_entity_inputs(
+            Path("examples/4. Tairngire.md").read_text(encoding="utf-8"),
+            "examples/4. Tairngire.md",
+        )
+        by_key = {record.identity.normalized_key: record for record in records}
+        suppressed_by_key = {
+            candidate.cluster.normalized_key: candidate
+            for candidate in promotion_result.bundle.suppressed
+        }
+
+        for cluster in result.clusters:
+            key = cluster.normalized_key
+            signals, score = promotion_result.scores[key]
+            trace = by_key[key].promotion_trace
+
+            assert trace.confidence_score == score
+            assert trace.rule_tier == signals.rule_tier
+            assert trace.scene_count == signals.scene_count
+            assert trace.attribution_count == signals.attribution_count
+            assert trace.possessive_count == signals.possessive_count
+            assert trace.tfidf_score == signals.tfidf_score
+            if key in suppressed_by_key:
+                assert trace.suppression_reason == suppressed_by_key[key].reason
+                assert trace.bucket_detail == suppressed_by_key[key].detail
+
+    def test_summary_derives_discourse_profile_for_quote_and_address_usage(self):
+        # Quote membership, direct address, and sentence-initial usage are
+        # separate discourse signals and should be preserved distinctly.
+        records = run_document_entities(
+            '"Aldous," Kohaku said. Aldous waited.',
+            "doc-discourse.md",
+        )
+        aldous = next(record for record in records if record.identity.normalized_key == "aldous")
+
+        assert aldous.discourse_profile.in_quote_count == 1
+        assert aldous.discourse_profile.non_quote_count == 1
+        assert aldous.discourse_profile.quote_only is False
+        assert aldous.discourse_profile.address_like_count == 1
+        assert aldous.discourse_profile.sentence_initial_count >= 1
+        assert aldous.discourse_profile.attributed_speaker_nearby_count == 1
+
+    def test_summary_tracks_lineage_coverage_counts_for_component_vs_independent_use(self):
+        # Coverage counts should distinguish component-only appearances inside
+        # longer compounds from independent standalone support.
+        records = run_document_entities(
+            Path("examples/4. Tairngire.md").read_text(encoding="utf-8"),
+            "examples/4. Tairngire.md",
+        )
+        by_key = {record.identity.normalized_key: record for record in records}
+        lantern = by_key["lantern"]
+
+        assert lantern.lineage_profile.covered_anchor_count > 0
+        assert "lantern festival" in lantern.lineage_profile.candidate_parent_keys
+        assert (
+            lantern.lineage_profile.covered_anchor_count
+            + lantern.lineage_profile.uncovered_anchor_count
+            == lantern.source_evidence.occurrence_count
+        )
 
 
 class TestCorpusReconciliation:

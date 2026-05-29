@@ -39,7 +39,7 @@ def merge_non_character_contained_aliases(
         if compound_entity.dominant_category in {LexiconCategory.CHARACTER, LexiconCategory.UNRESOLVED}:
             continue
 
-        anchor_paths = sorted({record.document_anchor.path for record in anchor_records})
+        anchor_paths = sorted({record.identity.document_anchor.path for record in anchor_records})
         candidate_aliases = {" ".join(parts[1:])}
         for alias_key in candidate_aliases:
             alias_parts = alias_key.split()
@@ -62,11 +62,11 @@ def merge_non_character_contained_aliases(
                 continue
 
             alias_occ = sum(
-                record.occurrence_count
+                record.source_evidence.occurrence_count
                 for record in all_records_by_key.get(alias_key, [])
             )
             compound_occ = sum(
-                record.occurrence_count
+                record.source_evidence.occurrence_count
                 for record in all_records_by_key.get(key, [])
             )
             if alias_occ > compound_occ:

@@ -9,10 +9,20 @@ from backend.nlp.types import (
     CharacterSemanticSummary,
     ConflictSource,
     CorpusEntity,
+    DocumentEntityClassificationTrace,
     DocumentAnchor,
     DocumentEntityBucket,
+    DocumentEntityCurrentState,
+    DocumentEntityDiscourseProfile,
     DocumentEntityRecord,
+    DocumentEntityIdentity,
+    DocumentEntityLineageProfile,
+    DocumentEntityPromotionTrace,
+    DocumentEntitySourceEvidence,
+    DocumentEntitySupportProfile,
     EvidenceWindow,
+    EntityhoodTrace,
+    CategoryEvidenceTrace,
     LexiconCategory,
     ManuscriptReviewBundle,
     ReviewTask,
@@ -41,35 +51,88 @@ def _make_record(
     """
     anchor = SpanAnchor(path=path, span_ordinal=0, start_char=0, end_char=len(normalized_key))
     return DocumentEntityRecord(
-        document_anchor=DocumentAnchor(path=path),
-        normalized_key=normalized_key,
-        surface_forms=[normalized_key.title()],
-        winning_category=category,
-        resolved=True,
-        entityhood_score=0.7,
-        entityhood_accepted=True,
-        confidence_score=0.7,
-        bucket=bucket,
-        suppression_reason=None,
-        bucket_detail="",
-        occurrence_count=1,
-        rule_tier=1,
-        scene_count=1,
-        attribution_count=0,
-        has_title_support=False,
-        has_possessive_support=False,
-        anchors=[anchor],
-        evidence_windows=[
-            EvidenceWindow(
-                entity_key=normalized_key,
-                anchor=anchor,
-                context_before="",
-                context_after="",
-                is_first_introduction=True,
-                has_attribution=False,
-                speaker=None,
-            )
-        ],
+        identity=DocumentEntityIdentity(
+            record_id=f"record:{path}:{normalized_key}",
+            document_anchor=DocumentAnchor(path=path),
+            normalized_key=normalized_key,
+            surface_forms=[normalized_key.title()],
+        ),
+        current_state=DocumentEntityCurrentState(
+            winning_category=category,
+            resolved=True,
+            bucket=bucket,
+        ),
+        source_evidence=DocumentEntitySourceEvidence(
+            occurrence_count=1,
+            anchors=[anchor],
+            evidence_windows=[
+                EvidenceWindow(
+                    entity_key=normalized_key,
+                    anchor=anchor,
+                    context_before="",
+                    context_after="",
+                    is_first_introduction=True,
+                    has_attribution=False,
+                    speaker=None,
+                )
+            ],
+        ),
+        classification_trace=DocumentEntityClassificationTrace(
+            winning_score=0.7,
+            runner_up_category=None,
+            runner_up_score=0.0,
+            evidence_by_category={
+                category: CategoryEvidenceTrace(
+                    category=category,
+                    score=0.7,
+                    reasons=[],
+                    vetoes=[],
+                )
+            },
+            entityhood=EntityhoodTrace(
+                score=0.7,
+                accepted=True,
+                reasons=[],
+                weaknesses=[],
+            ),
+        ),
+        promotion_trace=DocumentEntityPromotionTrace(
+            confidence_score=0.7,
+            suppression_reason=None,
+            bucket_detail="",
+            rule_tier=1,
+            scene_count=1,
+            attribution_count=0,
+            possessive_count=0,
+            tfidf_score=0.0,
+        ),
+        discourse_profile=DocumentEntityDiscourseProfile(
+            in_quote_count=0,
+            non_quote_count=1,
+            quote_only=False,
+            sentence_initial_count=0,
+            sentence_initial_only=False,
+            address_like_count=0,
+            attributed_speaker_nearby_count=0,
+            one_token_utterance_count=0,
+        ),
+        support_profile=DocumentEntitySupportProfile(
+            title_support_count=0,
+            possessive_support_count=0,
+            location_support_count=0,
+            linked_field_count=0,
+            linked_definition_count=0,
+            linked_seed_count=0,
+        ),
+        lineage_profile=DocumentEntityLineageProfile(
+            compound_part_count=1,
+            fully_covered_by_longer_compound=False,
+            candidate_parent_keys=[],
+            covered_anchor_count=0,
+            uncovered_anchor_count=1,
+            appears_as_compound_component=False,
+            appears_as_compound_surface=False,
+        ),
     )
 
 
@@ -137,7 +200,14 @@ def test_report_treats_buckets_as_visibility_tiers_and_stops_at_questions():
     report = render_manuscript_review_report(bundle)
 
     assert "BUCKET SEMANTICS" in report
+    assert "DOCUMENT ENTITY RECORD SNAPSHOT" in report
+    assert "Selected examples expose the nested record contract in readable form." in report
     assert "suppressed  : hidden from the main entity inventory, but retained" in report
+    assert "identity: record_id=record:doc.md:aldous" in report
+    assert "class: win=0.700  runner_up=-  entityhood=0.700  accepted=yes" in report
+    assert "support: title=0  poss=0  loc=0  linked_fields=0  linked_definitions=0  linked_seeds=0" in report
+    assert "discourse: quote=0  non_quote=1  quote_only=no" in report
+    assert "lineage: parts=1  fully_covered=no  covered=0  uncovered=1" in report
     assert "Semantic handoff stops at review questions in this report." in report
     assert "SEMANTIC PROPOSALS" not in report
     assert "ranked_candidates: aldous, beatrix" in report

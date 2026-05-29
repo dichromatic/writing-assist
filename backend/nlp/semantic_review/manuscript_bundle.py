@@ -116,6 +116,16 @@ def _format_entity_line(entity: CorpusEntity) -> str:
     )
 
 
+def _bucket_sort_key(bucket: DocumentEntityBucket) -> tuple[int, str]:
+    """Return a stable presentation order for document entity buckets."""
+    order = {
+        DocumentEntityBucket.PROMOTED: 0,
+        DocumentEntityBucket.REVIEW_ONLY: 1,
+        DocumentEntityBucket.SUPPRESSED: 2,
+    }
+    return (order.get(bucket, 99), bucket.value)
+
+
 def _category_sort_key(category: LexiconCategory) -> tuple[int, str]:
     """Return a stable presentation order for manuscript categories."""
     order = {
@@ -130,6 +140,162 @@ def _category_sort_key(category: LexiconCategory) -> tuple[int, str]:
     return (order.get(category, 99), category.value)
 
 
+def _preview_values(values: list[str], *, limit: int = 4) -> str:
+    """Render a stable preview of a value list for the human report.
+
+    Args:
+        values: Values to render.
+        limit: Maximum number of values to show before truncation.
+
+    Returns:
+        Compact preview string suitable for a report line.
+    """
+    if not values:
+        return "-"
+    shown = values[:limit]
+    remainder = len(values) - len(shown)
+    preview = ", ".join(shown)
+    if remainder > 0:
+        return f"{preview} (+{remainder} more)"
+    return preview
+
+
+def _format_category_trace(record) -> str:
+    """Render the per-category score trace compactly for one record.
+
+    Args:
+        record: Document-local entity record.
+
+    Returns:
+        Stable score summary ordered by strongest category evidence first.
+    """
+    traces = sorted(
+        record.classification_trace.evidence_by_category.values(),
+        key=lambda item: (-item.score, item.category.value),
+    )
+    if not traces:
+        return "-"
+    return ", ".join(
+        f"{trace.category.value}={trace.score:.3f}"
+        for trace in traces
+    )
+
+
+def _format_runner_up(record) -> str:
+    """Render the runner-up category summary for one record.
+
+    Args:
+        record: Document-local entity record.
+
+    Returns:
+        Stable runner-up rendering or a dash when absent.
+    """
+    runner_up = record.classification_trace.runner_up_category
+    if runner_up is None:
+        return "-"
+    return f"{runner_up.value}:{record.classification_trace.runner_up_score:.3f}"
+
+
+def _record_sort_key(record) -> tuple[str, int, str]:
+    """Return a stable presentation order for document entity snapshots."""
+    bucket_order = _bucket_sort_key(record.current_state.bucket)[0]
+    return (
+        record.identity.document_anchor.path,
+        bucket_order,
+        record.identity.normalized_key,
+    )
+
+
+def _render_record_snapshot(record) -> list[str]:
+    """Render a compact readable snapshot of one document entity record.
+
+    Args:
+        record: Document-local entity record.
+
+    Returns:
+        Multi-line human-readable rendering of the record traces and profiles.
+    """
+    path = record.identity.document_anchor.path
+    state = record.current_state
+    source = record.source_evidence
+    classification = record.classification_trace
+    promotion = record.promotion_trace
+    support = record.support_profile
+    discourse = record.discourse_profile
+    lineage = record.lineage_profile
+    accepted = "yes" if classification.entityhood.accepted else "no"
+    resolved = "yes" if state.resolved else "no"
+    quote_only = "yes" if discourse.quote_only else "no"
+    sentence_initial_only = "yes" if discourse.sentence_initial_only else "no"
+    fully_covered = "yes" if lineage.fully_covered_by_longer_compound else "no"
+    component = "yes" if lineage.appears_as_compound_component else "no"
+    surface = "yes" if lineage.appears_as_compound_surface else "no"
+    suppression = (
+        promotion.suppression_reason.value
+        if promotion.suppression_reason is not None else "-"
+    )
+    return [
+        (
+            f"  {record.identity.normalized_key:20s}  path={path}"
+            f"  bucket={state.bucket.value}  cat={state.winning_category.value}"
+            f"  resolved={resolved}"
+        ),
+        (
+            "    identity: "
+            f"record_id={record.identity.record_id}  "
+            f"surfaces={_preview_values(record.identity.surface_forms)}"
+        ),
+        (
+            "    source: "
+            f"occ={source.occurrence_count:<2d}  anchors={len(source.anchors):<2d}"
+            f"  windows={len(source.evidence_windows):<2d}"
+            f"  attached_orbit={len(source.suppressed_related_evidence):<2d}"
+        ),
+        (
+            "    class: "
+            f"win={classification.winning_score:.3f}  "
+            f"runner_up={_format_runner_up(record)}  "
+            f"entityhood={classification.entityhood.score:.3f}  "
+            f"accepted={accepted}"
+        ),
+        f"    class_scores: {_format_category_trace(record)}",
+        (
+            "    promo: "
+            f"conf={promotion.confidence_score:.3f}  tier={promotion.rule_tier}"
+            f"  scenes={promotion.scene_count}  attr={promotion.attribution_count}"
+            f"  poss={promotion.possessive_count}  tfidf={promotion.tfidf_score:.3f}"
+            f"  suppression={suppression}"
+        ),
+        (
+            "    support: "
+            f"title={support.title_support_count}  "
+            f"poss={support.possessive_support_count}  "
+            f"loc={support.location_support_count}  "
+            f"linked_fields={support.linked_field_count}  "
+            f"linked_definitions={support.linked_definition_count}  "
+            f"linked_seeds={support.linked_seed_count}"
+        ),
+        (
+            "    discourse: "
+            f"quote={discourse.in_quote_count}  non_quote={discourse.non_quote_count}"
+            f"  quote_only={quote_only}  sentence_initial={discourse.sentence_initial_count}"
+            f"  sentence_initial_only={sentence_initial_only}"
+            f"  address={discourse.address_like_count}"
+            f"  attr_near={discourse.attributed_speaker_nearby_count}"
+            f"  one_token={discourse.one_token_utterance_count}"
+        ),
+        (
+            "    lineage: "
+            f"parts={lineage.compound_part_count}  "
+            f"fully_covered={fully_covered}  "
+            f"covered={lineage.covered_anchor_count}  "
+            f"uncovered={lineage.uncovered_anchor_count}  "
+            f"component={component}  surface={surface}  "
+            f"parents={_preview_values(lineage.candidate_parent_keys)}"
+        ),
+    ]
+
+
 def render_manuscript_review_report(bundle: ManuscriptReviewBundle) -> str:
     """Render the human-readable manuscript handoff report from one bundle.
 
@@ -141,15 +307,15 @@ def render_manuscript_review_report(bundle: ManuscriptReviewBundle) -> str:
     """
     promoted_count = sum(
         1 for record in bundle.entity_records
-        if record.bucket == DocumentEntityBucket.PROMOTED
+        if record.current_state.bucket == DocumentEntityBucket.PROMOTED
     )
     review_count = sum(
         1 for record in bundle.entity_records
-        if record.bucket == DocumentEntityBucket.REVIEW_ONLY
+        if record.current_state.bucket == DocumentEntityBucket.REVIEW_ONLY
     )
     suppressed_count = sum(
         1 for record in bundle.entity_records
-        if record.bucket == DocumentEntityBucket.SUPPRESSED
+        if record.current_state.bucket == DocumentEntityBucket.SUPPRESSED
     )
 
     lines: list[str] = []
@@ -162,7 +328,7 @@ def render_manuscript_review_report(bundle: ManuscriptReviewBundle) -> str:
     lines.append(f"  Suppressed        : {suppressed_count}")
     lines.append(
         "  Suppressed attached to entities: "
-        f"{sum(len(record.suppressed_related_evidence) for record in bundle.entity_records if record.bucket != DocumentEntityBucket.SUPPRESSED)}"
+        f"{sum(len(record.source_evidence.suppressed_related_evidence) for record in bundle.entity_records if record.current_state.bucket != DocumentEntityBucket.SUPPRESSED)}"
     )
 
     lines.append(_hr("BUCKET SEMANTICS"))
@@ -174,6 +340,49 @@ def render_manuscript_review_report(bundle: ManuscriptReviewBundle) -> str:
     lines.append(_hr("FILES"))
     for path in bundle.document_paths:
         lines.append(f"  {path}")
+
+    lines.append(_hr("DOCUMENT ENTITY RECORD SNAPSHOT"))
+    lines.append(
+        "  Selected examples expose the nested record contract in readable form."
+    )
+    lines.append(
+        "  The full machine-readable record set remains in the JSON handoff artifact."
+    )
+    records_by_bucket: dict[DocumentEntityBucket, list[Any]] = {
+        bucket: []
+        for bucket in sorted(
+            {record.current_state.bucket for record in bundle.entity_records},
+            key=_bucket_sort_key,
+        )
+    }
+    for record in sorted(bundle.entity_records, key=_record_sort_key):
+        records_by_bucket.setdefault(record.current_state.bucket, []).append(record)
+    for bucket in sorted(records_by_bucket, key=_bucket_sort_key):
+        bucket_records = records_by_bucket[bucket]
+        if not bucket_records:
+            continue
+        visible_records = [
+            record for record in bucket_records
+            if (
+                record.discourse_profile.address_like_count > 0
+                or record.discourse_profile.attributed_speaker_nearby_count > 0
+                or record.lineage_profile.fully_covered_by_longer_compound
+                or record.lineage_profile.covered_anchor_count > 0
+                or record.support_profile.linked_field_count > 0
+                or record.support_profile.linked_definition_count > 0
+                or record.support_profile.linked_seed_count > 0
+                or len(record.source_evidence.suppressed_related_evidence) > 0
+            )
+        ]
+        shown_records = visible_records[:6]
+        if len(shown_records) < min(6, len(bucket_records)):
+            remaining = [record for record in bucket_records if record not in shown_records]
+            shown_records.extend(remaining[: 6 - len(shown_records)])
+        lines.append(
+            f"  [{bucket.value}] total={len(bucket_records)} showing={len(shown_records)}"
+        )
+        for record in shown_records:
+            lines.extend(_render_record_snapshot(record))
 
     sorted_entities = sorted(
         bundle.canonical_entities,
@@ -259,22 +468,22 @@ def render_manuscript_review_report(bundle: ManuscriptReviewBundle) -> str:
     lines.append(_hr("SUPPRESSED EVIDENCE ORBITS"))
     attached_records = [
         record for record in bundle.entity_records
-        if record.bucket != DocumentEntityBucket.SUPPRESSED and record.suppressed_related_evidence
+        if record.current_state.bucket != DocumentEntityBucket.SUPPRESSED and record.source_evidence.suppressed_related_evidence
     ]
     if attached_records:
         for record in sorted(
             attached_records,
             key=lambda item: (
-                item.document_anchor.path,
-                -len(item.suppressed_related_evidence),
-                item.normalized_key,
+                item.identity.document_anchor.path,
+                -len(item.source_evidence.suppressed_related_evidence),
+                item.identity.normalized_key,
             ),
         )[:40]:
             lines.append(
-                f"  {record.normalized_key:20s}  path={record.document_anchor.path}"
-                f"  attached={len(record.suppressed_related_evidence)}"
+                f"  {record.identity.normalized_key:20s}  path={record.identity.document_anchor.path}"
+                f"  attached={len(record.source_evidence.suppressed_related_evidence)}"
             )
-            for evidence in record.suppressed_related_evidence[:5]:
+            for evidence in record.source_evidence.suppressed_related_evidence[:5]:
                 lines.append(
                     f"    {evidence.normalized_key:20s}  {evidence.reason.value}"
                     f"  conf={evidence.confidence_score:.3f}"

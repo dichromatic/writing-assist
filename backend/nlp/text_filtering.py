@@ -59,8 +59,22 @@ def to_llm_safe_jsonable(value: Any) -> Any:
             for field in fields(value)
         }
     if isinstance(value, dict):
+        def _jsonable_key(raw_key: Any) -> Any:
+            """Convert mapping keys into JSON-safe primitive values.
+
+            Enum keys appear in a few artifact-facing traces, and JSON
+            serialization requires primitive key types. Converting them here
+            keeps the record types ergonomic in Python while preserving a
+            stable artifact boundary.
+            """
+            if isinstance(raw_key, Enum):
+                raw_key = raw_key.value
+            if isinstance(raw_key, str):
+                return strip_emoji(raw_key)
+            return raw_key
+
         return {
-            strip_emoji(key) if isinstance(key, str) else key: to_llm_safe_jsonable(inner_value)
+            _jsonable_key(key): to_llm_safe_jsonable(inner_value)
             for key, inner_value in value.items()
         }
     if isinstance(value, list):

@@ -66,15 +66,15 @@ def reconcile_document_entities(
     grouped: dict[str, list[DocumentEntityRecord]] = defaultdict(list)
     all_grouped: dict[str, list[DocumentEntityRecord]] = defaultdict(list)
     for record in records:
-        all_grouped[record.normalized_key].append(record)
-        if record.bucket == DocumentEntityBucket.SUPPRESSED:
-            if not include_suppressed and record.normalized_key not in rescued_keys:
+        all_grouped[record.identity.normalized_key].append(record)
+        if record.current_state.bucket == DocumentEntityBucket.SUPPRESSED:
+            if not include_suppressed and record.identity.normalized_key not in rescued_keys:
                 continue
-        grouped[record.normalized_key].append(record)
+        grouped[record.identity.normalized_key].append(record)
 
     exact_entities: list[CorpusEntity] = []
     for key in sorted(grouped):
-        members = sorted(grouped[key], key=lambda record: (record.document_anchor.path, record.normalized_key))
+        members = sorted(grouped[key], key=lambda record: (record.identity.document_anchor.path, record.identity.normalized_key))
         exact_entities.append(build_corpus_entity(
             canonical_key=key,
             source_keys=[key],

@@ -138,17 +138,17 @@ def _attach_suppressed_evidence_to_reference_clusters(
     """
     suppressed_by_path: dict[str, list[DocumentEntityRecord]] = defaultdict(list)
     for record in records:
-        if record.bucket == DocumentEntityBucket.SUPPRESSED:
-            suppressed_by_path[record.document_anchor.path].append(record)
+        if record.current_state.bucket == DocumentEntityBucket.SUPPRESSED:
+            suppressed_by_path[record.identity.document_anchor.path].append(record)
 
     for cluster in reference_clusters:
         nearby: list[tuple[int, SuppressedEvidence]] = []
         seen_keys: set[str] = set()
         for suppressed_record in suppressed_by_path.get(cluster.document_anchor.path, []):
-            assert suppressed_record.suppression_reason is not None
+            assert suppressed_record.promotion_trace.suppression_reason is not None
             best_distance: int | None = None
             for reference_anchor in cluster.anchors:
-                for suppressed_anchor in suppressed_record.anchors:
+                for suppressed_anchor in suppressed_record.source_evidence.anchors:
                     distance = _suppressed_reference_distance(reference_anchor, suppressed_anchor)
                     if distance is None or distance > _REFERENCE_SUPPRESSED_ORBIT_CHARS:
                         continue
@@ -156,18 +156,18 @@ def _attach_suppressed_evidence_to_reference_clusters(
                         best_distance = distance
             if best_distance is None:
                 continue
-            if suppressed_record.normalized_key in seen_keys:
+            if suppressed_record.identity.normalized_key in seen_keys:
                 continue
-            seen_keys.add(suppressed_record.normalized_key)
+            seen_keys.add(suppressed_record.identity.normalized_key)
             nearby.append((best_distance, SuppressedEvidence(
-                document_anchor=suppressed_record.document_anchor,
-                normalized_key=suppressed_record.normalized_key,
-                surface_forms=list(suppressed_record.surface_forms),
-                winning_category=suppressed_record.winning_category,
-                confidence_score=suppressed_record.confidence_score,
-                reason=suppressed_record.suppression_reason,
-                detail=suppressed_record.bucket_detail,
-                anchors=list(suppressed_record.anchors),
+                document_anchor=suppressed_record.identity.document_anchor,
+                normalized_key=suppressed_record.identity.normalized_key,
+                surface_forms=list(suppressed_record.identity.surface_forms),
+                winning_category=suppressed_record.current_state.winning_category,
+                confidence_score=suppressed_record.promotion_trace.confidence_score,
+                reason=suppressed_record.promotion_trace.suppression_reason,
+                detail=suppressed_record.promotion_trace.bucket_detail,
+                anchors=list(suppressed_record.source_evidence.anchors),
             )))
 
         cluster.suppressed_related_evidence = [
@@ -193,18 +193,18 @@ def build_conflict_records(entities: list[CorpusEntity]) -> list[ConflictRecord]
             continue
 
         canonical_categories = {
-            record.winning_category
+            record.current_state.winning_category
             for record in entity.member_records
-            if record.resolved
-            and record.winning_category != LexiconCategory.UNRESOLVED
-            and record.normalized_key == entity.canonical_key
+            if record.current_state.resolved
+            and record.current_state.winning_category != LexiconCategory.UNRESOLVED
+            and record.identity.normalized_key == entity.canonical_key
         }
         absorbed_categories = {
-            record.winning_category
+            record.current_state.winning_category
             for record in entity.member_records
-            if record.resolved
-            and record.winning_category != LexiconCategory.UNRESOLVED
-            and record.normalized_key != entity.canonical_key
+            if record.current_state.resolved
+            and record.current_state.winning_category != LexiconCategory.UNRESOLVED
+            and record.identity.normalized_key != entity.canonical_key
         }
 
         if (
@@ -403,7 +403,7 @@ def build_character_summaries(
                 key=lambda item: (-item[1], item[0]),
             )),
             aggregate_attribution_count=sum(
-                record.attribution_count for record in entity.member_records
+                record.promotion_trace.attribution_count for record in entity.member_records
             ),
             conflict_sources=sorted(
                 conflicts_by_key[entity.canonical_key],

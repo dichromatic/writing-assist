@@ -110,6 +110,7 @@ def run_document_pipeline(path: str, raw_text: str) -> DocumentPipelineResult:
         promotion_bundle,
         promotion_result.scores,
         promotion_result.classifications,
+        attribution_records,
     )
     reference_candidates = extract_reference_candidates(pre, entity_records, attribution_records)
     return DocumentPipelineResult(

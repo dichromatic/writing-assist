@@ -18,6 +18,7 @@ from backend.nlp.harvesting.shared import (
     RELATION_ROLE_NOUNS,
     TITLE_PREFIXES_LOWER,
 )
+from backend.nlp.discourse.address_like import is_address_like_reference
 from backend.nlp.types import (
     DocumentAnchor,
     DocumentEntityBucket,
@@ -70,16 +71,6 @@ def _quote_speakers_by_anchor(attribution_records: list) -> dict[tuple[str, int,
     return speakers
 
 
-def _find_enclosing_quote_range(
-    token,
-    ranges: list[tuple[int, int]],
-) -> tuple[int, int] | None:
-    """Return the quote range that fully contains a token span, if any."""
-    for start, end in ranges:
-        if start <= token.start_char and token.end_char <= end:
-            return (start, end)
-    return None
-
 
 def _find_enclosing_quote_anchor(pre: PreprocessedDocument, token) -> SpanAnchor | None:
     """Return the exact quote anchor that encloses a token span, if any."""
@@ -92,49 +83,6 @@ def _find_enclosing_quote_anchor(pre: PreprocessedDocument, token) -> SpanAnchor
             return quote.anchor
     return None
 
-
-def _is_word_like_token(token_text: str) -> bool:
-    """Return True when a token behaves like lexical content rather than punctuation."""
-    return any(character.isalpha() for character in token_text)
-
-
-def _is_address_like_reference(sentence, token_index: int, quote_ranges: list[tuple[int, int]]) -> bool:
-    """Return True when a reference token behaves like direct address in dialogue.
-
-    This is intentionally conservative. It only marks common vocative
-    patterns such as "Captain, wait." and "Yes, captain."
-    """
-    token = sentence.tokens[token_index]
-    quote_range = _find_enclosing_quote_range(token, quote_ranges)
-    if quote_range is None:
-        return False
-
-    quote_token_indexes = [
-        index
-        for index, quote_token in enumerate(sentence.tokens)
-        if quote_range[0] <= quote_token.start_char and quote_token.end_char <= quote_range[1]
-    ]
-    if token_index not in quote_token_indexes:
-        return False
-
-    relative_index = quote_token_indexes.index(token_index)
-    previous_indexes = quote_token_indexes[:relative_index]
-    following_indexes = quote_token_indexes[relative_index + 1:]
-    previous_word_indexes = [
-        index for index in previous_indexes
-        if _is_word_like_token(sentence.tokens[index].text)
-    ]
-    following_word_indexes = [
-        index for index in following_indexes
-        if _is_word_like_token(sentence.tokens[index].text)
-    ]
-    previous_token_text = sentence.tokens[previous_indexes[-1]].text if previous_indexes else ""
-    following_token_text = sentence.tokens[following_indexes[0]].text if following_indexes else ""
-
-    return (
-        (not previous_word_indexes and following_token_text in {",", "!", "?"})
-        or (previous_token_text == "," and not following_word_indexes)
-    )
 
 
 def _find_sentence_entities(
@@ -161,11 +109,11 @@ def _find_sentence_entities(
     """
     candidate_records: list[tuple[int, float, bool, SpanAnchor, str]] = []
     for record in records:
-        if record.bucket == DocumentEntityBucket.SUPPRESSED:
+        if record.current_state.bucket == DocumentEntityBucket.SUPPRESSED:
             continue
-        if record.winning_category != LexiconCategory.CHARACTER:
+        if record.current_state.winning_category != LexiconCategory.CHARACTER:
             continue
-        for anchor in record.anchors:
+        for anchor in record.source_evidence.anchors:
             if anchor.path != document_path or anchor.span_ordinal != sentence.span_ordinal:
                 continue
             if sentence.start_char <= anchor.start_char < sentence.end_char:
@@ -173,10 +121,10 @@ def _find_sentence_entities(
                 anchor_center = (anchor.start_char + anchor.end_char) / 2
                 candidate_records.append((
                     int(abs(anchor_center - reference_center)),
-                    record.confidence_score,
-                    record.has_title_support,
+                    record.promotion_trace.confidence_score,
+                    record.support_profile.title_support_count > 0,
                     anchor,
-                    record.normalized_key,
+                    record.identity.normalized_key,
                 ))
                 break
 
@@ -234,15 +182,15 @@ def _find_bound_relation_links(
     next_token = sentence.tokens[token_index + 1]
     linked_keys: set[str] = set()
     for record in span_records:
-        if record.bucket == DocumentEntityBucket.SUPPRESSED:
+        if record.current_state.bucket == DocumentEntityBucket.SUPPRESSED:
             continue
-        if record.winning_category != LexiconCategory.CHARACTER:
+        if record.current_state.winning_category != LexiconCategory.CHARACTER:
             continue
-        for mention_anchor in record.anchors:
+        for mention_anchor in record.source_evidence.anchors:
             if mention_anchor.span_ordinal != sentence.span_ordinal:
                 continue
             if mention_anchor.start_char == next_token.start_char:
-                linked_keys.add(record.normalized_key)
+                linked_keys.add(record.identity.normalized_key)
                 break
 
     return sorted(linked_keys)
@@ -283,7 +231,7 @@ def _extract_reference_candidates_for_lexicon(
     quote_speakers = _quote_speakers_by_anchor(attribution_records)
     records_by_span: dict[int, list[DocumentEntityRecord]] = defaultdict(list)
     for record in records:
-        for anchor in record.anchors:
+        for anchor in record.source_evidence.anchors:
             records_by_span[anchor.span_ordinal].append(record)
 
     candidates: list[ReferenceCandidate] = []
@@ -311,7 +259,7 @@ def _extract_reference_candidates_for_lexicon(
                 start <= token.start_char and token.end_char <= end
                 for start, end in sentence_quote_ranges
             )
-            address_like = _is_address_like_reference(
+            address_like = is_address_like_reference(
                 sentence,
                 token_index,
                 sentence_quote_ranges,
@@ -328,15 +276,15 @@ def _extract_reference_candidates_for_lexicon(
 
             if require_title_support_for_bound:
                 linked_entity_keys = sorted({
-                    record.normalized_key
+                    record.identity.normalized_key
                     for record in span_records
                     if (
-                        record.has_title_support
-                        and record.winning_category == LexiconCategory.CHARACTER
+                        record.support_profile.title_support_count > 0
+                        and record.current_state.winning_category == LexiconCategory.CHARACTER
                     )
                     and any(
                         mention_anchor.start_char <= token.start_char <= mention_anchor.end_char
-                        for mention_anchor in record.anchors
+                        for mention_anchor in record.source_evidence.anchors
                     )
                 })
             else:

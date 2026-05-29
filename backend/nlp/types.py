@@ -1301,56 +1301,228 @@ class DocumentEntityBucket(Enum):
 class DocumentEntityRecord:
     """Stable per-document entity summary for corpus reconciliation.
 
-    This record captures the document pipeline's local decision for one
-    cluster so later corpus-level stages can refine across documents without
-    rerunning harvest or promotion logic as if no knowledge had been gained.
+    This record keeps deterministic local extraction state as nested profiles
+    so later corpus and semantic stages can inspect why a local entity
+    survived, how it was scored, and what evidence supports it.
 
     Args:
+        identity: Stable local identity and display surfaces.
+        current_state: Coarse top-level deterministic state.
+        source_evidence: Direct anchors and context windows for this record.
+        classification_trace: Full category and entityhood reasoning trace.
+        promotion_trace: Promotion/suppression routing signals.
+        discourse_profile: Dialogue and sentence-position usage profile.
+        support_profile: Structural support counts and linkage counts.
+        lineage_profile: Local compound-family structural lineage.
+    """
+
+    identity: "DocumentEntityIdentity"
+    current_state: "DocumentEntityCurrentState"
+    source_evidence: "DocumentEntitySourceEvidence"
+    classification_trace: "DocumentEntityClassificationTrace"
+    promotion_trace: "DocumentEntityPromotionTrace"
+    discourse_profile: "DocumentEntityDiscourseProfile"
+    support_profile: "DocumentEntitySupportProfile"
+    lineage_profile: "DocumentEntityLineageProfile"
+
+
+@dataclass(frozen=True)
+class DocumentEntityIdentity:
+    """Stable document-local identity for one entity record.
+
+    Args:
+        record_id: Stable identifier for this local record.
         document_anchor: Source document for this record.
         normalized_key: Document-local normalized cluster key.
         surface_forms: Distinct surface forms seen for the cluster.
-        winning_category: Final document-local top-level category.
-        resolved: Whether the document-local category was resolved.
-        entityhood_score: Deterministic entityhood score in [0.0, 1.0].
-        entityhood_accepted: Whether unresolved entities were accepted as
-            plausible enough to survive review.
-        confidence_score: Document-local confidence score from promotion.
-        bucket: Document-local output bucket.
-        suppression_reason: Structured suppression rule when this record was
-            hidden from the primary presentation layer.
-        bucket_detail: Human-readable reason for review or suppression.
-        occurrence_count: Number of supporting mentions in the document.
-        rule_tier: Highest structural tier seen in the cluster.
-        scene_count: Number of distinct scenes containing the cluster.
-        attribution_count: Number of dialogue attribution records for the key.
-        has_title_support: Whether any mention had a title prefix.
-        has_possessive_support: Whether any mention was possessive.
-        anchors: Mention anchors contributing to this record.
-        evidence_windows: Entity-centric context windows for later review.
-        suppressed_related_evidence: Suppressed document-local clusters whose
-            anchors overlap or nest beneath this stronger local entity record.
     """
 
+    record_id: str
     document_anchor: DocumentAnchor
     normalized_key: str
     surface_forms: list[str]
+
+
+@dataclass(frozen=True)
+class DocumentEntityCurrentState:
+    """Coarse top-level deterministic state for one record.
+
+    Args:
+        winning_category: Final document-local top-level category.
+        resolved: Whether the document-local category was resolved.
+        bucket: Document-local output bucket.
+    """
+
     winning_category: LexiconCategory
     resolved: bool
-    entityhood_score: float
-    entityhood_accepted: bool
-    confidence_score: float
     bucket: DocumentEntityBucket
-    suppression_reason: Optional[SuppressReason]
-    bucket_detail: str
+
+
+@dataclass
+class DocumentEntitySourceEvidence:
+    """Direct source evidence retained for one record.
+
+    Args:
+        occurrence_count: Number of supporting mentions in the document.
+        anchors: Mention anchors contributing to this record.
+        evidence_windows: Entity-centric context windows for later review.
+        suppressed_related_evidence: Suppressed local records attached to this
+            record by overlap or containment.
+    """
+
     occurrence_count: int
-    rule_tier: int
-    scene_count: int
-    attribution_count: int
-    has_title_support: bool
-    has_possessive_support: bool
     anchors: list[SpanAnchor]
     evidence_windows: list[EvidenceWindow]
     suppressed_related_evidence: list[SuppressedEvidence] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class CategoryEvidenceTrace:
+    """Record-local category evidence trace.
+
+    Args:
+        category: Category this evidence describes.
+        score: Deterministic confidence score for this category.
+        reasons: Human-readable reasons that raised the score.
+        vetoes: Human-readable reasons that reduced confidence.
+    """
+
+    category: LexiconCategory
+    score: float
+    reasons: list[str]
+    vetoes: list[str]
+
+
+@dataclass(frozen=True)
+class EntityhoodTrace:
+    """Record-local entityhood trace.
+
+    Args:
+        score: Deterministic entityhood score in [0.0, 1.0].
+        accepted: Whether the unresolved cluster survived entityhood checks.
+        reasons: Human-readable reasons that raised entityhood confidence.
+        weaknesses: Human-readable reasons that kept entityhood weak.
+    """
+
+    score: float
+    accepted: bool
+    reasons: list[str]
+    weaknesses: list[str]
+
+
+@dataclass(frozen=True)
+class DocumentEntityClassificationTrace:
+    """Record-local classification reasoning trace.
+
+    Args:
+        winning_score: Score for the winning category.
+        runner_up_category: Next-best category, if any.
+        runner_up_score: Score for the runner-up category.
+        evidence_by_category: Evidence by category for direct lookup.
+        entityhood: Entityhood acceptance details.
+    """
+
+    winning_score: float
+    runner_up_category: LexiconCategory | None
+    runner_up_score: float
+    evidence_by_category: dict[LexiconCategory, CategoryEvidenceTrace]
+    entityhood: EntityhoodTrace
+
+
+@dataclass(frozen=True)
+class DocumentEntityPromotionTrace:
+    """Record-local promotion and suppression routing trace.
+
+    Args:
+        confidence_score: Document-local confidence score from promotion.
+        suppression_reason: Structured suppression rule when suppressed.
+        bucket_detail: Human-readable reason for review or suppression.
+        rule_tier: Highest structural tier seen in the cluster.
+        scene_count: Number of distinct scenes containing the cluster.
+        attribution_count: Number of attribution records for the key.
+        possessive_count: Number of possessive mentions in the cluster.
+        tfidf_score: TF-IDF style lexical weighting from scoring.
+    """
+
+    confidence_score: float
+    suppression_reason: Optional[SuppressReason]
+    bucket_detail: str
+    rule_tier: int
+    scene_count: int
+    attribution_count: int
+    possessive_count: int
+    tfidf_score: float
+
+
+@dataclass(frozen=True)
+class DocumentEntityDiscourseProfile:
+    """Dialogue and sentence-position usage summary for one record.
+
+    Args:
+        in_quote_count: Number of anchors inside quote spans.
+        non_quote_count: Number of anchors outside quote spans.
+        quote_only: Whether all anchors appear only inside quotes.
+        sentence_initial_count: Anchors starting at sentence-first token.
+        sentence_initial_only: Whether all anchors are sentence-initial.
+        address_like_count: Anchors that match direct-address dialogue shape.
+        attributed_speaker_nearby_count: Anchors near known quote speakers.
+        one_token_utterance_count: Anchors that appear as one-token utterances.
+    """
+
+    in_quote_count: int
+    non_quote_count: int
+    quote_only: bool
+    sentence_initial_count: int
+    sentence_initial_only: bool
+    address_like_count: int
+    attributed_speaker_nearby_count: int
+    one_token_utterance_count: int
+
+
+@dataclass(frozen=True)
+class DocumentEntitySupportProfile:
+    """Structural support and linkage counts for one record.
+
+    Args:
+        title_support_count: Mentions in this cluster with title prefixes.
+        possessive_support_count: Mentions in possessive form.
+        location_support_count: Mentions with local location context support.
+        linked_field_count: Linked structured-field count.
+        linked_definition_count: Linked definition count.
+        linked_seed_count: Linked bootstrap seed count.
+    """
+
+    title_support_count: int
+    possessive_support_count: int
+    location_support_count: int
+    linked_field_count: int
+    linked_definition_count: int
+    linked_seed_count: int
+
+
+@dataclass(frozen=True)
+class DocumentEntityLineageProfile:
+    """Local compound-family structural lineage for one record.
+
+    Args:
+        compound_part_count: Token part count for this normalized key.
+        fully_covered_by_longer_compound: True when all anchors are covered by
+            longer accepted compounds in the same spans.
+        candidate_parent_keys: Sorted longer compound candidates covering this
+            record's anchors.
+        covered_anchor_count: Number of anchors covered by longer compounds.
+        uncovered_anchor_count: Number of anchors with independent support.
+        appears_as_compound_component: True when this key can be a component.
+        appears_as_compound_surface: True when this key itself is a compound.
+    """
+
+    compound_part_count: int
+    fully_covered_by_longer_compound: bool
+    candidate_parent_keys: list[str]
+    covered_anchor_count: int
+    uncovered_anchor_count: int
+    appears_as_compound_component: bool
+    appears_as_compound_surface: bool
 
 
 @dataclass

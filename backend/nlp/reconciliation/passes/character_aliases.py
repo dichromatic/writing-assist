@@ -97,7 +97,7 @@ def _identify_eligible_character_compounds(
         if left_entity is None or right_entity is None:
             continue
 
-        anchor_paths = sorted({record.document_anchor.path for record in anchor_records})
+        anchor_paths = sorted({record.identity.document_anchor.path for record in anchor_records})
         if not _is_safe_character_component(left_entity, anchor_paths):
             continue
         if not _is_safe_character_component(right_entity, anchor_paths):
@@ -185,7 +185,7 @@ def _emit_character_compound_merges(
             if plan.canonical_key not in emitted_canonicals:
                 combined_records = sorted(
                     plan.anchor_records + left_entity.member_records + right_entity.member_records,
-                    key=lambda record: (record.document_anchor.path, record.normalized_key),
+                    key=lambda record: (record.identity.document_anchor.path, record.identity.normalized_key),
                 )
                 reasons = ["character compound merged with its single-token alias components"]
                 if plan.canonical_key != plan.source_key:
@@ -212,7 +212,7 @@ def _emit_character_compound_merges(
         right_entity = by_key[plan.right_key]
         combined_records = sorted(
             plan.anchor_records + left_entity.member_records + right_entity.member_records,
-            key=lambda record: (record.document_anchor.path, record.normalized_key),
+            key=lambda record: (record.identity.document_anchor.path, record.identity.normalized_key),
         )
         reasons = ["sparse observed character compound merged with its single-token alias components"]
         if plan.canonical_key != plan.source_key:
@@ -282,7 +282,7 @@ def merge_generic_leading_character_aliases(
         if key in tail_entity.source_keys:
             continue
 
-        anchor_paths = sorted({record.document_anchor.path for record in anchor_records})
+        anchor_paths = sorted({record.identity.document_anchor.path for record in anchor_records})
         if not _is_safe_character_component(tail_entity, anchor_paths):
             continue
 
@@ -314,7 +314,7 @@ def merge_generic_leading_character_aliases(
                 combined_records.extend(anchor_records)
             combined_records = sorted(
                 combined_records,
-                key=lambda record: (record.document_anchor.path, record.normalized_key),
+                key=lambda record: (record.identity.document_anchor.path, record.identity.normalized_key),
             )
             merged_entities.append(build_corpus_entity(
                 canonical_key=entity.canonical_key,

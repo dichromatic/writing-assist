@@ -53,12 +53,16 @@ def merge_non_character_modifier_aliases(
         if modifier_entity.review_required and modifier_entity.dominant_category != compound_entity.dominant_category:
             continue
 
-        anchor_paths = sorted({record.document_anchor.path for record in anchor_records})
+        anchor_paths = sorted({record.identity.document_anchor.path for record in anchor_records})
         if not set(modifier_entity.supporting_document_paths).issubset(set(anchor_paths)):
             continue
 
-        modifier_occ = sum(r.occurrence_count for r in modifier_entity.member_records)
-        compound_occ = sum(r.occurrence_count for r in by_key[key].member_records)
+        modifier_occ = sum(
+            r.source_evidence.occurrence_count for r in modifier_entity.member_records
+        )
+        compound_occ = sum(
+            r.source_evidence.occurrence_count for r in by_key[key].member_records
+        )
         if modifier_occ > compound_occ:
             continue
 

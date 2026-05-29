@@ -30,21 +30,21 @@ def dominant_category(records: list[DocumentEntityRecord]) -> tuple[LexiconCateg
     """
     resolved_records = [
         record for record in records
-        if record.resolved and record.winning_category != LexiconCategory.UNRESOLVED
+        if record.current_state.resolved and record.current_state.winning_category != LexiconCategory.UNRESOLVED
     ]
     if not resolved_records:
         return LexiconCategory.UNRESOLVED, []
 
     by_category: dict[LexiconCategory, list[DocumentEntityRecord]] = defaultdict(list)
     for record in resolved_records:
-        by_category[record.winning_category].append(record)
+        by_category[record.current_state.winning_category].append(record)
 
     conflicting = sorted(by_category.keys(), key=lambda category: category.value)
     dominant = max(
         by_category.items(),
         key=lambda item: (
             len(item[1]),
-            max(record.confidence_score for record in item[1]),
+            max(record.promotion_trace.confidence_score for record in item[1]),
             item[0].value,
         ),
     )[0]
@@ -79,14 +79,14 @@ def build_corpus_entity(
     canonical_surface_forms = sorted({
         surface
         for record in members
-        if record.normalized_key == canonical_key
-        for surface in record.surface_forms
+        if record.identity.normalized_key == canonical_key
+        for surface in record.identity.surface_forms
     })
     absorbed_surface_forms = sorted({
         surface
         for record in members
-        if record.normalized_key != canonical_key
-        for surface in record.surface_forms
+        if record.identity.normalized_key != canonical_key
+        for surface in record.identity.surface_forms
     })
 
     return CorpusEntity(
@@ -95,9 +95,9 @@ def build_corpus_entity(
         canonical_surface_forms=canonical_surface_forms,
         absorbed_surface_forms=absorbed_surface_forms,
         member_records=members,
-        supporting_document_paths=sorted({record.document_anchor.path for record in members}),
+        supporting_document_paths=sorted({record.identity.document_anchor.path for record in members}),
         dominant_category=chosen_category,
-        aggregate_confidence=max(record.confidence_score for record in members),
+        aggregate_confidence=max(record.promotion_trace.confidence_score for record in members),
         conflicting_categories=conflicting_categories if review_required else [],
         review_required=review_required,
         reasons=final_reasons,
@@ -145,7 +145,7 @@ def apply_merge_plan(
                 combined_records.extend(child_entity.member_records)
             combined_records = sorted(
                 combined_records,
-                key=lambda record: (record.document_anchor.path, record.normalized_key),
+                key=lambda record: (record.identity.document_anchor.path, record.identity.normalized_key),
             )
             merged_entities.append(build_corpus_entity(
                 canonical_key=entity.canonical_key,

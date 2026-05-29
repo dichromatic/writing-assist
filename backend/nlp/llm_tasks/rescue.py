@@ -60,25 +60,25 @@ def _rescue_candidate_selected(
     requiring a rescuable suppression reason, sufficient occurrences, and
     no prior absorption into a compound entity.
     """
-    if record.bucket != DocumentEntityBucket.SUPPRESSED:
+    if record.current_state.bucket != DocumentEntityBucket.SUPPRESSED:
         return False, "not_suppressed"
-    if record.normalized_key in absorbed_keys:
+    if record.identity.normalized_key in absorbed_keys:
         return False, "already_absorbed_into_compound"
-    if record.suppression_reason not in _RESCUABLE_REASONS:
-        reason = record.suppression_reason.value if record.suppression_reason is not None else "none"
+    if record.promotion_trace.suppression_reason not in _RESCUABLE_REASONS:
+        reason = record.promotion_trace.suppression_reason.value if record.promotion_trace.suppression_reason is not None else "none"
         return False, f"suppression_reason_{reason}_not_rescuable"
     # Generic lexical noise needs stronger signal to justify an LLM call.
     # At occ=3, words like "let", "come", "see" dominate; real entities
     # suppressed as generic noise (pioneer, explorer) have higher counts.
-    min_occurrences = 4 if record.suppression_reason == SuppressReason.GENERIC_LEXICAL_NOISE else 2
-    if record.occurrence_count < min_occurrences:
+    min_occurrences = 4 if record.promotion_trace.suppression_reason == SuppressReason.GENERIC_LEXICAL_NOISE else 2
+    if record.source_evidence.occurrence_count < min_occurrences:
         return False, "too_few_occurrences"
 
     # Single-scene entities are allowed through. Characters in flashback
     # chapters or ships mentioned only in one scene still deserve LLM triage.
     if (
-        record.winning_category == LexiconCategory.UNRESOLVED
-        and record.entityhood_score < 0.25
+        record.current_state.winning_category == LexiconCategory.UNRESOLVED
+        and record.classification_trace.entityhood.score < 0.25
     ):
         return False, "unresolved_very_low_entityhood"
     return True, "rescue_candidate"
@@ -126,9 +126,9 @@ def _build_rescue_evidence(
     suppressed records do not need promotion-stage context windows.
     """
     items: list[LLMTaskEvidenceItem] = []
-    sorted_anchors = sorted(record.anchors, key=lambda a: a.start_char)
-    quote = record.surface_forms[0] if record.surface_forms else record.normalized_key
-    suppression = record.suppression_reason.value if record.suppression_reason else ""
+    sorted_anchors = sorted(record.source_evidence.anchors, key=lambda a: a.start_char)
+    quote = record.identity.surface_forms[0] if record.identity.surface_forms else record.identity.normalized_key
+    suppression = record.promotion_trace.suppression_reason.value if record.promotion_trace.suppression_reason else ""
 
     for anchor in sorted_anchors[:_RESCUE_EVIDENCE_LIMIT]:
         before_start = max(0, anchor.start_char - _RESCUE_CONTEXT_RADIUS)
@@ -139,13 +139,13 @@ def _build_rescue_evidence(
             continue
         items.append(
             _build_evidence_item(
-                source_object_id=record.normalized_key,
+                source_object_id=record.identity.normalized_key,
                 anchor=anchor,
                 quote=quote,
                 context_before=context_before,
                 context_after=context_after,
                 suppression_reason=suppression,
-                confidence_score=record.confidence_score,
+                confidence_score=record.promotion_trace.confidence_score,
             )
         )
     return items
@@ -203,7 +203,7 @@ def build_rescue_task_packets(
         rescue_evidence: list[LLMTaskEvidenceItem] = []
 
         if selected:
-            raw_text = document_texts.get(record.document_anchor.path, "")
+            raw_text = document_texts.get(record.identity.document_anchor.path, "")
             if not raw_text:
                 selected = False
                 reason = "missing_document_text"
@@ -217,22 +217,22 @@ def build_rescue_task_packets(
             LLMTaskSelectionDiagnostic(
                 source_bundle_kind="manuscript_review_bundle",
                 source_object_kind="suppressed_entity_record",
-                source_object_id=record.normalized_key,
-                document_path=record.document_anchor.path,
+                source_object_id=record.identity.normalized_key,
+                document_path=record.identity.document_anchor.path,
                 task_family=LLMTaskFamily.MANUSCRIPT_SUPPRESSION_RESCUE,
                 selected=selected,
                 reason=reason,
                 evidence_counts={
-                    "occurrence_count": record.occurrence_count,
-                    "scene_count": record.scene_count,
-                    "anchor_count": len(record.anchors),
+                    "occurrence_count": record.source_evidence.occurrence_count,
+                    "scene_count": record.promotion_trace.scene_count,
+                    "anchor_count": len(record.source_evidence.anchors),
                 },
             )
         )
         if not selected:
             continue
 
-        key = record.normalized_key
+        key = record.identity.normalized_key
         if key not in groups:
             groups[key] = _RescueGroup(
                 normalized_key=key,
@@ -250,16 +250,16 @@ def build_rescue_task_packets(
         group = groups[key]
         group.records.append(record)
         group.evidence.extend(rescue_evidence)
-        if record.document_anchor.path not in group.document_paths:
-            group.document_paths.append(record.document_anchor.path)
-        group.surface_forms.update(record.surface_forms)
-        group.total_occurrences += record.occurrence_count
-        group.total_scenes += record.scene_count
-        if record.suppression_reason is not None:
-            group.suppression_reasons.add(record.suppression_reason.value)
-        group.winning_categories.add(record.winning_category.value)
-        group.best_confidence = max(group.best_confidence, record.confidence_score or 0.0)
-        group.best_entityhood = max(group.best_entityhood, record.entityhood_score or 0.0)
+        if record.identity.document_anchor.path not in group.document_paths:
+            group.document_paths.append(record.identity.document_anchor.path)
+        group.surface_forms.update(record.identity.surface_forms)
+        group.total_occurrences += record.source_evidence.occurrence_count
+        group.total_scenes += record.promotion_trace.scene_count
+        if record.promotion_trace.suppression_reason is not None:
+            group.suppression_reasons.add(record.promotion_trace.suppression_reason.value)
+        group.winning_categories.add(record.current_state.winning_category.value)
+        group.best_confidence = max(group.best_confidence, record.promotion_trace.confidence_score or 0.0)
+        group.best_entityhood = max(group.best_entityhood, record.classification_trace.entityhood.score or 0.0)
 
     # Second pass: build one packet per deduplicated entity group,
     # capping total evidence to avoid oversized prompts.

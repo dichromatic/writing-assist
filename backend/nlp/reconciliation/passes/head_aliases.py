@@ -59,7 +59,7 @@ def merge_non_character_head_aliases(
         if key in head_entity.source_keys:
             continue
 
-        anchor_paths = sorted({record.document_anchor.path for record in anchor_records})
+        anchor_paths = sorted({record.identity.document_anchor.path for record in anchor_records})
         if not _is_safe_non_character_head_component(
             head_entity,
             compound_entity.dominant_category,

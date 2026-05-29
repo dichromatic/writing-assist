@@ -92,10 +92,10 @@ def render_structured_review_report(
         for entity_record in bundle.deterministic_seed_bundle.entity_candidates[:12]:
             if hasattr(entity_record, "normalized_key"):
                 lines.append(
-                    f"    - entity {entity_record.normalized_key}"
-                    f" category={entity_record.winning_category.value}"
-                    f" bucket={entity_record.bucket.value}"
-                    f" conf={entity_record.confidence_score:.3f}"
+                    f"    - entity {entity_record.identity.normalized_key}"
+                    f" category={entity_record.current_state.winning_category.value}"
+                    f" bucket={entity_record.current_state.bucket.value}"
+                    f" conf={entity_record.promotion_trace.confidence_score:.3f}"
                 )
             else:
                 lines.append(
