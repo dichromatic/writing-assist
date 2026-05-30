@@ -308,13 +308,21 @@ def _suppress_sentence_initial_only(
     candidates: list[MentionCandidate],
     sentence_initial_chars: set[int],
 ) -> list[MentionCandidate]:
-    """Remove bare-cap candidates whose key appears only in sentence-initial position.
+    """Remove bare-cap and compound candidates whose keys appear only sentence-initially.
 
     A bare-cap key is suppressed entirely when every occurrence of that key is at
     a sentence-initial position. Sentence-initial capitalisation explains itself -
     any word would be capitalised there. Without at least one mid-sentence
     occurrence there is no evidence that the capital reflects a proper name rather
     than the start-of-sentence convention.
+
+    Compound candidates (rule_source='compound_capitalized') receive the same
+    treatment: if every occurrence of a compound key starts at a sentence-initial
+    position, the compound is suppressed. False compounds like "Even Kohaku" or
+    "Finding Yoshiko" arise because the leading token was capitalised by sentence
+    position, not because it is a proper name. Real multi-word character names
+    will virtually always appear mid-sentence at least once in any manuscript of
+    reasonable length, so the risk of suppressing a real name is negligible.
 
     This is a stronger rule than the previous singleton check: it does not matter
     how many times the key recurs - if all occurrences are sentence-initial the
@@ -331,7 +339,7 @@ def _suppress_sentence_initial_only(
             each sentence in the document.
 
     Returns:
-        Candidates with all-sentence-initial bare-cap keys removed.
+        Candidates with all-sentence-initial bare-cap and compound keys removed.
     """
     # Collect keys that have at least one non-sentence-initial bare-cap
     # occurrence. These keys survive suppression entirely.
@@ -342,23 +350,50 @@ def _suppress_sentence_initial_only(
         and c.anchor.start_char not in sentence_initial_chars
     }
 
-    # Compound participation is also structural support. If a bare-cap token
-    # only appears sentence-initially but is repeatedly seen as part of a
-    # coherent compound candidate ("Tsushima Yoshiko"), keep it so later
+    # Identify compound keys that are sentence-initial-only. A compound key
+    # is sentence-initial-only when every occurrence of that key starts at a
+    # sentence-initial char offset.
+    compound_keys_all_occurrences: dict[str, list[int]] = {}
+    for c in candidates:
+        if c.rule_source == 'compound_capitalized':
+            compound_keys_all_occurrences.setdefault(c.normalized, []).append(
+                c.anchor.start_char,
+            )
+
+    sentence_initial_only_compounds: set[str] = {
+        key
+        for key, offsets in compound_keys_all_occurrences.items()
+        if all(off in sentence_initial_chars for off in offsets)
+    }
+
+    # Compound participation is structural support for bare-cap tokens. If a
+    # bare-cap token only appears sentence-initially but is part of a
+    # surviving compound ("Tsushima Yoshiko"), keep it so later
     # alias/canonicalization stages can decide how the component relates to
-    # the compound.
+    # the compound. Sentence-initial-only compounds are excluded from
+    # providing this support - a false compound like "Even Kohaku" should not
+    # protect the bare-cap "even" from suppression.
     keys_with_compound_support: set[str] = set()
     for candidate in candidates:
         if candidate.rule_source != 'compound_capitalized':
+            continue
+        if candidate.normalized in sentence_initial_only_compounds:
             continue
         keys_with_compound_support.update(candidate.normalized.split())
 
     result: list[MentionCandidate] = []
     for c in candidates:
+        # Suppress bare-cap candidates with no mid-sentence or compound evidence.
         if (
             c.rule_source == 'bare_capitalized'
             and c.normalized not in keys_with_mid_sentence
             and c.normalized not in keys_with_compound_support
+        ):
+            continue
+        # Suppress compound candidates that only appear sentence-initially.
+        if (
+            c.rule_source == 'compound_capitalized'
+            and c.normalized in sentence_initial_only_compounds
         ):
             continue
         result.append(c)

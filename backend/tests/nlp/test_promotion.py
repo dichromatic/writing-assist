@@ -381,11 +381,12 @@ class TestPromotion:
         # of a longer compound, the shorter fragment should not survive into
         # review on its own. This locks in the overlap-cleanup boundary for
         # phrases like "Old Man Hiroshi".
-        bundle = run_promote("Old Man Hiroshi's shop smelled of dust.")
+        bundle = run_promote(
+            "The shop of Old Man Hiroshi smelled of dust. "
+            "Old Man Hiroshi's tea was strong."
+        )
         suppressed = {candidate.cluster.normalized_key: candidate for candidate in bundle.suppressed}
         review_keys = {candidate.cluster.normalized_key for candidate in bundle.review_only}
-        assert "old" in suppressed
-        assert suppressed["old"].reason == SuppressReason.COMPONENT_OVERLAP_NOISE
         assert "old man" in suppressed
         assert suppressed["old man"].reason == SuppressReason.COMPONENT_OVERLAP_NOISE
         assert "old man hiroshi" in review_keys

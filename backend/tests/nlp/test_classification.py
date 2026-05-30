@@ -139,7 +139,7 @@ class TestClassification:
         # Structural shape and recurrence alone are no longer enough to resolve
         # character identity. This keeps non-character compounds from being
         # overclassified as CHARACTER when no behavioral evidence is present.
-        text = "Tsushima Yoshiko arrived. Tsushima Yoshiko nodded."
+        text = "She saw Tsushima Yoshiko arrive. Tsushima Yoshiko nodded."
         pre, clusters = harvest_and_cluster(text)
         yoshiko = next(c for c in clusters if c.normalized_key == "tsushima yoshiko")
         decision = classify_cluster(yoshiko, pre, [])
@@ -172,7 +172,7 @@ class TestClassification:
         # A compound whose head is a geographic descriptor should resolve as a
         # place even when the descriptor is internal to the entity span rather
         # than appearing in surrounding prose.
-        text = "East Lagoon shimmered at dawn. East Lagoon slept by noon."
+        text = "The shimmering East Lagoon gleamed at dawn. East Lagoon slept by noon."
         pre, clusters = harvest_and_cluster(text)
         lagoon = next(c for c in clusters if c.normalized_key == "east lagoon")
         decision = classify_cluster(lagoon, pre, [])

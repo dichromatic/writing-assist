@@ -342,7 +342,8 @@ class TestBareCapitalized:
         # Adjacent capitalized tokens should produce a multi-token compound
         # candidate in addition to their single-token candidates so later
         # stages can deterministically decide canonical identity.
-        candidates = pipeline("Tsushima Yoshiko arrived.")
+        # The name appears mid-sentence to avoid sentence-initial suppression.
+        candidates = pipeline("Then Tsushima Yoshiko arrived.")
         surfaces = {c.surface for c in candidates}
         normalized = {c.normalized for c in candidates}
         assert "Tsushima Yoshiko" in surfaces
@@ -363,7 +364,8 @@ class TestBareCapitalized:
         # Longer contiguous capitalized phrases should survive as one compound
         # candidate so later overlap resolution can prefer the full surface
         # over generic fragments like "Old Man" or "Man Hiroshi".
-        candidates = pipeline("Old Man Hiroshi's shop smelled of dust.")
+        # The name appears mid-sentence to avoid sentence-initial suppression.
+        candidates = pipeline("The shop of Old Man Hiroshi smelled of dust.")
         assert any(
             c.normalized == "old man hiroshi" and c.rule_source == "compound_capitalized"
             for c in candidates
@@ -374,6 +376,70 @@ class TestBareCapitalized:
         # Punctuation-separated title-case tokens are too ambiguous to join.
         candidates = pipeline("Tsushima, Yoshiko arrived.")
         assert not any(c.surface == "Tsushima Yoshiko" for c in candidates)
+
+    def test_sentence_initial_only_compound_suppressed(self):
+        # A compound like "Even Kohaku" that only ever appears at the start of
+        # a sentence provides no evidence of a proper name - the capitalisation
+        # is explained entirely by sentence position. Without this suppression,
+        # sentence-opening adverb + name pairs ("Still Kohaku", "Even Kohaku")
+        # would survive as phantom compound entities.
+        candidates = pipeline(
+            "Even Kohaku smiled. Even Kohaku waved."
+        )
+        assert not any(
+            c.rule_source == "compound_capitalized"
+            and c.normalized == "even kohaku"
+            for c in candidates
+        )
+
+    def test_compound_with_mid_sentence_occurrence_preserved(self):
+        # A compound that appears at least once mid-sentence has positional
+        # evidence that the capitalisation reflects a proper name. It must
+        # survive suppression regardless of how many sentence-initial
+        # occurrences also exist.
+        candidates = pipeline(
+            "Tsushima Yoshiko arrived. She greeted Tsushima Yoshiko warmly."
+        )
+        compound_cands = [
+            c for c in candidates
+            if c.rule_source == "compound_capitalized"
+            and c.normalized == "tsushima yoshiko"
+        ]
+        assert len(compound_cands) >= 1
+
+    def test_bare_cap_not_protected_by_sentence_initial_only_compound(self):
+        # "Even" only appears sentence-initially and its sole compound
+        # participation is "Even Kohaku", which is also sentence-initial-only.
+        # A suppressed compound must not provide structural support for its
+        # component bare-cap tokens. Without this rule, sentence-opening
+        # adverbs would survive suppression by riding the compound they
+        # accidentally form.
+        candidates = pipeline(
+            "Even Kohaku smiled. Even Kohaku paused."
+        )
+        assert not any(
+            c.rule_source == "bare_capitalized"
+            and c.normalized == "even"
+            for c in candidates
+        )
+
+    def test_bare_cap_protected_by_surviving_compound(self):
+        # "Tsushima" only appears sentence-initially as a bare token, but
+        # participates in "Tsushima Yoshiko" which has a mid-sentence
+        # occurrence. The surviving compound provides structural support, so
+        # "Tsushima" must not be suppressed. Without this, component tokens
+        # of legitimate compound names would vanish whenever they lack
+        # independent mid-sentence evidence.
+        candidates = pipeline(
+            "Tsushima Yoshiko arrived. She greeted Tsushima Yoshiko warmly. "
+            "Tsushima paused."
+        )
+        bare_tsushima = [
+            c for c in candidates
+            if c.rule_source == "bare_capitalized"
+            and c.normalized == "tsushima"
+        ]
+        assert len(bare_tsushima) >= 1
 
 
 # ---------------------------------------------------------------------------
