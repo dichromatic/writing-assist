@@ -47,6 +47,12 @@ _ARTICLE_SKIP_SAFE_LOCATIVES: frozenset[str] = frozenset(
     {"aboard", "onboard"}
 )
 
+# Words where X's is always a contraction (X is / X has / let us), never possessive.
+_CONTRACTION_BASES: frozenset[str] = frozenset({
+    "let", "it", "that", "what", "there", "here",
+    "he", "she", "who", "how", "where", "when",
+})
+
 
 def _is_name_word(token: Token) -> bool:
     """Return True if the token looks like the start of a proper name.
@@ -185,6 +191,8 @@ def _extract_from_span(
         if not token.text.endswith("'s"):
             continue
         base = token.text[:-2]
+        if base.lower() in _CONTRACTION_BASES:
+            continue
         if not base or not base[0].isalpha() or not base[0].isupper():
             continue
         if is_stopword(base):

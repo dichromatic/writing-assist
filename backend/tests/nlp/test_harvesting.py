@@ -295,6 +295,36 @@ class TestPossessiveExtraction:
 
 
 # ---------------------------------------------------------------------------
+# Candidate extraction: contraction detection (possessive gate)
+# ---------------------------------------------------------------------------
+
+class TestContractionDetection:
+    def test_contraction_not_harvested_as_possessive(self):
+        # "Let's" is a contraction of "let us", not a possessive. Without the
+        # contraction gate, Pass 2 would give it has_possessive=True and inflate
+        # entityhood via spurious possessive support.
+        candidates = pipeline('"Let\'s go," she said.')
+        poss = [c for c in candidates if c.rule_source == 'possessive'
+                and c.normalized == "let"]
+        assert len(poss) == 0
+
+    def test_real_possessive_still_harvested(self):
+        # The contraction gate must not suppress genuine possessives.
+        candidates = pipeline("Aldous's sword gleamed.")
+        poss = [c for c in candidates if c.rule_source == 'possessive'
+                and c.normalized == "aldous"]
+        assert len(poss) == 1
+
+    def test_contraction_base_bare_cap_still_harvested(self):
+        # The contraction gate only blocks the possessive path. Pass 3 bare-cap
+        # extraction must still harvest the token from non-possessive usage.
+        candidates = pipeline("She saw Let. Let spoke quietly.")
+        bare = [c for c in candidates if c.rule_source == 'bare_capitalized'
+                and c.normalized == "let"]
+        assert len(bare) >= 1
+
+
+# ---------------------------------------------------------------------------
 # Candidate extraction: bare capitalised names
 # ---------------------------------------------------------------------------
 
