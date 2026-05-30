@@ -201,7 +201,9 @@ def test_rescue_selects_only_rescuable_suppressed_entities():
     assert selected_ids == {"pioneer"}
 
     rejected = {d.source_object_id: d.reason for d in diagnostics if not d.selected}
-    assert rejected["aurora"] == "too_few_occurrences"
+    # aurora has occ=1 and no positive signal - passes the record gate
+    # but is rejected at the group level.
+    assert rejected["aurora"] == "no_positive_rescue_signal"
     assert rejected["the"].startswith("suppression_reason_stopword")
     assert rejected["faint"] == "unresolved_very_low_entityhood"
 
@@ -254,7 +256,7 @@ def test_rescue_packet_payload_contains_entity_metadata():
         suppression_reason=SuppressReason.GENERIC_LEXICAL_NOISE,
         occurrence_count=6,
         scene_count=3,
-        entityhood_score=0.5,
+        entityhood_score=0.55,
     )
     bundle = _bundle_with_records([record])
     packets, _ = build_rescue_task_packets(bundle, _DOC_TEXTS)
@@ -265,7 +267,7 @@ def test_rescue_packet_payload_contains_entity_metadata():
     assert payload["suppression_reasons"] == ["generic_lexical_noise"]
     assert payload["occurrence_count"] == 6
     assert payload["scene_count"] == 3
-    assert payload["entityhood_score"] == 0.5
+    assert payload["entityhood_score"] == 0.55
 
 
 def test_rescue_rejects_quote_only_address_like_discourse_junk():
@@ -354,6 +356,7 @@ def test_rescue_skips_entities_already_absorbed_into_compounds():
         suppression_reason=SuppressReason.GENERIC_LEXICAL_NOISE,
         occurrence_count=5,
         scene_count=3,
+        entityhood_score=0.55,
     )
     compound = CorpusEntity(
         canonical_key="radiant estuary",
