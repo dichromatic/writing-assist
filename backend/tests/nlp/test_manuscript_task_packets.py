@@ -386,3 +386,136 @@ def test_rescue_skips_entities_already_absorbed_into_compounds():
     assert "pioneer" in selected_ids
     rejected = {d.source_object_id: d.reason for d in diagnostics if not d.selected}
     assert rejected["estuary"] == "already_absorbed_into_compound"
+
+
+def test_rescue_group_positive_signal_survives():
+    # A suppressed record with weak local signals should still produce a
+    # rescue packet when cross-document evidence shows strong entityhood.
+    # The group gate uses cross-doc aggregation: a key promoted with
+    # eh=0.80 in one document provides a positive signal for its
+    # suppressed copies in other documents.
+    suppressed = _suppressed_record(
+        path="doc.md",
+        key="firth",
+        suppression_reason=SuppressReason.LOW_ENTITYHOOD,
+        occurrence_count=3,
+        scene_count=1,
+        entityhood_score=0.25,
+    )
+    promoted = _suppressed_record(
+        path="doc2.md",
+        key="firth",
+        suppression_reason=SuppressReason.LOW_ENTITYHOOD,
+        occurrence_count=8,
+        scene_count=4,
+        entityhood_score=0.80,
+    )
+    # Override the promoted record's bucket to REVIEW_ONLY so it
+    # contributes cross-doc signal without entering rescue itself.
+    promoted.current_state = DocumentEntityCurrentState(
+        winning_category=LexiconCategory.UNRESOLVED,
+        resolved=False,
+        bucket=DocumentEntityBucket.REVIEW_ONLY,
+    )
+    doc_texts = {
+        "doc.md": _DOC_TEXTS["doc.md"],
+        "doc2.md": _DOC_TEXTS["doc.md"],
+    }
+    bundle = _bundle_with_records([suppressed, promoted])
+    packets, _ = build_rescue_task_packets(bundle, doc_texts)
+
+    assert {p.source_object_id for p in packets} == {"firth"}
+
+
+def test_rescue_group_rejects_pure_unresolved_lexical_noise():
+    # A pure unresolved group with no structural support, low entityhood,
+    # and low occurrence count should be rejected by the group gate even
+    # though the record passes the record-level gate.
+    record = _suppressed_record(
+        path="doc.md",
+        key="perhaps",
+        suppression_reason=SuppressReason.LOW_ENTITYHOOD,
+        occurrence_count=3,
+        scene_count=2,
+        entityhood_score=0.25,
+    )
+    bundle = _bundle_with_records([record])
+    packets, diagnostics = build_rescue_task_packets(bundle, _DOC_TEXTS)
+
+    assert packets == []
+    group_rejects = {
+        d.source_object_id: d.reason
+        for d in diagnostics
+        if not d.selected and d.source_object_kind == "rescue_group"
+    }
+    assert group_rejects["perhaps"] == "no_positive_rescue_signal"
+
+
+def test_rescue_group_mixed_category_survives():
+    # A key that appears as UNRESOLVED in one document and PLACE in
+    # another has mixed category evidence - a positive signal that the
+    # deterministic pipeline is uncertain, making it worth LLM triage.
+    unresolved_rec = _suppressed_record(
+        path="doc.md",
+        key="numazu",
+        suppression_reason=SuppressReason.LOW_ENTITYHOOD,
+        occurrence_count=2,
+        scene_count=1,
+        entityhood_score=0.25,
+        winning_category=LexiconCategory.UNRESOLVED,
+    )
+    place_rec = _suppressed_record(
+        path="doc2.md",
+        key="numazu",
+        suppression_reason=SuppressReason.LOW_ENTITYHOOD,
+        occurrence_count=2,
+        scene_count=1,
+        entityhood_score=0.25,
+        winning_category=LexiconCategory.PLACE,
+    )
+    doc_texts = {
+        "doc.md": _DOC_TEXTS["doc.md"],
+        "doc2.md": _DOC_TEXTS["doc.md"],
+    }
+    bundle = _bundle_with_records([unresolved_rec, place_rec])
+    packets, _ = build_rescue_task_packets(bundle, doc_texts)
+
+    assert {p.source_object_id for p in packets} == {"numazu"}
+
+
+def test_rescue_component_of_surviving_compound_rejected():
+    # A suppressed component whose occurrences are fully covered by a
+    # surviving compound should be rejected regardless of suppression
+    # reason - the compound already captures the entity.
+    component = _suppressed_record(
+        path="doc.md",
+        key="archive",
+        suppression_reason=SuppressReason.LOW_ENTITYHOOD,
+        occurrence_count=3,
+        scene_count=1,
+        uncovered_anchor_count=0,
+        covered_anchor_count=3,
+        appears_as_compound_component=True,
+        candidate_parent_keys=["archive wing"],
+    )
+    # The compound must exist as a surviving record for the widened
+    # lineage check to fire.
+    compound_rec = _suppressed_record(
+        path="doc.md",
+        key="archive wing",
+        suppression_reason=SuppressReason.LOW_ENTITYHOOD,
+        occurrence_count=3,
+        scene_count=1,
+        entityhood_score=0.55,
+    )
+    compound_rec.current_state = DocumentEntityCurrentState(
+        winning_category=LexiconCategory.UNRESOLVED,
+        resolved=False,
+        bucket=DocumentEntityBucket.REVIEW_ONLY,
+    )
+    bundle = _bundle_with_records([component, compound_rec])
+    packets, diagnostics = build_rescue_task_packets(bundle, _DOC_TEXTS)
+
+    assert "archive" not in {p.source_object_id for p in packets}
+    rejected = {d.source_object_id: d.reason for d in diagnostics if not d.selected}
+    assert rejected["archive"] == "component_of_surviving_compound"
