@@ -37,6 +37,7 @@ CLAUDE.md
 .ignore
 
 # project data (managed locally, not committed)
+data/
 documentation/
 logs/
 examples/
