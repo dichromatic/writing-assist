@@ -85,8 +85,10 @@ def persist_document_entity_records(
 
         rows.append((
             run_id,
+            record.identity.record_id,
             record.identity.normalized_key,
             record.identity.document_anchor.path,
+            json.dumps(record.identity.surface_forms),
             record.current_state.bucket.value,
             record.current_state.winning_category.value,
             int(record.current_state.resolved),
@@ -105,11 +107,12 @@ def persist_document_entity_records(
 
     conn.executemany(
         "INSERT INTO document_entity_records ("
-        "  run_id, normalized_key, document_path, bucket, winning_category,"
+        "  run_id, record_id, normalized_key, document_path, surface_forms,"
+        "  bucket, winning_category,"
         "  resolved, suppression_reason, confidence_score, entityhood_score,"
         "  occurrence_count, scene_count, classification_trace, promotion_trace,"
         "  discourse_profile, support_profile, lineage_profile, source_evidence"
-        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         rows,
     )
     conn.commit()

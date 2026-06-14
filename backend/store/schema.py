@@ -33,8 +33,10 @@ CREATE TABLE IF NOT EXISTS documents (
 _CREATE_DOCUMENT_ENTITY_RECORDS = """
 CREATE TABLE IF NOT EXISTS document_entity_records (
     run_id INTEGER NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    record_id TEXT NOT NULL,
     normalized_key TEXT NOT NULL,
     document_path TEXT NOT NULL,
+    surface_forms TEXT NOT NULL,
     bucket TEXT NOT NULL,
     winning_category TEXT NOT NULL,
     resolved INTEGER NOT NULL,
