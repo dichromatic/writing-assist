@@ -1,6 +1,6 @@
 """LLM task infrastructure for targeted verification passes."""
 
-from .rescue import build_rescue_task_packets
+from .rescue import build_rescue_task_packets, build_rescue_task_packets_from_records
 from .provider import run_task_packets
 from .reports import render_task_packet_report, render_task_result_report
 from .io import (
@@ -11,6 +11,7 @@ from .io import (
 
 __all__ = [
     "build_rescue_task_packets",
+    "build_rescue_task_packets_from_records",
     "run_task_packets",
     "render_task_packet_report",
     "render_task_result_report",

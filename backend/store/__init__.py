@@ -20,9 +20,11 @@ from backend.store.schema import initialize_db
 from backend.store.writer import (
     create_run,
     delete_run,
+    get_next_rescue_run_id,
     persist_corpus_entities,
     persist_document_entity_records,
     persist_documents,
+    persist_rescue_verdict,
 )
 
 __all__ = [
@@ -30,9 +32,11 @@ __all__ = [
     # Writer
     "create_run",
     "delete_run",
+    "get_next_rescue_run_id",
     "persist_corpus_entities",
     "persist_document_entity_records",
     "persist_documents",
+    "persist_rescue_verdict",
     # Reader
     "get_corpus_entities_for_run",
     "get_corpus_entity",

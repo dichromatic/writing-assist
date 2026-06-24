@@ -163,6 +163,84 @@ def persist_corpus_entities(
     conn.commit()
 
 
+def persist_rescue_verdict(
+    conn: sqlite3.Connection,
+    *,
+    rescue_run_id: int,
+    run_id: int,
+    normalized_key: str,
+    rescued: bool,
+    model: str,
+    created_at: str,
+    label: str | None = None,
+    entity_type: str | None = None,
+    canonical_name: str | None = None,
+    confidence: float | None = None,
+    rationale: str | None = None,
+) -> None:
+    """Insert one rescue verdict row.
+
+    Each verdict records the LLM's binary decision for a single
+    normalized key within a rescue run. Multiple verdicts with
+    different normalized_keys share the same rescue_run_id.
+
+    Args:
+        conn: Active database connection.
+        rescue_run_id: Sequence number for this rescue run.
+        run_id: The extraction run these verdicts target.
+        normalized_key: The entity key being evaluated.
+        rescued: Whether the LLM judged this entity as genuine.
+        model: Model identifier used for the verdict.
+        created_at: ISO 8601 timestamp for the verdict.
+        label: Optional human-readable label for the rescue run.
+        entity_type: Optional LLM-provided type hint.
+        canonical_name: Optional LLM-provided display name.
+        confidence: Optional LLM self-reported confidence.
+        rationale: Optional LLM rationale for the verdict.
+    """
+    conn.execute(
+        "INSERT INTO rescue_verdicts ("
+        "  rescue_run_id, run_id, normalized_key, rescued, entity_type,"
+        "  canonical_name, confidence, rationale, model, created_at, label"
+        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            rescue_run_id,
+            run_id,
+            normalized_key,
+            int(rescued),
+            entity_type,
+            canonical_name,
+            confidence,
+            rationale,
+            model,
+            created_at,
+            label,
+        ),
+    )
+    conn.commit()
+
+
+def get_next_rescue_run_id(conn: sqlite3.Connection, run_id: int) -> int:
+    """Return the next available rescue_run_id for a given extraction run.
+
+    Computes max(rescue_run_id) + 1 from existing verdicts for this
+    run_id, or 1 if no rescue runs exist yet.
+
+    Args:
+        conn: Active database connection.
+        run_id: The extraction run to query.
+
+    Returns:
+        The next rescue run sequence number.
+    """
+    row = conn.execute(
+        "SELECT MAX(rescue_run_id) FROM rescue_verdicts WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    current_max = row[0] if row[0] is not None else 0
+    return current_max + 1
+
+
 def delete_run(conn: sqlite3.Connection, run_id: int) -> None:
     """Delete a pipeline run and all dependent rows.
 

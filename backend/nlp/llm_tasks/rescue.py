@@ -9,7 +9,7 @@ task packets for binary verification.
 .. code-block:: mermaid
 
     flowchart TD
-        A[ManuscriptReviewBundle] --> B[Filter suppressed entity records]
+        A[Entity records + corpus entities] --> B[Filter suppressed entity records]
         B --> C{Rescue candidate?}
         C -->|Yes| D[Build evidence from raw text]
         C -->|No| E[Diagnostic: rejected]
@@ -23,6 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from backend.nlp.types import (
+    CorpusEntity,
     DocumentEntityBucket,
     DocumentEntityRecord,
     DocumentStatus,
@@ -308,11 +309,41 @@ def build_rescue_task_packets(
 ) -> tuple[list[LLMTaskPacket], list[LLMTaskSelectionDiagnostic]]:
     """Build suppression rescue LLM task packets from a manuscript bundle.
 
-    Records sharing the same normalized_key are merged into one packet
-    so the LLM sees evidence from all documents in a single call.
+    Delegates to build_rescue_task_packets_from_records after extracting
+    entity records and corpus entities from the bundle.
 
     Args:
         bundle: Manuscript review bundle containing entity records.
+        document_texts: Map of document path to raw text content, used
+            to build evidence windows around rescue candidate anchors.
+
+    Returns:
+        Task packets for rescue candidates and selection diagnostics
+        for all suppressed records evaluated.
+    """
+    return build_rescue_task_packets_from_records(
+        entity_records=bundle.entity_records,
+        canonical_entities=bundle.canonical_entities,
+        document_texts=document_texts,
+    )
+
+
+def build_rescue_task_packets_from_records(
+    entity_records: list[DocumentEntityRecord],
+    canonical_entities: list[CorpusEntity],
+    document_texts: dict[str, str],
+) -> tuple[list[LLMTaskPacket], list[LLMTaskSelectionDiagnostic]]:
+    """Build suppression rescue LLM task packets from pre-loaded records.
+
+    This is the store-friendly entry point: callers supply entity records
+    and corpus entities directly rather than wrapping them in a
+    ManuscriptReviewBundle. Records sharing the same normalized_key are
+    merged into one packet so the LLM sees evidence from all documents
+    in a single call.
+
+    Args:
+        entity_records: Document-level entity records (all buckets).
+        canonical_entities: Corpus-level entities for absorbed-key lookup.
         document_texts: Map of document path to raw text content, used
             to build evidence windows around rescue candidate anchors.
 
@@ -324,7 +355,7 @@ def build_rescue_task_packets(
 
     absorbed_keys: frozenset[str] = frozenset(
         source_key
-        for entity in bundle.canonical_entities
+        for entity in canonical_entities
         for source_key in entity.source_keys
         if source_key != entity.canonical_key
     )
@@ -334,7 +365,7 @@ def build_rescue_task_packets(
     # occurrence is explained by a surviving compound.
     surviving_compound_keys: frozenset[str] = frozenset(
         record.identity.normalized_key
-        for record in bundle.entity_records
+        for record in entity_records
         if record.current_state.bucket in (DocumentEntityBucket.PROMOTED, DocumentEntityBucket.REVIEW_ONLY)
         and " " in record.identity.normalized_key
     )
@@ -347,7 +378,7 @@ def build_rescue_task_packets(
     # non-suppressed records carry the positive evidence that the key is a
     # real entity worth rescuing in its weak documents.
     _cross_doc_support: dict[str, dict[str, float | int | bool | set[str]]] = {}
-    for record in bundle.entity_records:
+    for record in entity_records:
         key = record.identity.normalized_key
         if key not in _cross_doc_support:
             _cross_doc_support[key] = {
@@ -387,7 +418,7 @@ def build_rescue_task_packets(
     # that it co-occurs with other capitalized words as part of a name.
     all_compound_keys = {
         rec.identity.normalized_key
-        for rec in bundle.entity_records
+        for rec in entity_records
         if " " in rec.identity.normalized_key
     }
     compound_component_tokens: frozenset[str] = frozenset(
@@ -402,7 +433,7 @@ def build_rescue_task_packets(
     # First pass: filter and group selected records by normalized_key.
     groups: dict[str, _RescueGroup] = {}
 
-    for record in bundle.entity_records:
+    for record in entity_records:
         selected, reason = _rescue_candidate_selected(
             record, absorbed_keys, surviving_compound_keys,
         )
